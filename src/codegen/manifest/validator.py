@@ -24,7 +24,6 @@ from pathlib import Path
 
 import yaml
 
-from ..conventions import STANDARD_EXCEPTIONS
 from .schema import Manifest
 
 # Column names owned by the DB-managed audit-timestamp convention; an entity may not
@@ -89,9 +88,11 @@ def validate_graph(manifest: Manifest, uc_dir: Path | None = None) -> Validation
     dependency_names = repo_protocol_names | capability_names | service_names
     settings_names = {s.name for s in manifest.infrastructure.settings}
     datastore_names = {ds.name for ds in manifest.infrastructure.datastores}
-    # references resolve to epic-declared exceptions or the standard catalog
-    # (the latter need no declaration; the generator emits the ones reached).
-    exception_names = {x.name for x in d.exceptions} | set(STANDARD_EXCEPTIONS)
+    # references resolve ONLY to exceptions the manifest declares — there is no hardcoded
+    # standard catalog. A `raises: NotFoundError` is a broken edge unless this manifest
+    # declares NotFoundError in `domain.exceptions` (the manifest is the single source of
+    # truth for the error catalog, like the free-token store `kind`).
+    exception_names = {x.name for x in d.exceptions}
     handler_names = {c.name for c in a.commands} | {q.name for q in a.queries}
     schema_names = {s.name for s in manifest.restapi.schemas}
 

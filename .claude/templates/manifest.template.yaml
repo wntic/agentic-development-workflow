@@ -194,7 +194,12 @@ domain:
       # SDK-specific guidance ("wraps SES, …") goes on infrastructure.capabilities[*].notes.
       notes: "Deliver a transactional email; at-least-once is acceptable, ordering is not guaranteed."
 
-  exceptions:                                # all flat in domain/exceptions.py
+  exceptions:                                # all flat in domain/exceptions.py — every
+                                             # exception is DECLARED here (no hidden standard
+                                             # catalog); each one referenced in a `raises:`
+                                             # must appear below or validation fails.
+    - {name: NotFoundError,         code: NOT_FOUND,                http_status: 404, sources: [UC-001]}
+    - {name: ConflictError,         code: CONFLICT,                 http_status: 409, sources: [UC-001]}
     - {name: InvalidOtpError,       code: "auth.invalid_otp",        http_status: 401, sources: [UC-001]}
     - {name: OtpExpiredError,       code: "auth.otp_expired",        http_status: 401, sources: [UC-001]}
     - {name: TooManyAttemptsError,  code: "auth.too_many_attempts",  http_status: 429, sources: [UC-001]}

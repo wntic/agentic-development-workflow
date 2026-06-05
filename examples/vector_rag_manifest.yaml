@@ -135,9 +135,9 @@ domain:
       notes: "Parses an uploaded file's bytes into plain text for chunking."
 
   exceptions:
-    - {name: NotFoundError, code: not_found, http_status: 404, sources: []}
-    - {name: ValidationError, code: validation_error, http_status: 422, sources: []}
-    - {name: ProviderError, code: provider_error, http_status: 502, sources: []}
+    - {name: NotFoundError, code: NOT_FOUND, http_status: 404, sources: []}
+    - {name: ValidationError, code: VALIDATION_ERROR, http_status: 422, sources: []}
+    - {name: ProviderError, code: PROVIDER_ERROR, http_status: 502, sources: []}
 
 application:
 

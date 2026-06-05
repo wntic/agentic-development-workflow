@@ -40,8 +40,11 @@ domain:
       raises: [NotFoundError, ConflictError]
       sources: [UC-03]
 
-  # No epic-specific exceptions: Label relies on the bootstrap standard set
-  # (NotFoundError, ConflictError, ...) from the domain-exception skill.
+  # Every exception the epic uses is declared here — there is no hardcoded standard catalog.
+  # Codes are SCREAMING_SNAKE (domain-exception skill); all subclass DomainError.
+  exceptions:
+    - {name: NotFoundError, code: NOT_FOUND, http_status: 404, sources: [UC-03]}
+    - {name: ConflictError, code: CONFLICT, http_status: 409, sources: [UC-03]}
 
 application:
 

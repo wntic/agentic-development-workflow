@@ -159,6 +159,17 @@ domain:
       # protocol-level note = the impl-AGNOSTIC semantic contract (domain stays SDK-ignorant)
       notes: "A stateless bearer-token mint/verify pair — issue and verify are inverse."
 
+  # Every exception the epic uses is declared here — there is no hardcoded standard catalog.
+  # ValidationError is raised by the scaffolded entity __post_init__ (invariants); Unauthorized/
+  # ForbiddenError are imported by the derived auth dependencies + error handler. Codes are
+  # SCREAMING_SNAKE (domain-exception skill); all subclass DomainError.
+  exceptions:
+    - {name: NotFoundError, code: NOT_FOUND, http_status: 404, sources: []}
+    - {name: ConflictError, code: CONFLICT, http_status: 409, sources: []}
+    - {name: ValidationError, code: VALIDATION_ERROR, http_status: 422, sources: []}
+    - {name: UnauthorizedError, code: UNAUTHORIZED, http_status: 401, sources: []}
+    - {name: ForbiddenError, code: FORBIDDEN, http_status: 403, sources: []}
+
 application:
 
   commands:

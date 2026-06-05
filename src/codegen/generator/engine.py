@@ -27,7 +27,6 @@ from pathlib import Path, PurePosixPath
 
 from jinja2 import Environment, FileSystemLoader
 
-from ..conventions import STANDARD_EXCEPTIONS
 from ..manifest.schema import (
     Capability,
     CapabilityProtocol,
@@ -459,62 +458,23 @@ class Generator:
         return self.env.get_template("domain_exceptions.py.j2").render(all_names=all_names, exceptions=exceptions)
 
     def _resolve_exceptions(self) -> list[dict[str, object]]:
-        """Graph-derived catalog: only the exceptions the manifest reaches.
+        """The error catalog: `DomainError` (the root, emitted unconditionally by the
+        template) plus every exception the manifest DECLARES. There is no hardcoded standard
+        catalog — a manifest declares every exception it uses (name + code + http_status), so
+        the manifest is the single source of truth (the same anti-overfit move as the free-
+        token store `kind`). Every declared exception subclasses `DomainError`; a refinement
+        subclass (`InUseError(ConflictError)`) is not expressible yet — add a `parent` field
+        to the schema when the first manifest needs one (anticipation litmus, §5).
 
-        Standard-catalog exceptions are included when referenced anywhere in the
-        graph (plus their parent chain so inheritance resolves); epic-specific
-        exceptions are included because they are declared. DomainError (the root)
-        is emitted by the template unconditionally. Avoids generating dead error
-        classes (§11).
+        A structurally-required-but-undeclared exception (the `ValidationError` a scaffolded
+        `__post_init__` raises, the `UnauthorizedError` an auth route's dependency imports)
+        is NOT injected here: forgetting to declare it surfaces downstream as a broken import
+        / red mypy in the verification loop (§4), the same way contract drift does.
         """
-        referenced = self._referenced_exception_names()
-        wanted: set[str] = set()
-        for name in referenced:
-            cursor = name
-            while cursor in STANDARD_EXCEPTIONS:  # pull in the parent chain
-                wanted.add(cursor)
-                parent = STANDARD_EXCEPTIONS[cursor][2]
-                if parent == "DomainError":
-                    break
-                cursor = parent
-
-        ordered: list[dict[str, object]] = []
-        for name, (code, http_status, parent) in STANDARD_EXCEPTIONS.items():
-            if name in wanted:
-                ordered.append({"name": name, "code": code, "http_status": http_status, "parent": parent})
-        for x in self.m.domain.exceptions:  # epic-specific (declared ⇒ intentional)
-            if x.name not in STANDARD_EXCEPTIONS:
-                ordered.append(
-                    {
-                        "name": x.name,
-                        "code": x.code,
-                        "http_status": x.http_status,
-                        "parent": "DomainError",
-                    }
-                )
-        return ordered
-
-    def _referenced_exception_names(self) -> set[str]:
-        names: set[str] = set()
-        for node in (*self.m.application.commands, *self.m.application.queries):
-            names.update(node.raises)
-        for p in self.m.domain.repository_protocols:
-            names.update(p.raises)
-        for svc in self.m.domain.services:
-            for method in svc.methods:
-                names.update(method.raises)
-        # Endpoint-advertised errors are derived from the handler's raises (collected above),
-        # so there is no separate endpoint.errors to pull in here.
-        # A scaffolded entity/VO __post_init__ raises ValidationError on an invariant breach.
-        if any(e.invariants for e in self.m.domain.entities) or any(v.invariants for v in self.m.domain.value_objects):
-            names.add("ValidationError")
-        # The auth dependencies (derived) reference these: get_current_user → 401 on any
-        # authenticated route, require_role → 403 on any role-gated route.
-        if self._has_authenticated_endpoint():
-            names.add("UnauthorizedError")
-        if any(e.auth.startswith("role:") for e in self.m.restapi.endpoints):
-            names.add("ForbiddenError")
-        return names
+        return [
+            {"name": x.name, "code": x.code, "http_status": x.http_status, "parent": "DomainError"}
+            for x in self.m.domain.exceptions
+        ]
 
     def _has_authenticated_endpoint(self) -> bool:
         return any(e.auth != "anonymous" for e in self.m.restapi.endpoints)
@@ -1604,8 +1564,6 @@ class Generator:
         return {"post": 201, "delete": 204}.get(method, 200)
 
     def _status_for_exception(self, name: str) -> int | None:
-        if name in STANDARD_EXCEPTIONS:
-            return STANDARD_EXCEPTIONS[name][1]
         for x in self.m.domain.exceptions:
             if x.name == name:
                 return x.http_status
