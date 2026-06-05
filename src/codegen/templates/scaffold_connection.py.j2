@@ -1,0 +1,10 @@
+{{ import_block }}
+
+__all__ = ["{{ factory }}"]
+
+
+{% for line in contract %}
+{{ line }}
+{% endfor %}
+def {{ factory }}({{ params }}) -> {{ client_type }}:
+    raise NotImplementedError("{{ factory }}")

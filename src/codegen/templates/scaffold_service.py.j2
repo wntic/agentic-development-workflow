@@ -1,0 +1,23 @@
+{{ import_block }}
+
+__all__ = ["{{ class_name }}"]
+
+
+class {{ class_name }}:
+{% for line in class_notes %}
+    {{ line }}
+{% endfor %}
+{% if deps %}
+    def __init__(self{% for d in deps %}, {{ d.param }}: {{ d.type }}{% endfor %}) -> None:
+{% for d in deps %}
+        self._{{ d.param }} = {{ d.param }}
+{% endfor %}
+{% endif %}
+{% for method in methods %}
+
+    {{ method.signature }}:
+{% for line in method.contract %}
+        {{ line }}
+{% endfor %}
+        raise NotImplementedError({{ method.todo_message }})
+{% endfor %}

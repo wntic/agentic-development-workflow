@@ -1,0 +1,10 @@
+{{ import_block }}
+
+__all__ = ["router"]
+
+router = APIRouter(prefix="{{ prefix }}", tags=["{{ resource }}"])
+{% for ep in endpoints %}
+
+
+{{ ep }}
+{% endfor %}

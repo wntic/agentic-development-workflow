@@ -1,0 +1,10 @@
+{{ import_block }}
+
+__all__ = ["{{ class_name }}"]
+
+
+@dataclass(frozen=True)
+class {{ class_name }}:
+{% for decl in field_decls %}
+    {{ decl }}
+{% endfor %}

@@ -1,0 +1,44 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from {{ package }}.containers import Container
+
+from .error_handler import register_error_handlers
+{% for r in resources %}
+from .routers.{{ r }} import router as {{ r }}_router
+{% endfor %}
+
+__all__ = ["create_app"]
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    container: Container = app.state.container
+    yield
+    await container.engine().dispose()
+
+
+def create_app(container: Container | None = None) -> FastAPI:
+    container = container or Container()
+
+    app = FastAPI(title="{{ title }}", lifespan=_lifespan)
+    app.state.container = container
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["Content-Disposition"],
+    )
+
+    register_error_handlers(app)
+{% for r in resources %}
+    app.include_router({{ r }}_router)
+{% endfor %}
+
+    return app

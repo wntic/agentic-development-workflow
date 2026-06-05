@@ -1,0 +1,30 @@
+{{ import_block }}
+
+__all__ = [{{ all_names }}]
+
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def get_current_user(
+    request: Request,
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+) -> {{ principal }}:
+    if creds is None or creds.scheme.lower() != "bearer":
+        raise UnauthorizedError("Missing bearer token", {"reason": "missing_credentials"})
+    verifier = request.app.state.container.{{ token_provider }}()
+    return verifier.{{ verify_method }}(creds.credentials)
+{% if role_enum %}
+
+
+def require_role(required: {{ role_enum }}) -> Callable[..., {{ principal }}]:
+    def _dep(user: {{ principal }} = Depends(get_current_user)) -> {{ principal }}:
+        if not user.role.satisfies(required):
+            raise ForbiddenError(
+                "Insufficient role",
+                {"required": required.value, "actual": user.role.value},
+            )
+        return user
+
+    _dep.__wrapped_role__ = required  # type: ignore[attr-defined]
+    return _dep
+{% endif %}

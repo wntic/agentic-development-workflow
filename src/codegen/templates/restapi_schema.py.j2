@@ -1,0 +1,15 @@
+{{ import_block }}
+
+__all__ = [
+{% for name in all_names %}
+    "{{ name }}",
+{% endfor %}
+]
+{% for cls in classes %}
+
+
+class {{ cls.name }}(BaseModel):
+{% for decl in cls.fields %}
+    {{ decl }}
+{% endfor %}
+{% endfor %}

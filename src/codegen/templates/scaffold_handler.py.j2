@@ -1,0 +1,16 @@
+{{ import_block }}
+
+__all__ = ["{{ class_name }}"]
+
+
+class {{ class_name }}:
+    def __init__(self{% for d in deps %}, {{ d.param }}: {{ d.type }}{% endfor %}) -> None:
+{% for d in deps %}
+        self._{{ d.param }} = {{ d.param }}
+{% endfor %}
+
+    async def {{ method }}(self, {{ arg_name }}: {{ arg_type }}) -> {{ return_type }}:
+{% for line in contract %}
+        {{ line }}
+{% endfor %}
+        raise NotImplementedError({{ todo_message }})

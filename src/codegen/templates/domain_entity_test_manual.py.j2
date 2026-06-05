@@ -1,0 +1,20 @@
+"""Manual entity-invariant tests for {{ entity }} (§9).
+
+Created ONCE by the generator, owned by the implementer thereafter (write-once,
+like a body scaffold). Each invariant below is a contract the entity's
+`__post_init__` enforces; the implementer constructs a violating instance and
+asserts `ValidationError` with the right `context["field"]`. These are manual
+(not flat-generated) because a bound/range needs example inputs (§14.1).
+"""
+
+import pytest
+{% for fn in functions %}
+
+
+@pytest.mark.skip(reason="manual: implementer writes the invariant assertion (§9)")
+def {{ fn.name }}() -> None:
+{% for line in fn.contract %}
+    {{ line }}
+{% endfor %}
+    raise NotImplementedError("manual entity-invariant test — fill the assertion")
+{% endfor %}

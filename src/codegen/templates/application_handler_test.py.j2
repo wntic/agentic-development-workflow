@@ -1,0 +1,30 @@
+{{ import_block }}
+{% if has_caller %}
+
+_CALLER = uuid4()
+{% endif %}
+{% if builder %}
+
+
+{% for line in builder %}
+{{ line }}
+{% endfor %}
+{% endif %}
+{% for t in tests %}
+
+
+async def {{ t.name }}() -> None:
+    # given: {{ t.given }}
+{% for line in t.seed %}
+    {{ line }}
+{% endfor %}
+    handler = {{ handler_class }}(repo=repo)
+
+{% for line in t.body %}
+{% if line %}
+    {{ line }}
+{% else %}
+
+{% endif %}
+{% endfor %}
+{% endfor %}

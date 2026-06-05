@@ -1,0 +1,19 @@
+"""Manual canonical tests for {{ node_name }} (§9 non-flat scenarios).
+
+Created ONCE by the generator and owned by the implementer thereafter (write-once,
+like a body scaffold). Each function below is a scenario the manifest still owns —
+relational / temporal / failure-injection, so its assertion is not a flat-dictionary
+transcription. The implementer replaces the skip with a real assertion (T6).
+"""
+
+import pytest
+{% for fn in functions %}
+
+
+@pytest.mark.skip(reason="manual: implementer writes the assertion (§9 non-flat)")
+async def {{ fn.name }}() -> None:
+{% for line in fn.contract %}
+    {{ line }}
+{% endfor %}
+    raise NotImplementedError("manual canonical test — fill the assertion")
+{% endfor %}

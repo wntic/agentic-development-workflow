@@ -1,0 +1,13 @@
+{{ import_block }}
+
+
+class {{ class_name }}:
+    def __init__(self, items: list[{{ entity }}] | None = None) -> None:
+        self._store: dict[UUID, {{ entity }}] = {item.id: item for item in (items or [])}
+{% for method in methods %}
+
+    {{ method.signature }}:
+{% for line in method.body %}
+        {{ line }}
+{% endfor %}
+{% endfor %}

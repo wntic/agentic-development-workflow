@@ -1,0 +1,20 @@
+{{ import_block }}
+
+__all__ = ["{{ class_name }}"]
+
+
+@dataclass(frozen=True)
+class {{ class_name }}:
+{% for decl in field_decls %}
+    {{ decl }}
+{% endfor %}
+{% if invariants %}
+
+    def __post_init__(self) -> None:
+        # Enforce these invariants; raise ValidationError(message, {"field": "<field>"})
+        # on violation (one check per rule). Implement the body below.
+{% for line in invariants %}
+        {{ line }}
+{% endfor %}
+        raise NotImplementedError("{{ class_name }}.__post_init__")
+{% endif %}
