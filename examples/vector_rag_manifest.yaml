@@ -277,6 +277,17 @@ infrastructure:
         - {name: api_key, type: SecretStr, secret: true}
         - {name: collection, type: str, default: '"chunks"'}
       sources: []
+    # Postgres connection settings as an ordinary node (the `main` store references it; the
+    # engine bootstrap builds the async DSN from these fields). No hardcoded DbSettings.
+    - name: DbSettings
+      env_prefix: VRAG_DB_
+      fields:
+        - {name: host, type: str, default: '"localhost"'}
+        - {name: port, type: int, default: "5432"}
+        - {name: user, type: str, default: '"postgres"'}
+        - {name: password, type: SecretStr, secret: true}
+        - {name: name, type: str, default: '"vrag"'}
+      sources: []
 
   datastores:
     # Polyglot persistence: relational metadata in Postgres, embeddings in a vector store.
@@ -284,6 +295,7 @@ infrastructure:
     # connection settings + driver package. Each repository targets one store via `store`.
     - name: main
       kind: postgres
+      settings: DbSettings
       sources: []
     - name: vectors
       kind: qdrant

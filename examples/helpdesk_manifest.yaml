@@ -356,6 +356,19 @@ infrastructure:
         - {name: algorithm, type: str, default: '"HS256"'}
         - {name: ttl_seconds, type: int, default: "3600"}
       sources: []
+    # The Postgres connection settings — an ORDINARY settings node now (no hardcoded
+    # DbSettings scaffold). The `main` datastore references it; the engine bootstrap builds
+    # the async DSN from these fields (host/port/user/password/name is the postgres profile's
+    # field contract). The secret has no default — it must be supplied via HELPDESK_DB_PASSWORD.
+    - name: DbSettings
+      env_prefix: HELPDESK_DB_
+      fields:
+        - {name: host, type: str, default: '"localhost"'}
+        - {name: port, type: int, default: "5432"}
+        - {name: user, type: str, default: '"postgres"'}
+        - {name: password, type: SecretStr, secret: true}
+        - {name: name, type: str, default: '"helpdesk"'}
+      sources: []
 
   capabilities:
     - implements: ICanManageTokens
@@ -373,11 +386,13 @@ infrastructure:
       sources: []
 
   datastores:
-    # The relational store for both aggregates. `settings` omitted → the postgres profile
-    # supplies the bootstrap DbSettings (DB_* env). A single-store app names one datastore;
-    # a polyglot app names several and each repository targets its own via `store`.
+    # The relational store for both aggregates. `settings: DbSettings` names the connection
+    # settings node (declared above) — symmetric with how a qdrant store names its own
+    # settings. A single-store app names one datastore; a polyglot app names several and each
+    # repository targets its own via `store`.
     - name: main
       kind: postgres
+      settings: DbSettings
       sources: []
 
   # No `tables:` block — a relational table's schema is a write-once SCAFFOLD the

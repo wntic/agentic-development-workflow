@@ -5,15 +5,6 @@ __all__ = ["Container"]
 
 class Container(containers.DeclarativeContainer):
     wiring_config = containers.WiringConfiguration(packages=["{{ wiring_package }}"])
-
-    db_settings: providers.Provider[DbSettings] = providers.Singleton(DbSettings)
-
-    engine: providers.Provider[AsyncEngine] = providers.Singleton(
-        create_engine, settings=db_settings
-    )
-    session_factory: providers.Provider[async_sessionmaker[AsyncSession]] = providers.Singleton(
-        create_session_factory, engine=engine
-    )
 {% for block in provider_blocks %}
 
 {{ block }}

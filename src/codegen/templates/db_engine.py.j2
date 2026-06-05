@@ -1,0 +1,22 @@
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from .{{ settings_module }} import {{ settings_class }}
+
+__all__ = ["create_engine", "create_session_factory"]
+
+
+def create_engine(settings: {{ settings_class }}) -> AsyncEngine:
+    dsn = (
+        f"postgresql+asyncpg://{settings.user}:{settings.password.get_secret_value()}"
+        f"@{settings.host}:{settings.port}/{settings.name}"
+    )
+    return create_async_engine(dsn, pool_pre_ping=True)
+
+
+def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(engine, expire_on_commit=False)

@@ -531,6 +531,58 @@ def test_pure_service_without_deps_has_no_empty_init(tmp_path: Path) -> None:
     py_compile.compile(str(svc_path), doraise=True)  # would have raised IndentationError before
 
 
+def test_settings_with_method_is_a_scaffold(tmp_path: Path) -> None:
+    # A settings class may declare methods (a derived value like a DSN). The fields stay
+    # declarative; each method is a SCAFFOLD — stacked decorators + signature + contract +
+    # NotImplementedError — exactly like an enum with methods or an entity invariant. The
+    # house style for a derived value is the two-stack `@computed_field @property`.
+    import py_compile
+
+    from codegen.manifest.schema import Manifest
+
+    payload = {
+        "meta": {"epic": "x", "name": "x", "sources": []},
+        "infrastructure": {
+            "settings": [
+                {
+                    "name": "DbSettings",
+                    "env_prefix": "DB_",
+                    "fields": [
+                        {"name": "host", "type": "str", "default": '"localhost"'},
+                        {"name": "password", "type": "SecretStr", "secret": True},
+                    ],
+                    "methods": [
+                        {
+                            "signature": "def dsn(self) -> str",
+                            "decorators": ["computed_field", "property"],
+                            "notes": "Compose the postgresql+asyncpg URL from the fields.",
+                        }
+                    ],
+                    "sources": [],
+                }
+            ]
+        },
+    }
+    manifest = Manifest.model_validate(payload)
+    gen = Generator(manifest, tmp_path / "app")
+    src = gen._render_settings(manifest.infrastructure.settings[0])
+
+    # decorators render stacked, computed_field outermost (above property)
+    assert src.index("@computed_field") < src.index("@property")
+    assert "def dsn(self) -> str:" in src
+    assert 'raise NotImplementedError("DbSettings.dsn")' in src
+    assert "# Compose the postgresql+asyncpg URL from the fields." in src  # notes → contract
+    # imports: pydantic carries SecretStr (secret field) + computed_field (the decorator)
+    assert "from pydantic import SecretStr, computed_field" in src
+    assert "from pydantic_settings import BaseSettings, SettingsConfigDict" in src
+    # fields stay declarative
+    assert 'host: str = "localhost"' in src and "password: SecretStr" in src
+
+    out = tmp_path / "db_settings.py"
+    out.write_text(src)
+    py_compile.compile(str(out), doraise=True)
+
+
 def test_query_result_dtos_nest_a_helper_read_model(tmp_path: Path) -> None:
     # #3: a query declares a helper read-model DTO (SearchHit{chunk, score}) that its main
     # *Result references — the nested read-model the flat result_fields couldn't carry.

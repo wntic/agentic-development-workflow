@@ -1,0 +1,26 @@
+{{ import_block }}
+
+__all__ = ["{{ class_name }}"]
+
+
+class {{ class_name }}(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="{{ env_prefix }}",
+        env_file=".env",
+        extra="ignore",
+    )
+
+{% for decl in fields %}
+    {{ decl }}
+{% endfor %}
+{% for method in methods %}
+
+{% for decorator in method.decorators %}
+    @{{ decorator }}
+{% endfor %}
+    {{ method.signature }}:
+{% for line in method.contract %}
+        {{ line }}
+{% endfor %}
+        raise NotImplementedError({{ method.todo_message }})
+{% endfor %}

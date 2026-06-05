@@ -464,19 +464,39 @@ class SettingsField(_Model):
     secret: bool = False  # → SecretStr (never logged, no default permitted)
 
 
+class SettingsMethod(_Model):
+    """A method on a settings class — a DERIVED value computed from the fields (a DSN, a
+    composite URL, a normalized string). The body is SCAFFOLDED (the implementer fills it from
+    `notes`), so a settings class that declares methods is a body-bearing file (write-once),
+    exactly like an enum with methods or an entity with invariants. `decorators` is the stacked
+    decorator list rendered above `def` — the house style for a derived value is the two-stack
+    `@computed_field @property` (infra-settings skill); `property`/`cached_property`/
+    `computed_field` are the expected entries. The signature is a verbatim Python signature
+    (transcription, not logic), guarded for shape like every other method signature."""
+
+    signature: str
+    decorators: list[str] = []
+    notes: str | None = None
+
+    _v_signature = field_validator("signature")(_check_signature)
+
+
 class Settings(_Model):
-    """A `pydantic-settings` BaseSettings class — the one place env vars are read.
-    Declarative: fully transcribed from the manifest (env_prefix + typed fields).
+    """A `pydantic-settings` BaseSettings class — the one place env vars are read. Plain fields
+    → declarative (fully transcribed: env_prefix + typed fields, regenerated). Declaring
+    `methods` (a derived value like a DSN) makes the body SCAFFOLDED write-once, exactly like an
+    entity with invariants — the fields stay declarative, the method bodies are the implementer's.
 
     NO `subpackage`: a settings' infra home is DERIVED from its CONSUMER's tech — the
-    capability `adapter` (openai/jwt) or the datastore `kind` (qdrant) that references it.
-    Infrastructure groups by the external integration, not by a domain subdomain (that was
+    capability `adapter` (openai/jwt) or the datastore `kind` (qdrant/postgres) that references
+    it. Infrastructure groups by the external integration, not by a domain subdomain (that was
     the `ai`/`corpus` smell); the tech is already in the graph, so storing it here too
     would be a second source of truth (anticipation litmus)."""
 
     name: str
     env_prefix: str
     fields: list[SettingsField]
+    methods: list[SettingsMethod] = []
     sources: list[str]
 
 

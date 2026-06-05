@@ -821,6 +821,46 @@ class Generator:
                 return self._store_kind(r)
         return "postgres"
 
+    def _relational_datastore(self):
+        """The Postgres datastore that backs a repository — the SQLAlchemy bootstrap store —
+        or None when no relational store appears among the repositories."""
+        stores = {r.store for r in self.m.infrastructure.repositories if r.store is not None}
+        for ds in self.m.infrastructure.datastores:
+            if ds.name in stores and profile_for(ds.kind).uses_bootstrap:
+                return ds
+        return None
+
+    def _relational_settings(self) -> str | None:
+        """The settings-class NAME the SQLAlchemy bootstrap is wired from (the relational
+        datastore's `settings`), or None when there is no relational store. The DB connection
+        settings are an ordinary manifest node now, not a hardcoded scaffold — so a Postgres-
+        backed repository whose datastore names no `settings` (or the legacy implicit store
+        with no datastore at all) fails LOUDLY rather than falling back to a baked-in default."""
+        ds = self._relational_datastore()
+        if ds is None:
+            if any(self._repo_profile(r).uses_bootstrap for r in self.m.infrastructure.repositories):
+                raise NotImplementedError(
+                    "a Postgres-backed repository requires a `datastore` (kind: postgres) that names "
+                    "a `settings:` node carrying the connection fields (host/port/user/password/name)"
+                )
+            return None
+        if ds.settings is None:
+            raise NotImplementedError(
+                f"datastore {ds.name!r} (postgres) backs a repository but declares no `settings:` — "
+                "declare a settings node with host/port/user/password/name and reference it"
+            )
+        return ds.settings
+
+    def _render_db_engine(self, settings_name: str) -> str:
+        """The SQLAlchemy async engine + session_factory bootstrap, parameterized by the
+        manifest-declared DB settings class. The postgres DSN grammar (driver, URL shape) is
+        substrate that lives here — in the bootstrap that is the URL's sole consumer — not a
+        per-app body the implementer fills (it is a fixed transcription, not judgment)."""
+        return self.env.get_template("db_engine.py.j2").render(
+            settings_class=settings_name,
+            settings_module=naming.settings_module(settings_name),
+        )
+
     def generate_infrastructure(self) -> list[Path]:
         repos = self.m.infrastructure.repositories
         relational = self._relational_subpkg()
@@ -860,7 +900,11 @@ class Generator:
         modules_by_pkg: dict[str, list[str]] = defaultdict(list)
         for s in self.m.infrastructure.settings:
             sub = self._settings_subpackage(s.name)
-            written.append(self._write(naming.settings_path(s.name, sub), self._render_settings(s)))
+            path = naming.settings_path(s.name, sub)
+            content = self._render_settings(s)
+            # A settings class with methods carries scaffolded bodies → write-once (never clobber
+            # a filled body); a plain settings class is declarative (always regenerated). §3/§4.
+            written.append(self._write_scaffold(path, content) if s.methods else self._write(path, content))
             modules_by_pkg[sub].append(naming.settings_module(s.name))
         for cap in self.m.infrastructure.capabilities:
             subpkg = self._capability_subpackage(cap)
@@ -1072,9 +1116,70 @@ class Generator:
                 fields.append(f"{f.name}: {f.type} = {f.default}")
             else:
                 fields.append(f"{f.name}: {f.type}")
-        return self.env.get_template("infra_settings.py.j2").render(
-            class_name=s.name, env_prefix=s.env_prefix, fields=fields, needs_secret=needs_secret
+        if not s.methods:
+            return self.env.get_template("infra_settings.py.j2").render(
+                class_name=s.name, env_prefix=s.env_prefix, fields=fields, needs_secret=needs_secret
+            )
+        # Methods present → a body-bearing scaffold (write-once): declarative fields + each
+        # decorated method signature + contract-comment + NotImplementedError (§3/§4).
+        methods = [
+            {
+                "decorators": m.decorators,
+                "signature": m.signature,
+                "contract": self._settings_method_contract(s, m),
+                "todo_message": f'"{s.name}.{_method_name(m.signature)}"',
+            }
+            for m in s.methods
+        ]
+        return self.env.get_template("scaffold_settings.py.j2").render(
+            class_name=s.name,
+            env_prefix=s.env_prefix,
+            fields=fields,
+            methods=methods,
+            import_block=self._settings_imports(s, needs_secret),
         )
+
+    def _settings_method_contract(self, s: Settings, m) -> list[str]:
+        lines = [f"# Contract for {s.name}.{_method_name(m.signature)} (derived settings value)."]
+        lines += self._notes_lines(m.notes)  # the GUIDE: how the value is composed from the fields
+        if any(s.sources):
+            lines.append(f"# Source: {', '.join(s.sources)}.")
+        return lines
+
+    def _settings_imports(self, s: Settings, needs_secret: bool) -> str:
+        # pydantic_settings is always needed (BaseSettings + SettingsConfigDict). pydantic carries
+        # SecretStr (a secret field) and any decorator that is a pydantic symbol (computed_field).
+        # functools carries cached_property; `property` is builtin (no import). A method's
+        # return/param types pull their stdlib + domain imports like any scaffold.
+        pydantic_names: set[str] = {"SecretStr"} if needs_secret else set()
+        stdlib: dict[str, set[str]] = {}
+        domain_by_sub: dict[str, set[str]] = defaultdict(set)
+        for m in s.methods:
+            for d in m.decorators:
+                if d == "computed_field":
+                    pydantic_names.add("computed_field")
+                elif d == "cached_property":
+                    stdlib.setdefault("functools", set()).add("cached_property")
+            for token in type_tokens(m.signature):
+                if token in _STDLIB:
+                    module, symbol = _STDLIB[token]
+                    stdlib.setdefault(module, set()).add(symbol)
+                elif token in self.domain_subdomains:
+                    domain_by_sub[self.domain_subdomains[token]].add(token)
+        groups: list[str] = []
+        stdlib_lines = [f"from {mod} import {', '.join(sorted(n))}" for mod, n in sorted(stdlib.items())]
+        if stdlib_lines:
+            groups.append("\n".join(stdlib_lines))
+        third = [f"from pydantic import {', '.join(sorted(pydantic_names))}"] if pydantic_names else []
+        third.append("from pydantic_settings import BaseSettings, SettingsConfigDict")
+        groups.append("\n".join(third))
+        domain_lines = [
+            f"from {self.package}.domain.{sub} import {', '.join(sorted(names))}"
+            for sub, names in sorted(domain_by_sub.items())
+        ]
+        if domain_lines:
+            groups.append("\n".join(domain_lines))
+        return "\n\n".join(groups)
 
     def _capability_subpackage(self, cap: Capability) -> str:
         # Infra groups by the external TECH, not a domain subdomain: the adapter token
@@ -1160,12 +1265,18 @@ class Generator:
     # ── composition root: DI container (infra-di-provider) ──────────────────────
 
     def generate_container(self) -> list[Path]:
-        rel = self._relational_subpkg()  # the SQLAlchemy bootstrap lives with its store (postgres/)
-        return [
-            self._copy_scaffold("db_settings.py", PurePosixPath("infrastructure", rel, "settings.py")),
-            self._copy_scaffold("db_engine.py", PurePosixPath("infrastructure", rel, "engine.py")),
-            self._write(PurePosixPath("containers.py"), self._render_container()),
-        ]
+        written: list[Path] = []
+        # The engine/session_factory bootstrap is emitted only when a relational (postgres)
+        # store backs a repository; it imports the manifest-declared DB settings class by name
+        # (no hardcoded DbSettings scaffold) and lives with its store (postgres/). DbSettings
+        # itself is an ordinary settings node, emitted by generate_infrastructure.
+        rel_settings = self._relational_settings()
+        if rel_settings is not None:
+            rel = self._relational_subpkg()
+            engine_py = self._render_db_engine(rel_settings)
+            written.append(self._write(PurePosixPath("infrastructure", rel, "engine.py"), engine_py))
+        written.append(self._write(PurePosixPath("containers.py"), self._render_container()))
+        return written
 
     def _render_container(self) -> str:
         # Definition order matters (a provider references those above it): settings →
@@ -1173,6 +1284,26 @@ class Generator:
         blocks = []
         for s in self.m.infrastructure.settings:
             blocks.append(self._provider_block(naming.snake_case(s.name), s.name, s.name, [], kind="Singleton"))
+        # The SQLAlchemy engine + session_factory, wired from the declared DB settings provider
+        # (emitted just above) — only when a relational store backs a repository. This is the
+        # single definition of session_factory, which every postgres repository is injected with.
+        rel_settings = self._relational_settings()
+        if rel_settings is not None:
+            settings_attr = naming.snake_case(rel_settings)
+            blocks.append(
+                self._provider_block(
+                    "engine", "AsyncEngine", "create_engine", [("settings", settings_attr)], kind="Singleton"
+                )
+            )
+            blocks.append(
+                self._provider_block(
+                    "session_factory",
+                    "async_sessionmaker[AsyncSession]",
+                    "create_session_factory",
+                    [("engine", "engine")],
+                    kind="Singleton",
+                )
+            )
         # One client Singleton per non-bootstrap datastore that backs a repository, built from
         # its scaffolded connection factory (postgres reuses the template's engine/
         # session_factory, so it is skipped here).
@@ -1228,10 +1359,10 @@ class Generator:
         return f"    {attr}: providers.Provider[{type_ann}] = providers.{kind}(\n        {factory_cls}, {kw}\n    )"
 
     def _container_imports(self) -> str:
-        third = [
-            "from dependency_injector import containers, providers",
-            "from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker",
-        ]
+        rel_settings = self._relational_settings()
+        third = ["from dependency_injector import containers, providers"]
+        if rel_settings is not None:  # the engine/session_factory provider annotations need these
+            third.append("from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker")
         first: list[str] = []
 
         # Domain port + service types that appear in `Provider[...]` annotations, grouped
@@ -1256,13 +1387,13 @@ class Generator:
         for sub, names in handlers_by_sub.items():
             first.append(_import_from(f"{self.package}.application.{sub}", names))
 
-        # Infrastructure: engine helpers + DbSettings (the SQLAlchemy bootstrap, in the
-        # relational store's subpackage), repository classes (each under its store's kind),
-        # settings classes, capability adapter classes.
-        rel = self._relational_subpkg()
-        engine_mod = f"{self.package}.infrastructure.{rel}.engine"
-        first.append(_import_from(engine_mod, ["create_engine", "create_session_factory"]))
-        first.append(_import_from(f"{self.package}.infrastructure.{rel}.settings", ["DbSettings"]))
+        # Infrastructure: the SQLAlchemy engine bootstrap (only with a relational store),
+        # repository classes (each under its store's kind), settings classes (DbSettings is one
+        # of them now, imported by the ordinary settings loop below — no special case), and
+        # capability adapter classes.
+        if rel_settings is not None:
+            engine_mod = f"{self.package}.infrastructure.{self._relational_subpkg()}.engine"
+            first.append(_import_from(engine_mod, ["create_engine", "create_session_factory"]))
         for r in self.m.infrastructure.repositories:
             sub = self._store_kind(r)
             mod = f"{self.package}.infrastructure.{sub}.repositories.{naming.snake_case(r.backs)}_repository"
