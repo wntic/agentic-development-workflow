@@ -1,0 +1,394 @@
+# Canonical annotated manifest template.
+#
+# This file IS YAML. A per-epic manifest at specs/epics/<NN-slug>/manifest.yaml
+# follows exactly this shape: same top-level keys, same per-artifact field names,
+# same value forms. Comments are annotations — they document what each field
+# carries and what is optional vs required. Real manifests omit the comments.
+#
+# Read alongside .claude/templates/MANIFEST_SCHEMA.md, which carries the prose contract:
+# scope, principles, path-and-naming derivation, cross-references, validation
+# rules, and the "deliberately does NOT contain" list.
+#
+# NOTE ON VALIDATION: this annotated template does NOT validate against
+# codegen/manifest/schema.py as-is — and that is intentional. The schema models
+# the CRUD slice (domain entities / repository protocols / exceptions; application
+# commands + queries; infra tables + repositories; REST schemas + endpoints; the
+# tests block) PLUS the auth slice that lets a manifest declare its own auth instead
+# of the generator hardcoding it: domain enums, value_objects, services,
+# capability_protocols; infrastructure settings, capabilities. Node kinds still
+# reserved — domain filters; application unit_of_work, compensating_tx — are shown
+# here as forward-looking illustration but are `extra="forbid"` in the schema, so
+# they fail loudly until it is extended (fail fast, not silent — see the schema
+# docstring). The real, validating shapes are examples/helpdesk_manifest.yaml (the
+# full auth + tickets exercise) and examples/vector_rag_manifest.yaml (polyglot
+# persistence + a non-CRUD capability). What this template has been scrubbed of is the
+# DEAD body/process axis: no `status:`, no `bootstrap:`, no `di_providers.auto:`,
+# and no per-node `body:`/`operation:`/`sets:` — generate-vs-scaffold is DERIVED
+# from node category, never declared (spec §3, §5).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Meta
+# ─────────────────────────────────────────────────────────────────────────────
+
+meta:
+  epic: 01-authentication                    # required; matches directory name
+  name: "User authentication via email + OTP"
+  sources: [UC-001]                          # required; UC IDs covered by this epic
+  supersedes: []                             # optional; UC IDs whose prior manifest entries
+                                             # are replaced by artifacts in this manifest
+  replaces: []                               # optional; artifact NAMES (not UC IDs) from prior
+                                             # approved manifests that this epic regenerates.
+                                             # Every name listed here MUST also appear as a full
+                                             # re-declaration in the relevant section below.
+                                             # Generator overwrites these files instead of the
+                                             # default read-diff-decide contract. Example for a
+                                             # rename of Material.title → name:
+                                             #   replaces:
+                                             #     - Material
+                                             #     - materials                  # table id
+                                             #     - SqlAlchemyMaterialRepository
+                                             #     - CreateMaterialHandler
+                                             #     - MaterialResponse
+                                             #     - MaterialCreateRequest
+                                             # See MANIFEST_SCHEMA.md "Modification scope".
+  notes: |                                   # optional; freeform epic-wide context
+    Covers OTP login only. Password reset out of scope.
+  # NOTE: no `status:` field. Process state ("draft/approved") is a runner event,
+  # not manifest data (spec §4); the schema does not model it.
+  # NOTE: there is no top-level `bootstrap:` list. Bootstrap-mode skills
+  # (restapi-app-bootstrap, test-integration-*, domain-exception's first run) are
+  # not declared in the manifest — the generator derives them from the working
+  # tree (the file either exists or not), so a flag would be derivable state and
+  # would not earn its place (spec §5). Removed from the schema.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Domain — per-artifact subdomain (no manifest-wide default).
+# ─────────────────────────────────────────────────────────────────────────────
+
+domain:
+
+  enums:
+    - name: Role                             # required; PascalCase
+      subdomain: auth                        # required
+      base: StrEnum                          # StrEnum | Enum; default StrEnum
+      members:
+        - {name: USER, value: "user"}
+        - {name: ADMIN, value: "admin"}
+      methods:                               # optional pure-logic methods
+        - signature: "def satisfies(self, required: Role) -> bool"
+          rule: "ADMIN ≥ USER"
+      sources: [UC-001]
+      invariants: []
+
+  value_objects:
+    - name: Email
+      subdomain: auth
+      frozen: true                           # default true
+      fields:
+        - {name: value, type: str}
+      invariants:                            # {rule, field, source}; each → a __post_init__ check + a test
+        - rule: "RFC 5322; normalized to lowercase"
+          field: value                       # value of ValidationError.context["field"]
+          source: UC-001                     # UC where the rule's bullet appears
+      custom_eq: false                       # default false
+      sources: [UC-001]
+
+  entities:
+    - name: User
+      subdomain: auth
+      identity_field: id                     # default `id`, type defaults to UUID
+      fields:
+        - {name: id, type: UUID}
+        - {name: email, type: Email}
+        - {name: role, type: Role}
+        - {name: organization_id, type: UUID, optional: true}
+        - {name: is_blocked, type: bool, default: "False"}
+        # NB: no created_at/updated_at — audit timestamps are a DB-managed table
+        # convention (the generator adds them to every aggregate table), NOT domain fields.
+      sources: [UC-001, UC-013]
+      # An invariant is an ENFORCEABLE runtime rule on the entity's own state, declared as
+      # {rule, field, source} → a scaffolded __post_init__ (implementer raises ValidationError
+      # with context["field"]) + a canonical test. Design notes / UI rules that aren't a
+      # __post_init__ check do NOT go here. User has none of the former, so the list is empty.
+      invariants: []
+
+  services:
+    - name: OtpVerifier
+      subdomain: auth
+      kind: orchestrator                     # STRUCTURE axis: orchestrator | pure
+                                             # NOTE: no `body:` field. Whether a method body is
+                                             # generated or scaffolded is DERIVED from node category,
+                                             # never declared (spec §3, §5). A service body is always
+                                             # scaffolded — the implementer LLM fills verify() behind
+                                             # the contract; the generator only emits the scaffold.
+      dependencies:                          # only for orchestrator
+        - IOtpRepository
+        - IUserRepository
+      methods:
+        - signature: "async def verify(self, email: Email, code: OtpCode) -> User"
+          raises: [InvalidOtpError, OtpExpiredError, TooManyAttemptsError]
+          # PER-METHOD prose GUIDE (ServiceMethod.notes); the service-WIDE note is Service.notes below.
+          notes: |
+            Look up the active OTP for the email; reject if expired (OtpExpiredError),
+            wrong (InvalidOtpError), or over the attempt budget (TooManyAttemptsError);
+            on success return the User and clear the OTP.
+          behaviour:                         # PER-METHOD canonical given/when/then (§13) — a
+                                             # service may expose several methods, each with its own.
+                                             # Without it the scaffold is unimplementable (signature +
+                                             # raises don't say which input → which outcome). The
+                                             # generator emits the contract + RED tests; the implementer
+                                             # writes verify() until green (anti-cheat).
+            - given: "an OTP code issued more than 10 minutes ago"
+              when: verify                   # method under test (closed vocab: a node method)
+              then: {raises: OtpExpiredError}  # then.raises MUST be in the method's `raises`
+              source: UC-001
+            - given: "a wrong code on the 3rd failed attempt"
+              when: verify
+              then: {raises: TooManyAttemptsError}
+              source: UC-001
+            - given: "a valid, unexpired code within the attempt budget"
+              when: verify
+              then: {returns: User}
+              source: UC-001
+      sources: [UC-001]
+      # NOTE: a service carries no `invariants:` block — a runtime rule is either a method's
+      # `behaviour` (above) or a settings/VO invariant; tunable thresholds (TTL, attempt budget)
+      # live on infrastructure.settings (see OtpSettings below).
+
+  filters:
+    - name: MaterialFilter
+      subdomain: materials
+      fields:
+        - {name: source_types, type: "frozenset[SourceType]", default: "frozenset()"}
+        - {name: published_after, type: "date | None", default: "None"}
+      pagination: true                       # adds limit + offset
+      sort:
+        enum_name: MaterialSortKey
+        keys: [SAVED_AT_DESC, PUBLISHED_AT_DESC]
+        default: SAVED_AT_DESC
+      sources: [UC-002, UC-003]
+
+  repository_protocols:
+    - name: IUserRepository
+      subdomain: auth
+      aggregate: User                        # links to domain.entities[*].name
+      methods:                               # bare signature string, OR a {signature, notes}
+        - "async def add(self, user: User) -> None"
+        - "async def get_by_id(self, user_id: UUID) -> User"
+        - "async def get_by_email(self, email: Email) -> User"
+        # a method that needs guidance grows an object; `notes` here is the impl-AGNOSTIC
+        # semantic contract (the SQL-specific note lives on infrastructure.repositories).
+        - signature: "async def list(self, filter: MaterialFilter) -> tuple[tuple[User, ...], int]"
+          notes: "Apply the filter's source-type/published-after predicates; sort per filter.sort; newest first."
+        - "async def update(self, user: User) -> None"
+      raises: [NotFoundError, ConflictError]
+      sources: [UC-001, UC-013]
+
+  capability_protocols:
+    - name: ICanSendEmail
+      subdomain: auth                        # subdomain that "owns" this capability
+      methods:                               # 1-2 methods (house rule); string or {signature, notes}
+        - "async def send(self, to: Email, subject: str, body: str) -> None"
+      sources: [UC-001]
+      # protocol notes = impl-AGNOSTIC semantic contract (domain stays SDK-ignorant).
+      # SDK-specific guidance ("wraps SES, …") goes on infrastructure.capabilities[*].notes.
+      notes: "Deliver a transactional email; at-least-once is acceptable, ordering is not guaranteed."
+
+  exceptions:                                # all flat in domain/exceptions.py
+    - {name: InvalidOtpError,       code: "auth.invalid_otp",        http_status: 401, sources: [UC-001]}
+    - {name: OtpExpiredError,       code: "auth.otp_expired",        http_status: 401, sources: [UC-001]}
+    - {name: TooManyAttemptsError,  code: "auth.too_many_attempts",  http_status: 429, sources: [UC-001]}
+    - {name: AccountBlockedError,   code: "auth.account_blocked",    http_status: 403, sources: [UC-001]}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Application — name is the verb-noun base; skill adds `Command`/`Query`/
+# `Handler`/`Result` suffixes and produces one file per class.
+# ─────────────────────────────────────────────────────────────────────────────
+
+application:
+
+  commands:
+    - name: RequestOtp                       # base; skill writes RequestOtpCommand + RequestOtpHandler
+                                             # NOTE: no `body:` field. Every handler body is a scaffold
+                                             # the implementer LLM fills behind its contract — that's
+                                             # DERIVED from node category, not declared (spec §3, §5).
+                                             # The thin vs thick distinction lives in the `behaviour`
+                                             # block + the scaffold's contract-comment, not a flag.
+      input:                                 # frozen-dataclass DTO fields
+        - {name: email, type: Email}          # NB: caller_id is NOT declared — the generator
+                                             # prepends it ONLY when this command is reached via a
+                                             # non-anonymous endpoint (DERIVED from endpoint.auth).
+                                             # A public/no-auth command carries no caller_id.
+      output: "None"                         # "UUID" | "None"
+      handler:
+        dependencies:
+          - IUserRepository
+          - IOtpRepository
+          - ICanSendEmail
+      log_event: otp_requested               # OPTIONAL; snake_case. Omit → handler logs no
+                                             # success event (feeds the §11 then.logs check only when set).
+      raises: [NotFoundError, AccountBlockedError]
+      behaviour:                             # canonical scenarios (§13). `when: execute` = the handler's
+                                             # single public method. then-verbs (closed vocab): raises |
+                                             # returns | persists | deletes | logs | calls → generator
+                                             # renders the (red) test deterministically. `given` is
+                                             # prose, realized against named fixtures (LLM touch-point).
+        - given: "no user exists with the supplied email"
+          when: execute
+          then: {raises: NotFoundError}
+          source: UC-001
+        - given: "the user is blocked"
+          when: execute
+          then: {raises: AccountBlockedError}
+          source: UC-001
+        - given: "an active, unblocked user"
+          when: execute
+          then: {calls: "ICanSendEmail.send", logs: otp_requested}
+          source: UC-001
+      sources: [UC-001]
+
+  queries:
+    - name: ListMaterials                    # base; skill writes ListMaterialsQuery + Handler + Result
+                                             # NOTE: no `body:` field — see RequestOtp above. The query
+                                             # handler body is scaffolded like any other (spec §3, §5).
+      input:
+        - {name: filter, type: MaterialFilter}
+        - {name: caller_id, type: UUID}
+      output: MaterialListResult             # name of the result DTO the skill creates
+      result_fields:                         # required when output is a *Result DTO
+        - {name: items, type: "tuple[Material, ...]"}
+        - {name: total, type: int}
+      handler:
+        dependencies: [IMaterialRepository, IUserRepository]
+      sources: [UC-002, UC-003]
+      notes: |                                 # the GUIDE channel — distilled prose intent
+        Apply the visibility filter in the handler: a non-admin caller sees only
+        published materials; an admin sees all. Rendered into the contract-comment the
+        implementer reads. (`behaviour` VERIFIES via tests; `notes` GUIDES the body;
+        `sources` is provenance — distilled from the UC, never a pointer to it.)
+
+  unit_of_work:                              # only when ≥2 repos must commit atomically
+    - used_by: SaveMaterial                  # command name
+      repositories: [IMaterialRepository, IAuditLogRepository]
+      sources: [UC-005]
+
+  compensating_tx:                           # modifier — handler must already exist above
+    - handler: SaveMaterial
+      external_side_effect: "S3 upload of screenshot"
+      undo: "delete uploaded S3 key"
+      sources: [UC-005]
+      invariants:
+        - {rule: "screenshot ≤ 5MB; JPG/PNG/WEBP only", source: UC-005}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Infrastructure
+# ─────────────────────────────────────────────────────────────────────────────
+
+infrastructure:
+
+  settings:
+    - name: OtpSettings
+      subpackage: otp                        # places at infrastructure/otp/settings.py
+      env_prefix: OTP_
+      fields:
+        - {name: ttl_seconds, type: int, default: 600}            # 10-minute OTP TTL
+        - {name: max_attempts, type: int, default: 3}             # max attempts before lock
+        - {name: resend_cooldown_seconds, type: int, default: 60} # resend cooldown
+      sources: [UC-001]
+      invariants:
+        - {rule: "OTP code is valid for 10 minutes after issuance", source: UC-001}
+        - {rule: "max 3 attempts to enter the code, then session is blocked", source: UC-001}
+        - {rule: "resend allowed only after 60 seconds since last send", source: UC-001}
+
+  tables:
+    - backs: User                            # required; identifier — one table per aggregate
+                                             # skill derives: SQL name (plural snake), variable
+                                             # name (<plural>_table), file path. Columns are
+                                             # DERIVED from the backing entity's fields — the
+                                             # manifest table carries no `columns:` block.
+      alembic:
+        revision_message: "create users table"  # down_revision is computed from table ordering
+      sources: [UC-001]
+
+  repositories:
+    - implements: IUserRepository            # required; identifier — one impl per protocol
+      backs: User                            # the aggregate this repository manages
+      constraint_map:                        # IntegrityError → domain exception translator
+        uq_users_email: ConflictError
+      notes: |                               # SQL/persistence-specific GUIDE (infra layer)
+        list: Core select() with keyset pagination on (created_at, id); the filter
+        predicates map to .where(...); count() runs as a separate scalar query.
+      sources: [UC-001, UC-013]
+
+  capabilities:                              # impls of domain.capability_protocols
+    - implements: ICanSendEmail
+                                             # NOTE: no `body:` field. An adapter body is always
+                                             # scaffolded behind its port (§10) — that's DERIVED from
+                                             # node category, not declared (spec §3, §5). The domain
+                                             # protocol stays generated; the SDK-wrapping body is the
+                                             # scaffold the implementer LLM fills.
+      adapter: ses                           # adapter variant; influences class name + folder
+      settings: SesSettings                  # optional; references infrastructure.settings
+      # SDK-SPECIFIC GUIDE (infra) — the domain protocol stays SDK-ignorant; tech belongs HERE.
+      notes: |
+        boto3 SES client from settings; send_email(Source, Destination, Message);
+        map botocore ClientError → UpstreamError at the boundary.
+      sources: [UC-001]
+
+  # NOTE: no `di_providers:` block. DI wiring (containers.py) is pure graph-glue —
+  # the generator derives every provider from the artifacts unconditionally
+  # (spec §3). There is no `auto:` flag and no manual `entries:` escape hatch: a
+  # flag would be derivable state that does not earn its place (spec §5). Removed
+  # from the schema.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REST API — resource groups multiple artifacts into one router/schema file.
+# ─────────────────────────────────────────────────────────────────────────────
+
+restapi:
+
+  schemas:
+    - name: LoginRequest                     # PascalCase Pydantic class
+      resource: auth                         # groups into restapi/schemas/auth.py
+      kind: request                          # request | response
+      fields:
+        - {name: email, type: EmailStr}
+      sources: [UC-001]
+
+    - name: SessionResponse
+      resource: auth
+      kind: response
+      fields:
+        - {name: token, type: str}
+        - {name: expires_at, type: datetime}
+      sources: [UC-001]
+
+  endpoints:
+    - method: POST                           # required
+      path: /auth/request-otp                # required
+      resource: auth                         # groups into restapi/routers/auth.py
+      auth: anonymous                        # anonymous | authenticated | role:ADMIN | role:SUPER_ADMIN
+      request: LoginRequest                  # schema name or null
+      response: null                         # schema name or null
+      status_code: 204                       # optional OVERRIDE; default derives from method
+                                             # (POST→201, DELETE→204, else 200). This POST returns
+                                             # no body, so it overrides 201→204.
+      handler: RequestOtp                    # references application.commands/queries
+      # no `errors:` — advertised codes derive from the handler's `raises` + the auth dependency
+      # OPTIONAL `notes:` — only for non-1:1 response assembly the route can't derive (a field
+      # rename like result.token → access_token, a constant like token_type="bearer", a custom
+      # header). Empty for almost every route (thin routes carry no business logic).
+      sources: [UC-001]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests — cross-cutting only. Per-artifact tests are derived by each test-*
+# skill from the artifact entry. Do NOT enumerate per-artifact test files here.
+# ─────────────────────────────────────────────────────────────────────────────
+
+tests:
+  architecture_rules:                        # extends tests/unit/test_architecture.py
+    - name: test_no_print_outside_entrypoints
+      pattern: '\bprint\('
+      paths: [domain/, application/, infrastructure/]
+      allow_list: []
+      sources: []

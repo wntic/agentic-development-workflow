@@ -1,0 +1,247 @@
+---
+name: infra-sqlalchemy-repository
+description: Apply when a spec needs the infrastructure adapter that satisfies a `domain/.../i_*_repository.py` protocol. Produces one repository class in `infrastructure/db/repositories/` using SQLAlchemy Core (never the ORM), with `async_sessionmaker` (standalone) or `AsyncSession` (UoW-managed) injection, a row-to-entity mapper, and an `IntegrityError`-to-domain-exception translator. Does not produce the protocol (use `domain-repository-protocol`), the table (use `infra-sqlalchemy-table`), or the DI wiring (use `infra-di-provider`).
+---
+
+# Infrastructure SQLAlchemy Repository
+
+Produces one repository class that adapts a domain repository protocol to SQLAlchemy Core + Postgres. The adapter does not inherit from the protocol — structural subtyping at the DI injection site is the contract.
+
+## When to use vs. neighbours
+
+- The protocol file (`i_foo_repository.py`) → `domain-repository-protocol`.
+- The table + Alembic migration → `infra-sqlalchemy-table`.
+- The DI provider that constructs this repository → `infra-di-provider`.
+- The UoW protocol/impl/integration when the repo joins multi-repo transactions → `application-unit-of-work`.
+
+## Pick the constructor style
+
+- **Standalone (`session_factory`-injected).** Default. CRUD on a single aggregate; opens its own session, commits per call.
+- **UoW-managed (`session`-injected).** Joins a Unit of Work (multi-repo atomicity, audit writes). Receives a live session, **never commits**.
+
+The two forms are mutually exclusive for one class. If both call-styles are genuinely needed, write two adapters.
+
+## File layout
+
+```
+src/<root>/infrastructure/db/repositories/
+├── __init__.py            # update to re-export the new module
+└── foo_repository.py      # this skill writes this file
+```
+
+## Template — standalone form
+
+```python
+from collections.abc import Sequence
+from uuid import UUID
+
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.sql import func as sqlfunc
+
+from myapp.domain.exceptions import (
+    ConflictError, InUseError, NotFoundError, ValidationError,
+)
+from myapp.domain.foos import Foo, FooListFilter, IFooRepository
+
+from ..tables.foos import foos_table
+
+__all__ = ["FooRepository"]
+
+_FK_FIELD_MAP = {
+    "fk_foos_bar_id_bars": "bar_id",
+}
+
+def _map_integrity_error(exc: IntegrityError) -> Exception:
+    cause = exc.orig.__cause__ if exc.orig else None
+    constraint = getattr(cause, "constraint_name", None) if cause else None
+    pgcode = getattr(exc.orig, "pgcode", None) or getattr(exc.orig, "sqlstate", None)
+
+    if constraint == "uq_foos_name":
+        return ConflictError("foo name already exists", {"constraint": constraint})
+    if pgcode == "23503" and constraint:
+        field = _FK_FIELD_MAP.get(constraint, constraint)
+        return NotFoundError(f"Referenced {field} not found", {"field": field, "constraint": constraint})
+    if pgcode == "23514" and constraint and "name_non_empty" in constraint:
+        return ValidationError("name cannot be empty", {"field": "name", "constraint": constraint})
+
+    # Mandatory fallback: never let IntegrityError escape unmapped.
+    return ConflictError(
+        "integrity violation",
+        {"constraint": constraint or "unknown", "pgcode": pgcode or "unknown"},
+    )
+
+class FooRepository:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sf = session_factory
+
+    def _row_to_entity(self, row: object) -> Foo:
+        return Foo(id=row.id, name=row.name)
+
+    async def get_by_id(self, id: UUID) -> Foo:
+        async with self._sf() as session:
+            row = (
+                await session.execute(select(foos_table).where(foos_table.c.id == id))
+            ).one_or_none()
+        if row is None:
+            raise NotFoundError("Foo not found", {"id": str(id)})
+        return self._row_to_entity(row)
+
+    async def get_by_name(self, name: str) -> Foo | None:
+        async with self._sf() as session:
+            row = (
+                await session.execute(select(foos_table).where(foos_table.c.name == name))
+            ).one_or_none()
+        return self._row_to_entity(row) if row is not None else None
+
+    async def list(self, *, filter: FooListFilter) -> Sequence[Foo]:
+        stmt = _apply_filter(select(foos_table), filter).order_by(foos_table.c.created_at.desc())
+        stmt = stmt.limit(filter.limit).offset(filter.offset)
+        async with self._sf() as session:
+            rows = (await session.execute(stmt)).all()
+        return [self._row_to_entity(r) for r in rows]
+
+    async def count(self, *, filter: FooListFilter) -> int:
+        stmt = _apply_filter(select(func.count()).select_from(foos_table), filter)
+        async with self._sf() as session:
+            return (await session.execute(stmt)).scalar_one()
+
+    async def create(self, foo: Foo) -> None:
+        try:
+            async with self._sf() as session:
+                await session.execute(
+                    foos_table.insert().values(id=foo.id, name=foo.name)
+                )
+                await session.commit()
+        except IntegrityError as exc:
+            raise _map_integrity_error(exc) from exc
+
+    async def update(self, foo: Foo) -> None:
+        try:
+            async with self._sf() as session:
+                result = await session.execute(
+                    foos_table.update()
+                    .where(foos_table.c.id == foo.id)
+                    .values(name=foo.name, updated_at=sqlfunc.now())
+                )
+                if result.rowcount == 0:
+                    raise NotFoundError("Foo not found", {"id": str(foo.id)})
+                await session.commit()
+        except IntegrityError as exc:
+            raise _map_integrity_error(exc) from exc
+
+    async def delete(self, id: UUID) -> None:
+        try:
+            async with self._sf() as session:
+                result = await session.execute(
+                    foos_table.delete().where(foos_table.c.id == id)
+                )
+                if result.rowcount == 0:
+                    raise NotFoundError("Foo not found", {"id": str(id)})
+                await session.commit()
+        except IntegrityError as exc:
+            # FK on delete → InUseError instead of generic ConflictError
+            raise InUseError("Foo is referenced", {"id": str(id)}) from exc
+
+def _apply_filter(stmt: object, filter: FooListFilter) -> object:
+    if filter.parent_ids:
+        stmt = stmt.where(foos_table.c.bar_id.in_(filter.parent_ids))
+    return stmt
+```
+
+## Template — UoW-managed form
+
+Only the constructor and method bodies differ. Methods use `self._session.execute(...)` directly and **never call `commit()`** — the UoW owns the transaction.
+
+```python
+class FooRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(self, foo: Foo) -> None:
+        try:
+            await self._session.execute(
+                foos_table.insert().values(id=foo.id, name=foo.name)
+            )
+        except IntegrityError as exc:
+            raise _map_integrity_error(exc) from exc
+```
+
+## Rules
+
+### Form
+
+1. **One class per module.** Filename: `<aggregate_snake>_repository.py`. Class: `<Aggregate>Repository`.
+2. **No explicit `(IFooRepository)` inheritance.** Structural subtyping.
+3. **Method signatures match the protocol exactly**, including keyword-only markers (`*, filter: FooListFilter`). All public methods are `async`.
+
+### Session
+
+4. **Standalone:** each method opens its own session (`async with self._sf() as session:`); mutations `await session.commit()`, reads don't.
+5. **UoW-managed:** the session is passed in `__init__`; methods use it directly; **never call `commit()` or `rollback()`** in a UoW repo.
+6. **No instance state holding a session.** Don't pass a session across methods (multi-statement reads share one `async with` block instead).
+
+### Reads
+
+7. `get_by_id(id)` raises `NotFoundError` when absent (never returns `None`).
+8. `get_by_<other>(value)` returns `Entity | None` via `result.one_or_none()`.
+9. `list(*, filter)` returns `Sequence[Entity]`; always include `order_by`.
+10. `count(*, filter)` returns `int` from `select(func.count()).select_from(table)`.
+11. Multi-field filter logic extracts to a module-level `_apply_filter(stmt, filter)`.
+
+### Mutations
+
+12. `create(entity)` returns `None`. Handler generates the ID. Wrap in `try/except IntegrityError`.
+13. `update(entity)` returns `None`. `rowcount == 0` → `NotFoundError`. Use `sqlfunc.now()` for `updated_at`.
+14. `delete(id)` returns `None` (or a list of related keys when needed for compensation). `rowcount == 0` → `NotFoundError`. FK `IntegrityError` → `InUseError`, not generic `ConflictError`.
+
+### IntegrityError translation
+
+15. **Every `IntegrityError` is translated** before escaping the repository. Use `raise _map_integrity_error(exc) from exc` (or an inline mapping for 1–2 cases).
+16. **Mandatory mapper fallback.** The mapper must end by raising a domain exception (`ConflictError("integrity violation", {"constraint": constraint or "unknown", "pgcode": pgcode or "unknown"})`) when no specific case matches. **Never `return exc`** — letting `IntegrityError` leak out of the repository breaks the no-framework-exceptions-cross-layer rule and produces a 500 instead of a 409 at the entrypoint.
+17. **Pick the most specific exception.** Domain subclass beats `ConflictError`. `InUseError` beats `ConflictError` for FK-on-delete.
+18. **Populate `context` with the offending field and the constraint name.** Always include `"constraint": constraint` (the full conventional name) so the entrypoint and tests can assert on it. Field/value keys are added on top per the spec's `expected_context_keys` (see `domain-exception`).
+19. **The constraint full names are load-bearing.** They must match what `infra-sqlalchemy-table` declared. A constraint rename is a breaking change — update this file in the same commit.
+20. **Driver assumption:** the mapper reads `exc.orig.__cause__.constraint_name` (asyncpg) and `exc.orig.pgcode` (Postgres SQLSTATE). The project is locked to asyncpg + Postgres; changing the driver requires updating the access path here.
+
+### Row → entity mapper
+
+21. Pure functions, no IO, no logging. Convert naive DB datetimes to UTC-aware (`dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt`).
+22. Simple aggregate (single row → entity): `_row_to_entity` as a private method.
+23. Composite aggregate (multiple rows → one entity): module-level `_rows_to_entity(row, child_rows_a, child_rows_b)` + per-child helpers.
+
+## Evolution — when to extract a shared integrity-error mapper
+
+The per-repo `_map_integrity_error` + `_FK_FIELD_MAP` pattern is the default. When ≥3 repositories carry overlapping pgcode handlers (`23503` / `23505` / `23514`), extract a shared module:
+
+```
+src/<root>/infrastructure/db/integrity_error_mapper.py
+```
+
+The shared module:
+
+- Owns the pgcode → exception-family default mapping (`23503 → NotFoundError`, `23505 → ConflictError`, `23514 → ValidationError`) plus the mandatory fallback.
+- Exposes `map_integrity_error(exc, *, constraint_map: Mapping[str, ConstraintRule]) -> Exception` where each repo registers only its constraint-name-specific overrides.
+- A `ConstraintRule` is `(DomainErrorClass, message, context_fn)` so per-repo customization stays declarative.
+
+Don't introduce this preemptively. Add it the first time a third repository forces the same pgcode boilerplate. Document the move in a single commit that migrates all current repositories at once — partial adoption causes drift.
+
+## Inlined typing / import rules
+
+- Domain imports absolute (`from myapp.domain.foos import Foo, IFooRepository`). Table imports relative (`from ..tables.foos import foos_table`).
+- Row objects typed as `object` in mapper signatures; access columns by attribute.
+- Parameters keep domain types — never downcast to `dict`.
+- No `from __future__ import annotations`. Full annotations on every method.
+
+## Package wiring
+
+The `repositories/__init__.py` must re-export the new module via `from .foo_repository import *`. Follow `general-python-package`.
+
+## Hard stops
+
+- Spec asks for the SQLAlchemy ORM, declarative base, or relationships → stop, this codebase uses Core only.
+- Spec asks the repository to commit inside a UoW-managed form → stop, that breaks atomicity.
+- Spec asks the repository to log → stop, repositories never log; the central error handler or the calling handler owns logging.
+- Spec asks for ID generation inside the repository → stop, the application handler generates IDs.
+- The constraint full names in the spec don't match the table file → stop, fix the alignment before writing the repository.

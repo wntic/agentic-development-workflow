@@ -1,0 +1,129 @@
+---
+name: application-command
+description: Apply when a spec asks for a mutation use case (create, update, delete, rename, …). Produces two files — a frozen-dataclass command DTO and a handler class with a single `async def execute(self, cmd) -> UUID | None`. Enforces CQRS for commands: success-only structured log, no business logic in the handler, no try/except except compensating-tx (separate skill). Use `application-query` for reads. Defers package mechanics to `general-python-package`.
+---
+
+# Application Command
+
+Produces a mutation use case as two files in `application/<subdomain>/`:
+
+1. `<verb>_<noun>_command.py` — the frozen-dataclass DTO.
+2. `<verb>_<noun>_handler.py` — the handler class.
+
+## When to use vs. neighbours
+
+- Mutation (create/update/delete/rename/move) → this skill.
+- Read (get/list/count/search) → `application-query`.
+- The mutation includes an external IO step before the DB write (file upload, third-party POST) and needs rollback → still this skill, but the handler body follows `application-compensating-tx`.
+- Multiple repositories must update atomically (write + audit log) → still this skill, plus inject an `IUnitOfWork` (see `application-unit-of-work`).
+
+## File layout
+
+```
+src/<root>/application/<subdomain>/
+├── <verb>_<noun>_command.py   # CreateFooCommand
+└── <verb>_<noun>_handler.py   # CreateFooHandler
+```
+
+## Template — command DTO
+
+```python
+from dataclasses import dataclass
+from uuid import UUID
+
+from myapp.domain.foos import FooCategory
+
+__all__ = ["CreateFooCommand"]
+
+@dataclass(frozen=True)
+class CreateFooCommand:
+    caller_id: UUID
+    name: str
+    category: FooCategory
+    sort_order: int = 0
+```
+
+## Template — create handler (returns `UUID`)
+
+```python
+import uuid
+
+import structlog
+
+from myapp.domain.foos import Foo, IFooRepository
+
+from .create_foo_command import CreateFooCommand
+
+__all__ = ["CreateFooHandler"]
+
+logger = structlog.get_logger()
+
+class CreateFooHandler:
+    def __init__(self, repo: IFooRepository) -> None:
+        self._repo = repo
+
+    async def execute(self, cmd: CreateFooCommand) -> uuid.UUID:
+        foo = Foo(
+            id=uuid.uuid7(),
+            name=cmd.name,
+            category=cmd.category,
+            sort_order=cmd.sort_order,
+        )
+        await self._repo.create(foo)
+        logger.info("foo_created", foo_id=str(foo.id), caller_id=str(cmd.caller_id))
+        return foo.id
+```
+
+## Template — update/delete handler (returns `None`)
+
+```python
+class DeleteFooHandler:
+    def __init__(self, repo: IFooRepository) -> None:
+        self._repo = repo
+
+    async def execute(self, cmd: DeleteFooCommand) -> None:
+        await self._repo.delete(cmd.id)
+        logger.info("foo_deleted", foo_id=str(cmd.id), caller_id=str(cmd.caller_id))
+```
+
+## Rules
+
+### Command DTO
+
+1. **`@dataclass(frozen=True)`.** Always frozen.
+2. **`caller_id: UUID` is the first field.** Every command carries the actor.
+3. **No methods, no behavior.** Just data.
+4. **Optional fields use `field: T | None = None`** or a concrete default — never sentinel strings.
+
+### Handler
+
+1. **One class per module, one public method.** `async def execute(self, cmd: <CommandClass>) -> <ReturnType>`. Nothing else public.
+2. **Constructor takes only domain protocols / services / unit-of-work / tunable value objects.** Never a session, never an HTTP client, never `Any`.
+3. **Return type:** `UUID` for create, `None` for everything else. Never return the entity.
+4. **No business logic in the handler.** Build/mutate domain entities; let `__post_init__` and domain policies enforce rules. The handler orchestrates: load entities, mutate them, call the repository. **Normalization (strip / lowercase / canonicalize) is a domain concern — it lives in the entity's `__post_init__` or a value object, never in the handler.** Pass `cmd.name`, not `cmd.name.strip()`.
+5. **No `try/except`.** The only sanctioned use is the compensating-transaction pattern — see `application-compensating-tx`.
+6. **Log on success only, after the mutation completes.**
+   - Event name: snake_case past tense (`foo_created`, `bar_renamed`).
+   - Always include `caller_id=str(cmd.caller_id)` and the affected resource id.
+   - Never log on failure — exceptions propagate; the central handler logs once.
+7. **No transaction management inside the handler.** Transaction lifecycle is wired in the entrypoint via DI (typically through `IUnitOfWork` if multiple writes must be atomic).
+
+## Inlined typing / import rules
+
+- `X | None` (never `Optional[X]`). Full annotations on `__init__`, `execute`, and every parameter.
+- Cross-subdomain imports are absolute through the subpackage: `from myapp.domain.foos import Foo, IFooRepository`. Same-module imports are relative (`from .create_foo_command import CreateFooCommand`).
+- `import structlog` and `logger = structlog.get_logger()` at module top — never inside the class.
+- No `from __future__ import annotations`.
+- No comments unless a non-obvious *why*; one short line max.
+
+## Package wiring
+
+Follow `general-python-package` to register both modules in the subpackage `__init__.py`. The DI provider that constructs this handler is the responsibility of `infra-di-provider`.
+
+## Hard stops
+
+- Spec asks the handler to return a list, a `Result`, or the entity → stop, use `application-query` (and re-read the spec — mutations don't return data).
+- Spec asks the handler to catch a `DomainError` and translate it → stop, that's the central error handler's job (`restapi-error-responses`).
+- Spec asks the handler to validate cross-aggregate state inline → stop, extract a `domain-service` and inject it.
+- Spec implies multiple writes must be atomic → stop, request an `IUnitOfWork` dependency (see `application-unit-of-work`).
+- Spec implies an external IO step before the DB write → stop, this still uses this skill but the body must follow `application-compensating-tx`.
