@@ -649,6 +649,64 @@ def test_pyproject_collects_polyglot_packages(tmp_path: Path) -> None:
     assert '"pypdf>=4.2"' in toml and '"python-docx>=1.1"' in toml
 
 
+def test_non_relational_app_emits_no_postgres_substrate(tmp_path: Path) -> None:
+    # A pure non-relational app (a qdrant repo, no postgres store) must NOT get the SQLAlchemy
+    # bootstrap: no infrastructure/postgres/ package, no metadata.py, no engine/session_factory in
+    # the container, and no sqlalchemy/asyncpg/alembic in pyproject. The relational substrate is
+    # gated on a relational store actually backing a repository.
+    from codegen.manifest.schema import Manifest
+
+    payload = {
+        "meta": {"epic": "x", "name": "x", "sources": []},
+        "domain": {
+            "entities": [
+                {"name": "Doc", "subdomain": "corpus", "fields": [{"name": "id", "type": "UUID"}], "sources": []}
+            ],
+            "repository_protocols": [
+                {
+                    "name": "IDocRepository",
+                    "subdomain": "corpus",
+                    "aggregate": "Doc",
+                    "methods": ["async def add(self, doc: Doc) -> None"],
+                    "sources": [],
+                }
+            ],
+        },
+        "infrastructure": {
+            "settings": [
+                {
+                    "name": "QSettings",
+                    "env_prefix": "Q_",
+                    "fields": [{"name": "url", "type": "str", "default": '"x"'}],
+                    "sources": [],
+                }
+            ],
+            "datastores": [
+                {
+                    "name": "vectors",
+                    "kind": "qdrant",
+                    "settings": "QSettings",
+                    "requires_packages": ["qdrant-client>=1.9"],
+                    "sources": [],
+                }
+            ],
+            "repositories": [{"implements": "IDocRepository", "backs": "Doc", "store": "vectors", "sources": []}],
+        },
+    }
+    manifest = Manifest.model_validate(payload)
+    pkg = tmp_path / "app"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    Generator(manifest, pkg).generate_all()
+
+    assert not (pkg / "infrastructure" / "postgres").exists()  # no postgres subpackage at all
+    toml = (tmp_path / "pyproject.toml").read_text()
+    assert "sqlalchemy" not in toml and "asyncpg" not in toml and "alembic" not in toml
+    assert '"qdrant-client>=1.9"' in toml  # the datastore driver is still unioned in
+    container = (pkg / "containers.py").read_text()
+    assert "session_factory" not in container and "create_engine" not in container
+
+
 def test_schema_drift_flags_unfilled_and_clears_when_filled(tmp_path: Path) -> None:
     # The deterministic §4 trigger: a freshly scaffolded table has no columns, so every
     # entity field is "missing" → drift (wakes the implementer). Filling the columns clears

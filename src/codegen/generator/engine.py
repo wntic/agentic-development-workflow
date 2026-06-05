@@ -55,16 +55,21 @@ _TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
 # The fixed house-style runtime substrate every generated app needs (the FastAPI hexagon's
 # framework stack). NOT anticipation — it is the architecture itself. Third-party SDK
 # packages are NOT here; they ride on the infra node that needs them (datastore/capability
-# `requires_packages`) and are unioned in from the graph (§10). The SQLAlchemy/asyncpg/
-# alembic trio sits in the base because the persistence bootstrap (db_engine/containers) is
-# still emitted unconditionally; move it per-postgres-store once that becomes conditional.
-_BASE_DEPENDENCIES = (
+# `requires_packages`) and are unioned in from the graph (§10).
+_FRAMEWORK_DEPENDENCIES = (
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "dependency-injector>=4.41",
     "structlog>=24.1",
+)
+# The Postgres persistence stack the SQLAlchemy bootstrap pulls — added to pyproject ONLY when a
+# bootstrap store backs a repository (`StoreProfile.uses_bootstrap`, postgres-only today). These
+# are POSTGRES-specific (asyncpg is its async driver): when a second uses_bootstrap backend (mysql,
+# …) is registered, move the driver + DSN scheme onto StoreProfile and union them per store, rather
+# than keeping this module-level constant.
+_POSTGRES_DEPENDENCIES = (
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.29",
     "alembic>=1.13",
@@ -290,7 +295,10 @@ class Generator:
         # a graph-derived framework dep, like the base substrate but conditional on the feature.
         if any(e.request_kind == "multipart" for e in self.m.restapi.endpoints):
             extra.add("python-multipart>=0.0.9")
-        dependencies = list(_BASE_DEPENDENCIES) + sorted(extra)
+        dependencies = list(_FRAMEWORK_DEPENDENCIES)
+        if self._bootstrap_settings() is not None:  # the Postgres stack only when a bootstrap store exists
+            dependencies += list(_POSTGRES_DEPENDENCIES)
+        dependencies += sorted(extra)
         content = self.env.get_template("pyproject.toml.j2").render(
             name=self.package, dependencies=dependencies, dev_dependencies=list(_DEV_DEPENDENCIES)
         )
@@ -811,32 +819,35 @@ class Generator:
 
     # ── infrastructure: tables + Alembic migrations ─────────────────────────────
 
-    def _relational_subpkg(self) -> str:
-        """Infra subpackage for the shared SQLAlchemy bootstrap (engine/metadata/DbSettings)
-        + the relational tables/repositories: the kind of a bootstrap-backed repository
-        (`postgres`), so everything for that store sits together — `infrastructure/postgres/`,
-        not a special `db/`. Defaults to 'postgres' when no relational repo is present."""
+    def _bootstrap_subpkg(self) -> str:
+        """Infra subpackage for the shared SQLAlchemy bootstrap (engine/metadata/DbSettings) + its
+        tables/repositories: the kind of a repository whose store `uses_bootstrap` (`postgres`
+        today — the only profile with that flag), so everything for that store sits together —
+        `infrastructure/postgres/`, not a special `db/`. Defaults to 'postgres' when no bootstrap
+        repo is present (only consulted when one is)."""
         for r in self.m.infrastructure.repositories:
             if self._repo_profile(r).uses_bootstrap:
                 return self._store_kind(r)
         return "postgres"
 
-    def _relational_datastore(self):
-        """The Postgres datastore that backs a repository — the SQLAlchemy bootstrap store —
-        or None when no relational store appears among the repositories."""
+    def _bootstrap_datastore(self):
+        """The datastore whose profile `uses_bootstrap` (the SQLAlchemy/Postgres bootstrap store)
+        backing a repository, or None when no such store appears. Named for the profile FLAG, not
+        'relational', because only the postgres profile sets it today — a `mysql` kind would
+        degrade to a generic non-bootstrap store until its own profile is registered."""
         stores = {r.store for r in self.m.infrastructure.repositories if r.store is not None}
         for ds in self.m.infrastructure.datastores:
             if ds.name in stores and profile_for(ds.kind).uses_bootstrap:
                 return ds
         return None
 
-    def _relational_settings(self) -> str | None:
-        """The settings-class NAME the SQLAlchemy bootstrap is wired from (the relational
-        datastore's `settings`), or None when there is no relational store. The DB connection
+    def _bootstrap_settings(self) -> str | None:
+        """The settings-class NAME the SQLAlchemy bootstrap is wired from (the bootstrap
+        datastore's `settings`), or None when no bootstrap store exists. The DB connection
         settings are an ordinary manifest node now, not a hardcoded scaffold — so a Postgres-
         backed repository whose datastore names no `settings` (or the legacy implicit store
         with no datastore at all) fails LOUDLY rather than falling back to a baked-in default."""
-        ds = self._relational_datastore()
+        ds = self._bootstrap_datastore()
         if ds is None:
             if any(self._repo_profile(r).uses_bootstrap for r in self.m.infrastructure.repositories):
                 raise NotImplementedError(
@@ -863,8 +874,16 @@ class Generator:
 
     def generate_infrastructure(self) -> list[Path]:
         repos = self.m.infrastructure.repositories
-        relational = self._relational_subpkg()
-        written = [self._copy_scaffold("metadata.py", PurePosixPath("infrastructure", relational, "metadata.py"))]
+        written: list[Path] = []
+        # The SQLAlchemy MetaData (constraint-naming convention) is Postgres-bootstrap substrate:
+        # emit it ONLY when a bootstrap store backs a repository — a pure non-bootstrap app
+        # (all qdrant/redis) gets no `infrastructure/postgres/` package at all. _bootstrap_settings()
+        # is None when there is no bootstrap store (and raises loudly on a misconfigured one).
+        relational = self._bootstrap_subpkg() if self._bootstrap_settings() is not None else None
+        if relational is not None:
+            written.append(
+                self._copy_scaffold("metadata.py", PurePosixPath("infrastructure", relational, "metadata.py"))
+            )
 
         # A repository (and its table) lives under its STORE'S kind, like every other infra
         # node groups by tech (§ naming): a postgres repo → infrastructure/postgres/, a qdrant
@@ -935,7 +954,10 @@ class Generator:
         # __init__ from modules_by_pkg (e.g. `postgres/`, which holds only the bootstrap +
         # repositories/ + tables/ subpackages, none of them wildcard-re-exported).
         written.append(self._write(PurePosixPath("infrastructure", "__init__.py"), ""))
-        store_subs = (set(repos_by_sub) | set(tables_by_sub) | {relational}) - set(modules_by_pkg)
+        store_subs = set(repos_by_sub) | set(tables_by_sub)
+        if relational is not None:  # the relational subpackage holds the bootstrap (engine/metadata) — mark it
+            store_subs.add(relational)
+        store_subs -= set(modules_by_pkg)
         for sub in sorted(store_subs):
             written.append(self._write(PurePosixPath("infrastructure", sub, "__init__.py"), ""))
         return [p for p in written if p is not None]
@@ -1270,9 +1292,9 @@ class Generator:
         # store backs a repository; it imports the manifest-declared DB settings class by name
         # (no hardcoded DbSettings scaffold) and lives with its store (postgres/). DbSettings
         # itself is an ordinary settings node, emitted by generate_infrastructure.
-        rel_settings = self._relational_settings()
+        rel_settings = self._bootstrap_settings()
         if rel_settings is not None:
-            rel = self._relational_subpkg()
+            rel = self._bootstrap_subpkg()
             engine_py = self._render_db_engine(rel_settings)
             written.append(self._write(PurePosixPath("infrastructure", rel, "engine.py"), engine_py))
         written.append(self._write(PurePosixPath("containers.py"), self._render_container()))
@@ -1287,7 +1309,7 @@ class Generator:
         # The SQLAlchemy engine + session_factory, wired from the declared DB settings provider
         # (emitted just above) — only when a relational store backs a repository. This is the
         # single definition of session_factory, which every postgres repository is injected with.
-        rel_settings = self._relational_settings()
+        rel_settings = self._bootstrap_settings()
         if rel_settings is not None:
             settings_attr = naming.snake_case(rel_settings)
             blocks.append(
@@ -1359,7 +1381,7 @@ class Generator:
         return f"    {attr}: providers.Provider[{type_ann}] = providers.{kind}(\n        {factory_cls}, {kw}\n    )"
 
     def _container_imports(self) -> str:
-        rel_settings = self._relational_settings()
+        rel_settings = self._bootstrap_settings()
         third = ["from dependency_injector import containers, providers"]
         if rel_settings is not None:  # the engine/session_factory provider annotations need these
             third.append("from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker")
@@ -1392,7 +1414,7 @@ class Generator:
         # of them now, imported by the ordinary settings loop below — no special case), and
         # capability adapter classes.
         if rel_settings is not None:
-            engine_mod = f"{self.package}.infrastructure.{self._relational_subpkg()}.engine"
+            engine_mod = f"{self.package}.infrastructure.{self._bootstrap_subpkg()}.engine"
             first.append(_import_from(engine_mod, ["create_engine", "create_session_factory"]))
         for r in self.m.infrastructure.repositories:
             sub = self._store_kind(r)

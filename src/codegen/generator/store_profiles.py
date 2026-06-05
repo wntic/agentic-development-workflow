@@ -31,18 +31,16 @@ class StoreProfile:
     # False = a scaffolded create_<store>_client connection factory the container injects.
 
 
-_POSTGRES = StoreProfile(
-    kind="postgres",
-    resource_param="session_factory",
-    resource_attr="sf",
-    resource_type="async_sessionmaker[AsyncSession]",
-    resource_import="from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker",
-    contract="sql",
-    uses_bootstrap=True,
-)
-
 _REGISTRY: dict[str, StoreProfile] = {
-    "postgres": _POSTGRES,
+    "postgres": StoreProfile(
+        kind="postgres",
+        resource_param="session_factory",
+        resource_attr="sf",
+        resource_type="async_sessionmaker[AsyncSession]",
+        resource_import="from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker",
+        contract="sql",
+        uses_bootstrap=True,
+    ),
     "qdrant": StoreProfile(
         kind="qdrant",
         resource_param="client",
