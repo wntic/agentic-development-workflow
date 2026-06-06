@@ -74,8 +74,7 @@ All paths below are relative to the target package root `src/<package>/` (e.g. `
 | `tests.architecture_rules` | `test-architecture-rule` |
 
 - `infrastructure.datastores` has **no producer skill** — a datastore is wired from its **store profile** (block C), not a per-kind skill, and an unknown `kind` degrades gracefully rather than tripping the gate. It is the one artifact kind exempt from the coverage gate.
-- **Non-relational repositories.** The only repository producer skill today is `infra-sqlalchemy-repository` (SQLAlchemy Core). A repository on a non-bootstrap store (qdrant/redis) is a store-profile-driven scaffold with no dedicated skill yet; the first one built is a §16 coverage-gap to close by authoring the missing skill.
-- **`domain.filters` caveat.** The skill exists, but the stdlib validator's `SCHEMAS` does not yet parse a `domain.filters` section, so the gate cannot see it. Adding the `Filter` shape to the validator (with its pagination/sort fields) is a separate follow-up; until then a manifest must not declare `domain.filters`.
+- **Non-relational repositories.** The producer table maps `infrastructure.repositories` to `infra-sqlalchemy-repository` (SQLAlchemy Core) — correct for a relational store. A repository on a non-bootstrap store (qdrant/redis) is a store-profile-driven scaffold with **no dedicated skill yet**; the first one built is a §16 coverage-gap to close by authoring the missing `infra-<kind>-repository` skill, at which point this dispatch becomes store-kind-aware.
 
 **Companion skills** — conditionally applied to a producer's artifact, not separately dispatched: `application-compensating-tx` (a command with an external side-effect before its DB write), `restapi-error-responses` (every endpoint advertises its error codes), `restapi-file-transfer` (multipart upload / streaming download), `restapi-auth-dependency` (reference — picks the route's auth dependency).
 

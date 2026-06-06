@@ -240,6 +240,35 @@ def test_datastore_kind_is_exempt_from_the_gate() -> None:
     assert not _has(report, "skill_gap")
 
 
+# ── domain.filters (first-class declarative section) ─────────────────────────────
+
+
+def test_domain_filter_section_validates() -> None:
+    def mutate(d: dict) -> None:
+        d["domain"]["filters"] = [
+            {
+                "name": "LabelFilter",
+                "subdomain": "labels",
+                "fields": [{"name": "name_contains", "type": "str | None", "default": "None"}],
+                "pagination": True,
+                "sort": {"enum_name": "LabelSortKey", "keys": ["NAME_ASC"], "default": "NAME_ASC"},
+                "sources": [],
+            }
+        ]
+
+    report = vm.validate(_data(mutate))
+    assert report.ok, [f.message for f in report.errors + report.questions]
+    assert "domain.filters" in vm.KIND_TO_SKILL  # covered by the gate
+
+
+def test_domain_filter_missing_name_is_flagged() -> None:
+    def mutate(d: dict) -> None:
+        d["domain"]["filters"] = [{"subdomain": "labels", "fields": [], "sources": []}]  # no name
+
+    report = vm.validate(_data(mutate))
+    assert _has(report, "missing_field", "name")
+
+
 # ── sources resolution ──────────────────────────────────────────────────────────
 
 
