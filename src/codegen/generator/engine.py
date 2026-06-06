@@ -88,112 +88,6 @@ _DEV_DEPENDENCIES = (
 _SCAFFOLD = Path(__file__).resolve().parent.parent / "scaffold"
 
 
-# App-bootstrap boilerplate that is NOT manifest-derived ({{PKG}} → import root).
-# The auth artifacts (Role enum, CurrentUser VO, the token-verifying capability) are
-# NO LONGER hardcoded here — they are ordinary manifest nodes the generator emits from
-# domain.enums / domain.value_objects / infrastructure.capabilities. `restapi/
-# dependencies.py` (get_current_user / require_role) is DERIVED from those nodes by
-# `_render_dependencies` when the manifest exposes authenticated endpoints.
-_ERROR_HANDLER_PY = """from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-
-from {{PKG}}.domain.exceptions import DomainError, UnauthorizedError
-
-from .schemas.errors import ErrorResponse
-
-__all__ = ["register_error_handlers"]
-
-
-def register_error_handlers(app: FastAPI) -> None:
-    @app.exception_handler(DomainError)
-    async def _handle_domain_error(request: Request, exc: DomainError) -> JSONResponse:
-        headers: dict[str, str] = {}
-        if isinstance(exc, UnauthorizedError):
-            headers["WWW-Authenticate"] = 'Bearer realm="{{PKG}}"'
-        return JSONResponse(
-            status_code=exc.http_status,
-            content=ErrorResponse(
-                code=exc.code,
-                message=str(exc),
-                context=exc.context,
-            ).model_dump(),
-            headers=headers or None,
-        )
-"""
-
-# No-auth variant: a manifest with only anonymous endpoints never declares UnauthorizedError
-# (it joins the catalog only for an authenticated route), so the handler must NOT import it or
-# branch on it — else the import breaks (the vector_rag bug). Chosen by `_has_authenticated_endpoint`.
-_ERROR_HANDLER_NOAUTH_PY = """from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-
-from {{PKG}}.domain.exceptions import DomainError
-
-from .schemas.errors import ErrorResponse
-
-__all__ = ["register_error_handlers"]
-
-
-def register_error_handlers(app: FastAPI) -> None:
-    @app.exception_handler(DomainError)
-    async def _handle_domain_error(request: Request, exc: DomainError) -> JSONResponse:
-        return JSONResponse(
-            status_code=exc.http_status,
-            content=ErrorResponse(
-                code=exc.code,
-                message=str(exc),
-                context=exc.context,
-            ).model_dump(),
-        )
-"""
-
-_ERRORS_SCHEMA_PY = """from pydantic import BaseModel, Field
-
-from {{PKG}}.domain import exceptions as _domain_exceptions
-from {{PKG}}.domain.exceptions import DomainError
-
-__all__ = ["MIDDLEWARE_ERRORS", "ErrorResponse", "error_responses"]
-
-
-class ErrorResponse(BaseModel):
-    code: str
-    message: str
-    context: dict[str, object] = Field(default_factory=dict)
-
-
-MIDDLEWARE_ERRORS: dict[str, int] = {
-    "PAYLOAD_TOO_LARGE": 413,
-}
-
-_DESCR: dict[int, str] = {
-    400: "Bad request",
-    401: "Unauthorized",
-    403: "Forbidden",
-    404: "Not found",
-    409: "Conflict",
-    413: "Payload too large",
-    422: "Unprocessable entity",
-}
-
-
-def _all_known_statuses() -> set[int]:
-    domain_statuses: set[int] = set()
-    for name in _domain_exceptions.__all__:
-        cls = getattr(_domain_exceptions, name)
-        if isinstance(cls, type) and issubclass(cls, DomainError):
-            domain_statuses.add(cls.http_status)
-    return domain_statuses | set(MIDDLEWARE_ERRORS.values())
-
-
-def error_responses(*codes: int) -> dict[int, dict[str, object]]:
-    known = _all_known_statuses()
-    unknown = [c for c in codes if c not in known]
-    if unknown:
-        raise ValueError(f"HTTP statuses not produced by any DomainError or middleware: {unknown}")
-    return {c: {"model": ErrorResponse, "description": _DESCR.get(c, str(c))} for c in codes}
-"""
-
-
 def _base_type(annotation: str) -> str:
     return annotation.split("|")[0].strip()
 
@@ -1450,14 +1344,18 @@ class Generator:
     # the token-verifying capability + role enum when the app has authenticated routes.
 
     def generate_restapi_bootstrap(self) -> list[Path]:
-        def sub(text: str) -> str:
-            return text.replace("{{PKG}}", self.package)
-
-        error_handler = _ERROR_HANDLER_PY if self._has_authenticated_endpoint() else _ERROR_HANDLER_NOAUTH_PY
+        # The central DomainError handler + the errors schema are package-agnostic except the
+        # import root (and, for the handler, whether the app has auth → whether it imports/branches
+        # on UnauthorizedError + sets WWW-Authenticate). Rendered from templates, not stored as
+        # source-strings in the generator.
+        error_handler = self.env.get_template("error_handler.py.j2").render(
+            package=self.package, has_auth=self._has_authenticated_endpoint()
+        )
+        errors_schema = self.env.get_template("errors_schema.py.j2").render(package=self.package)
         written = [
             self._write(PurePosixPath("restapi", "__init__.py"), ""),
-            self._write(PurePosixPath("restapi", "error_handler.py"), sub(error_handler)),
-            self._write(PurePosixPath("restapi", "schemas", "errors.py"), sub(_ERRORS_SCHEMA_PY)),
+            self._write(PurePosixPath("restapi", "error_handler.py"), error_handler),
+            self._write(PurePosixPath("restapi", "schemas", "errors.py"), errors_schema),
         ]
         if self._has_authenticated_endpoint():
             written.append(self._write(PurePosixPath("restapi", "dependencies.py"), self._render_dependencies()))

@@ -1,0 +1,40 @@
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+{% if has_auth %}
+from {{ package }}.domain.exceptions import DomainError, UnauthorizedError
+{% else %}
+from {{ package }}.domain.exceptions import DomainError
+{% endif %}
+
+from .schemas.errors import ErrorResponse
+
+__all__ = ["register_error_handlers"]
+
+
+def register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(DomainError)
+    async def _handle_domain_error(request: Request, exc: DomainError) -> JSONResponse:
+{% if has_auth %}
+        headers: dict[str, str] = {}
+        if isinstance(exc, UnauthorizedError):
+            headers["WWW-Authenticate"] = 'Bearer realm="{{ package }}"'
+        return JSONResponse(
+            status_code=exc.http_status,
+            content=ErrorResponse(
+                code=exc.code,
+                message=str(exc),
+                context=exc.context,
+            ).model_dump(),
+            headers=headers or None,
+        )
+{% else %}
+        return JSONResponse(
+            status_code=exc.http_status,
+            content=ErrorResponse(
+                code=exc.code,
+                message=str(exc),
+                context=exc.context,
+            ).model_dump(),
+        )
+{% endif %}
