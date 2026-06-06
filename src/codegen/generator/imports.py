@@ -11,35 +11,85 @@ The "symbol table" passed around as `domain_subdomains` maps every *named domain
 lookup that turns a bare type token in a field/signature into an import edge.
 """
 
+import builtins
+import importlib
 import re
 
 from .naming import snake_case
 
-# token → (module, symbol)
-_STDLIB: dict[str, tuple[str, str]] = {
-    "UUID": ("uuid", "UUID"),
-    "datetime": ("datetime", "datetime"),
-    "date": ("datetime", "date"),
-    "Decimal": ("decimal", "Decimal"),
-    "Any": ("typing", "Any"),
-    "Protocol": ("typing", "Protocol"),
-    "Sequence": ("collections.abc", "Sequence"),
-    "AsyncIterator": ("collections.abc", "AsyncIterator"),  # streaming return (e.g. RAG token stream)
-}
+# Bare names that need NO import: Python's builtins plus the keyword-constants. This is the
+# LANGUAGE's own set, not a hand-picked list of the types our manifests happen to use, so it
+# never rots the way a per-type stdlib map did.
+_NO_IMPORT: frozenset[str] = frozenset(dir(builtins)) | {"None", "True", "False"}
+
+# Ordered stdlib modules a BARE type token is resolved against by introspection. The first module
+# whose OWN namespace defines the symbol wins — verified via `obj.__module__` so a RE-EXPORT does
+# not mis-resolve (e.g. `uuid` re-exports `Enum`, which must NOT resolve to uuid). Precedence:
+# collections.abc before typing, collections before typing (their `typing.*` aliases are
+# deprecated). Each entry covers its module's WHOLE surface for free — Counter/deque (collections),
+# timedelta (datetime), Path (pathlib), Mapping/Iterable (collections.abc) — so a new type never
+# means editing this list. A type from an UNSCANNED module is reached via a QUALIFIED name
+# (`zoneinfo.ZoneInfo` → `import zoneinfo`), so this list is never a coverage ceiling.
+_STDLIB_SCAN: tuple[str, ...] = (
+    "uuid",
+    "datetime",
+    "decimal",
+    "collections.abc",
+    "collections",
+    "pathlib",
+    "typing",
+)
 
 
 def type_tokens(text: str) -> set[str]:
-    """Identifier tokens in a type or signature string."""
-    return set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text))
+    """Identifier tokens in a type or signature string. A QUALIFIED name (`collections.Counter`)
+    is captured as ONE token, so its import is derivable from the dotted path; a bare name is one
+    token."""
+    return set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", text))
+
+
+def resolve_import(token: str) -> tuple[str, str] | None:
+    """Resolve one token from a type or signature string to the import it needs:
+
+      * a builtin (`list`, `str`, `int`, …) → None (no import);
+      * a QUALIFIED name (`collections.Counter`) → (`collections`, "") → `import collections`
+        (the annotation keeps the dotted form verbatim — no signature rewriting);
+      * a BARE name defined in a scanned stdlib module → (`module`, `token`) →
+        `from module import token`;
+      * anything else → None (no import).
+
+    The last case is intentionally LENIENT, not an error: a signature string also yields
+    non-type tokens (`self`, the method name, parameter names, `async`/`def`), and a
+    locally-declared name (domain type / sibling schema) is the caller's to import. An
+    unqualified EXOTIC type that slips through here emits no import — caught downstream as an
+    undefined name by the reference-integrity gate (ruff F821), the loud catch; the fix is to
+    qualify it (`zoneinfo.ZoneInfo`) or declare it.
+    """
+    if token in _NO_IMPORT:
+        return None
+    if "." in token:
+        return (token.rpartition(".")[0], "")  # `import <prefix>`; the annotation stays qualified
+    for module_name in _STDLIB_SCAN:
+        obj = getattr(importlib.import_module(module_name), token, None)
+        if obj is not None and getattr(obj, "__module__", None) == module_name:
+            return (module_name, token)
+    return None
+
+
+def import_lines(groups: dict[str, set[str]]) -> list[str]:
+    """Render a {module: {symbols}} mapping to import lines, isort-ordered: plain `import module`
+    (an empty symbol set — a qualified type) before `from module import a, b`."""
+    plain = sorted(m for m, names in groups.items() if not names)
+    froms = sorted(m for m, names in groups.items() if names)
+    return [f"import {m}" for m in plain] + [f"from {m} import {', '.join(sorted(groups[m]))}" for m in froms]
 
 
 def _render(groups: list[dict[str, set[str]]]) -> str:
     blocks: list[str] = []
     for group in groups:
-        if not group:
-            continue
-        lines = [f"from {module} import {', '.join(sorted(names))}" for module, names in sorted(group.items())]
-        blocks.append("\n".join(lines))
+        lines = import_lines(group)
+        if lines:
+            blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
 
@@ -64,13 +114,29 @@ def _local_domain_imports(
     return local
 
 
-def _stdlib_imports(referenced: set[str], seed: dict[str, set[str]] | None = None) -> dict[str, set[str]]:
-    stdlib: dict[str, set[str]] = {k: set(v) for k, v in (seed or {}).items()}
+def stdlib_import_groups(
+    referenced: set[str],
+    skip: frozenset[str] | set[str] | dict[str, str],
+    seed: dict[str, set[str]] | None = None,
+) -> dict[str, set[str]]:
+    """The {module: {symbols}} import groups for the NON-local tokens in `referenced`: builtins are
+    dropped, a qualified name becomes a plain `import module` (empty set), a bare name resolves to a
+    stdlib `from`-import, and anything unresolvable is dropped (see `resolve_import`). `skip` is any
+    `in`-container of locally-declared names the CALLER imports itself (domain types, sibling
+    schemas) — they are passed over here, not resolved (so a domain type that happens to share a
+    stdlib name is not mis-imported)."""
+    groups: dict[str, set[str]] = {k: set(v) for k, v in (seed or {}).items()}
     for token in referenced:
-        if token in _STDLIB:
-            module, symbol = _STDLIB[token]
-            stdlib.setdefault(module, set()).add(symbol)
-    return stdlib
+        if token in skip:
+            continue
+        spec = resolve_import(token)
+        if spec is None:
+            continue
+        module, symbol = spec
+        groups.setdefault(module, set())
+        if symbol:
+            groups[module].add(symbol)
+    return groups
 
 
 def dataclass_domain_import_block(
@@ -84,7 +150,7 @@ def dataclass_domain_import_block(
     reference, the sibling domain types (enums/VOs/entities) they reference, and
     `ValidationError` when a scaffolded `__post_init__` will raise it."""
     referenced = {t for ft in field_types for t in type_tokens(ft)}
-    stdlib = _stdlib_imports(referenced, {"dataclasses": {"dataclass"}})
+    stdlib = stdlib_import_groups(referenced, domain_subdomains, seed={"dataclasses": {"dataclass"}})
     local = _local_domain_imports(referenced, subdomain=subdomain, domain_subdomains=domain_subdomains)
     if has_post_init:
         local.setdefault("..exceptions", set()).add("ValidationError")
@@ -104,7 +170,7 @@ def dto_import_block(
     application-layer rule that cross-layer imports are absolute.
     """
     referenced = {t for ft in field_types for t in type_tokens(ft)}
-    stdlib = _stdlib_imports(referenced, {"dataclasses": {"dataclass"}})
+    stdlib = stdlib_import_groups(referenced, domain_subdomains, seed={"dataclasses": {"dataclass"}})
     local: dict[str, set[str]] = {}
     for token in referenced:
         owner = domain_subdomains.get(token)
@@ -122,6 +188,6 @@ def protocol_import_block(
     """Imports for a `typing.Protocol` (repository or capability): `Protocol`, stdlib
     types in the signatures, and the domain types they reference (relative)."""
     referenced = {t for sig in method_signatures for t in type_tokens(sig)}
-    stdlib = _stdlib_imports(referenced, {"typing": {"Protocol"}})
+    stdlib = stdlib_import_groups(referenced, domain_subdomains, seed={"typing": {"Protocol"}})
     local = _local_domain_imports(referenced, subdomain=subdomain, domain_subdomains=domain_subdomains)
     return _render([stdlib, local])

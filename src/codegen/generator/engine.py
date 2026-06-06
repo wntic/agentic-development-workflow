@@ -42,10 +42,11 @@ from ..manifest.schema import (
 )
 from . import naming
 from .imports import (
-    _STDLIB,
     dataclass_domain_import_block,
     dto_import_block,
+    import_lines,
     protocol_import_block,
+    resolve_import,
     type_tokens,
 )
 from .store_profiles import StoreProfile, kind_of, profile_for
@@ -591,12 +592,16 @@ class Generator:
             by_subdomain[self.entity_subdomains[result_entity]].add(result_entity)
         if output_type:  # a free output type expression: resolve its tokens (stdlib + domain)
             for token in type_tokens(output_type):
-                if token in _STDLIB:
-                    module, symbol = _STDLIB[token]
-                    stdlib.setdefault(module, set()).add(symbol)
-                elif token in self.domain_subdomains:
+                if token in self.domain_subdomains:
                     by_subdomain[self.domain_subdomains[token]].add(token)
-        stdlib_block = "\n".join(f"from {m} import {', '.join(sorted(n))}" for m, n in sorted(stdlib.items()))
+                    continue
+                spec = resolve_import(token)
+                if spec is not None:
+                    module, symbol = spec
+                    stdlib.setdefault(module, set())
+                    if symbol:
+                        stdlib[module].add(symbol)
+        stdlib_block = "\n".join(import_lines(stdlib))
         if stdlib_block:
             groups.append(stdlib_block)
         domain_lines = [
@@ -1004,12 +1009,16 @@ class Generator:
         domain_by_sub: dict[str, set[str]] = defaultdict(set)
         domain_by_sub[self.domain_subdomains[agg]].add(agg)
         for token in referenced:
-            if token in _STDLIB:
-                module, symbol = _STDLIB[token]
-                stdlib.setdefault(module, set()).add(symbol)
-            elif token in self.domain_subdomains:
+            if token in self.domain_subdomains:
                 domain_by_sub[self.domain_subdomains[token]].add(token)
-        stdlib_lines = [f"from {m} import {', '.join(sorted(n))}" for m, n in sorted(stdlib.items())]
+                continue
+            spec = resolve_import(token)
+            if spec is not None:
+                module, symbol = spec
+                stdlib.setdefault(module, set())
+                if symbol:
+                    stdlib[module].add(symbol)
+        stdlib_lines = import_lines(stdlib)
         # the injected client's import comes from the store profile (postgres → SQLAlchemy
         # async session; qdrant → QdrantClient; unknown kind → none, an untyped client).
         third = [profile.resource_import] if profile.resource_import else []
@@ -1077,13 +1086,17 @@ class Generator:
                 elif d == "cached_property":
                     stdlib.setdefault("functools", set()).add("cached_property")
             for token in type_tokens(m.signature):
-                if token in _STDLIB:
-                    module, symbol = _STDLIB[token]
-                    stdlib.setdefault(module, set()).add(symbol)
-                elif token in self.domain_subdomains:
+                if token in self.domain_subdomains:
                     domain_by_sub[self.domain_subdomains[token]].add(token)
+                    continue
+                spec = resolve_import(token)
+                if spec is not None:
+                    module, symbol = spec
+                    stdlib.setdefault(module, set())
+                    if symbol:
+                        stdlib[module].add(symbol)
         groups: list[str] = []
-        stdlib_lines = [f"from {mod} import {', '.join(sorted(n))}" for mod, n in sorted(stdlib.items())]
+        stdlib_lines = import_lines(stdlib)
         if stdlib_lines:
             groups.append("\n".join(stdlib_lines))
         third = [f"from pydantic import {', '.join(sorted(pydantic_names))}"] if pydantic_names else []
@@ -1164,12 +1177,16 @@ class Generator:
         stdlib: dict[str, set[str]] = {}
         domain_by_sub: dict[str, set[str]] = defaultdict(set)
         for token in referenced:
-            if token in _STDLIB:
-                module, symbol = _STDLIB[token]
-                stdlib.setdefault(module, set()).add(symbol)
-            elif token in self.domain_subdomains:
+            if token in self.domain_subdomains:
                 domain_by_sub[self.domain_subdomains[token]].add(token)
-        stdlib_lines = [f"from {m} import {', '.join(sorted(n))}" for m, n in sorted(stdlib.items())]
+                continue
+            spec = resolve_import(token)
+            if spec is not None:
+                module, symbol = spec
+                stdlib.setdefault(module, set())
+                if symbol:
+                    stdlib[module].add(symbol)
+        stdlib_lines = import_lines(stdlib)
         domain_lines = [
             f"from {self.package}.domain.{sub} import {', '.join(sorted(names))}"
             for sub, names in sorted(domain_by_sub.items())
@@ -1705,7 +1722,7 @@ class Generator:
         return self.env.get_template("restapi_schema.py.j2").render(
             all_names=sorted(s.name for s in schemas),
             classes=classes,
-            import_block=self._schema_imports(referenced, cross),
+            import_block=self._schema_imports(referenced, set(schema_resource), cross),
         )
 
     def _order_schemas(self, schemas) -> list:
@@ -1745,18 +1762,18 @@ class Generator:
         return 3  # UpdateRequest
 
     @staticmethod
-    def _schema_imports(referenced: set[str], cross: dict[str, set[str]] | None = None) -> str:
+    def _schema_imports(referenced: set[str], schema_names: set[str], cross: dict[str, set[str]] | None = None) -> str:
         stdlib: dict[str, set[str]] = {}
-        type_imports = {
-            "UUID": ("uuid", "UUID"),
-            "datetime": ("datetime", "datetime"),
-            "Sequence": ("collections.abc", "Sequence"),
-        }
         for token in referenced:
-            if token in type_imports:
-                module, symbol = type_imports[token]
-                stdlib.setdefault(module, set()).add(symbol)
-        stdlib_block = "\n".join(f"from {m} import {', '.join(sorted(n))}" for m, n in sorted(stdlib.items()))
+            if token in schema_names:
+                continue  # a sibling / cross-resource schema — imported via `cross`, not resolved here
+            spec = resolve_import(token)
+            if spec is not None:
+                module, symbol = spec
+                stdlib.setdefault(module, set())
+                if symbol:
+                    stdlib[module].add(symbol)
+        stdlib_block = "\n".join(import_lines(stdlib))
         pydantic_block = "from pydantic import BaseModel"
         # first-party: schema types defined in a sibling resource module
         cross_block = "\n".join(
