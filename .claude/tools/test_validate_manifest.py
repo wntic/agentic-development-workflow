@@ -206,6 +206,40 @@ def test_id_only_persists_without_with_or_notes_warns() -> None:
     assert _has(report, "unspecified_transition", "ArchiveLabel")
 
 
+# ── skill-coverage gate (§16) ────────────────────────────────────────────────────
+
+
+def test_registry_covers_every_schema_artifact_kind() -> None:
+    """The "done when" guarantee: every artifact kind the schema can parse maps to a producer
+    skill (minus the documented store-profile-driven exemption). A new SCHEMAS list-field with no
+    KIND_TO_SKILL entry fails here, before it could ever reach an uncovered scaffolder."""
+    universe = set(vm.artifact_kind_tokens())
+    expected = universe - vm._PROFILE_DRIVEN_KINDS
+    assert set(vm.KIND_TO_SKILL) == expected, set(vm.KIND_TO_SKILL).symmetric_difference(expected)
+    assert universe >= vm._PROFILE_DRIVEN_KINDS  # the exemption names a real schema kind
+
+
+def test_helpdesk_passes_the_coverage_gate() -> None:
+    report = vm.validate_file(_HELPDESK)
+    assert not _has(report, "skill_gap")
+
+
+def test_unmapped_artifact_kind_is_a_skill_gap(monkeypatch) -> None:
+    """Drop a producer mapping → a manifest that uses that kind trips the presence-gap stop."""
+    patched = dict(vm.KIND_TO_SKILL)
+    patched.pop("domain.entities")
+    monkeypatch.setattr(vm, "KIND_TO_SKILL", patched)
+    report = vm.validate_file(_HELPDESK)  # Helpdesk declares entities
+    assert not report.ok
+    assert _has(report, "skill_gap", "domain.entities")
+
+
+def test_datastore_kind_is_exempt_from_the_gate() -> None:
+    """A free-token datastore never trips the gate — it is store-profile-driven, not skill-mapped."""
+    report = vm.validate_file(_VECTOR_RAG)  # declares a qdrant datastore
+    assert not _has(report, "skill_gap")
+
+
 # ── sources resolution ──────────────────────────────────────────────────────────
 
 

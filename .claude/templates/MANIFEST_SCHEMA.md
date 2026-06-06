@@ -66,28 +66,9 @@ The application handlers are the backend's **public API**; `restapi` is the firs
 
 ## Path and naming derivation
 
-The manifest carries identifiers (entity name, protocol name, command base-name). The knowledge layer derives everything else (skills' templates + the conventions registry). This appendix is the contract — it is Python-pack-specific knowledge that lives in conventions; a different language pack derives differently.
+The manifest carries identifiers (entity name, protocol name, command base-name); the knowledge layer derives everything else — module paths, class-name suffixes, the infrastructure subpackage, table pluralization. That derivation is **Python-pack-specific** (a different language pack derives differently), so it does **not** live in this neutral contract. It is the single authoritative table in the **`conventions` skill** (`.claude/skills/conventions/SKILL.md`, block A "Path & name derivation"); the validator's `KIND_TO_SKILL` mirrors its kind→skill registry, and the scaffolder reads it to place every file.
 
-| Artifact kind | Manifest identifier(s) | Skill-derived class name(s) | Skill-derived file path(s) |
-|---|---|---|---|
-| `domain.enums[*]` | `name: Role`, `subdomain: auth` | `Role` | `domain/auth/role.py` |
-| `domain.value_objects[*]` | `name: Email`, `subdomain: auth` | `Email` | `domain/auth/email.py` |
-| `domain.entities[*]` | `name: User`, `subdomain: auth` | `User` | `domain/auth/user.py` |
-| `domain.services[*]` (orchestrator) | `name: OtpVerifier`, `subdomain: auth` | `OtpVerifier` | `domain/auth/otp_verifier.py` |
-| `domain.filters[*]` | `name: MaterialFilter`, `subdomain: materials` | `MaterialFilter` + sort enum | `domain/materials/material_filter.py` |
-| `domain.repository_protocols[*]` | `name: IUserRepository`, `subdomain: auth` | `IUserRepository` | `domain/auth/i_user_repository.py` |
-| `domain.capability_protocols[*]` | `name: ICanSendEmail`, `subdomain: auth` | `ICanSendEmail` | `domain/auth/i_can_send_email.py` |
-| `domain.exceptions[*]` | `name: NotFoundError` | `NotFoundError` | appended to `domain/exceptions.py` |
-| `application.commands[*]` | `name: RequestOtp` | `RequestOtpCommand` + `RequestOtpHandler` | `application/request_otp_command.py` + `application/request_otp_handler.py` |
-| `application.queries[*]` | `name: ListMaterials` | `ListMaterialsQuery` + `ListMaterialsHandler` + `ListMaterialsResult` | `application/list_materials_query.py` + `_handler.py` + `_result.py` |
-| `infrastructure.datastores[*]` | `name: vectors`, `kind: qdrant` | — (a configured resource, no class) | `infrastructure/qdrant/connection.py` (scaffolded `create_<name>_client`) |
-| `infrastructure.settings[*]` | `name: OpenaiSettings` | `OpenaiSettings` | `infrastructure/<tech>/openai_settings.py` — subpackage DERIVED from the consuming capability `adapter` / datastore `kind`; one class per module |
-| `infrastructure.repositories[*]` | `implements: IUserRepository`, `store: main` | `UserRepository` | `infrastructure/<store.kind>/repositories/user_repository.py` (+ a write-once Table SCAFFOLD at `infrastructure/<kind>/tables/users.py` for a relational store) |
-| `infrastructure.capabilities[*]` | `implements: ICanEmbedText`, `adapter: openai`, `role: TextEmbedder` | `OpenaiTextEmbedder` (`<AdapterPascal><role>`; verb-noun fallback when no `role`) | `infrastructure/openai/openai_text_embedder.py` |
-| `restapi.schemas[*]` | `name: LoginRequest`, `resource: auth` | `LoginRequest` | grouped into `restapi/schemas/auth.py` |
-| `restapi.endpoints[*]` | `method`, `path`, `resource: auth` | (endpoint function, name derived from method+path) | grouped into `restapi/routers/auth.py` |
-
-If you ever feel the urge to add a `module:` or `class_name:` field, push back — the knowledge layer already encodes that derivation and adding it to the manifest creates two sources of truth.
+If you ever feel the urge to add a `module:` or `class_name:` field, push back — the `conventions` skill already encodes that derivation and adding it to the manifest creates two sources of truth.
 
 ## Cross-references
 

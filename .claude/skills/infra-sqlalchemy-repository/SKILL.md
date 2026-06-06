@@ -1,6 +1,6 @@
 ---
 name: infra-sqlalchemy-repository
-description: Apply when a spec needs the infrastructure adapter that satisfies a `domain/.../i_*_repository.py` protocol. Produces one repository class in `infrastructure/db/repositories/` using SQLAlchemy Core (never the ORM), with `async_sessionmaker` (standalone) or `AsyncSession` (UoW-managed) injection, a row-to-entity mapper, and an `IntegrityError`-to-domain-exception translator. Does not produce the protocol (use `domain-repository-protocol`), the table (use `infra-sqlalchemy-table`), or the DI wiring (use `infra-di-provider`).
+description: Apply when a spec needs the infrastructure adapter that satisfies a `domain/.../i_*_repository.py` protocol. Produces one repository class in `infrastructure/postgres/repositories/` using SQLAlchemy Core (never the ORM), with `async_sessionmaker` (standalone) or `AsyncSession` (UoW-managed) injection, a row-to-entity mapper, and an `IntegrityError`-to-domain-exception translator. Does not produce the protocol (use `domain-repository-protocol`), the table (use `infra-sqlalchemy-table`), or the DI wiring (use `infra-di-provider`).
 ---
 
 # Infrastructure SQLAlchemy Repository
@@ -24,7 +24,7 @@ The two forms are mutually exclusive for one class. If both call-styles are genu
 ## File layout
 
 ```
-src/<root>/infrastructure/db/repositories/
+src/<root>/infrastructure/postgres/repositories/
 ├── __init__.py            # update to re-export the new module
 └── foo_repository.py      # this skill writes this file
 ```
@@ -216,7 +216,7 @@ class FooRepository:
 The per-repo `_map_integrity_error` + `_FK_FIELD_MAP` pattern is the default. When ≥3 repositories carry overlapping pgcode handlers (`23503` / `23505` / `23514`), extract a shared module:
 
 ```
-src/<root>/infrastructure/db/integrity_error_mapper.py
+src/<root>/infrastructure/postgres/integrity_error_mapper.py
 ```
 
 The shared module:

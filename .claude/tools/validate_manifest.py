@@ -21,7 +21,12 @@ What it checks (and ONLY this — see spec §6 / MANIFEST_SCHEMA.md):
                 (rule #11): then.raises ∈ node.raises, then.logs == log_event, then.calls
                 dep ∈ dependencies. Reserved audit fields (created_at/updated_at) rejected
                 on entities. Cross-epic refs (`epic:Name`) are warnings, not errors.
-  3. LOUD DEGRADATION (warnings, non-blocking) — a body-bearing node with no behaviour AND
+  3. SKILL COVERAGE (§16) — every artifact KIND present in the manifest has a producer skill
+                in the `kind→skill` registry (KIND_TO_SKILL, mirroring the `conventions` skill).
+                An unmapped kind is a presence-gap → pre-flight stop (error), before the runner
+                spawns scaffolders. Free-token `infrastructure.datastores` is exempt: it is
+                store-profile-driven (degrades gracefully), not skill-dispatched.
+  4. LOUD DEGRADATION (warnings, non-blocking) — a body-bearing node with no behaviour AND
                 no notes (unspecified_body); an id-only command that persists with no
                 `then.with` and no notes (unspecified_transition).
 
@@ -29,9 +34,6 @@ What it does NOT check — by design (spec §6, §0 principle 3): it never parse
 SIGNATURE string. Type/signature correctness is the toolchain's job (mypy/compile). So
 `output: "AsyncIterator[str]"` and any free type expression pass untouched; the validator
 follows only explicit named-reference fields. This is what keeps it thin and language-agnostic.
-
-NOT here yet: the skill-gap coverage gate (§16) needs the conventions `kind→skill` registry,
-which does not exist on this branch yet — it is a later addition to this same tool.
 
 Exit 0 when clean (no errors, no open questions); exit 1 otherwise. Warnings never block.
 """
@@ -331,6 +333,60 @@ SCHEMAS: dict[str, dict[str, F]] = {
         "tests": F(("obj", "Tests"), required=False, default={}),
     },
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Skill-coverage registry — mirrors the `conventions` skill's kind→skill map (§16)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The DETERMINISTIC dispatch: one PRODUCER skill per manifest artifact kind. This is a small
+# data mirror of registry B in `.claude/skills/conventions/SKILL.md` (the way SCHEMAS mirrors
+# MANIFEST_SCHEMA.md) — the source of truth is the conventions skill; this dict is what the
+# pre-flight coverage gate reads so it stays stdlib-only. Companion/test/bootstrap/reference
+# skills are NOT here — they are not per-artifact-kind dispatch (see the conventions skill).
+KIND_TO_SKILL: dict[str, str] = {
+    "domain.enums": "domain-enum",
+    "domain.value_objects": "domain-value-object",
+    "domain.entities": "domain-entity",
+    "domain.services": "domain-service",
+    "domain.repository_protocols": "domain-repository-protocol",
+    "domain.capability_protocols": "domain-capability-protocol",
+    "domain.exceptions": "domain-exception",
+    "application.commands": "application-command",
+    "application.queries": "application-query",
+    "infrastructure.repositories": "infra-sqlalchemy-repository",
+    "infrastructure.settings": "infra-settings",
+    "infrastructure.capabilities": "infra-capability-adapter",
+    "restapi.schemas": "restapi-schema",
+    "restapi.endpoints": "restapi-endpoint",
+    "tests.architecture_rules": "test-architecture-rule",
+}
+
+# Artifact kinds handled by a store PROFILE (conventions), not a producer skill: a free-token
+# `kind` degrades gracefully to a generic client (§3), so an unmapped datastore is never a
+# presence-gap. Excluded from the gate AND from the meta-coverage assertion.
+_PROFILE_DRIVEN_KINDS: frozenset[str] = frozenset({"infrastructure.datastores"})
+
+# The manifest sections whose list-fields ARE artifact kinds (meta is not a producer container).
+_CONTAINER_SCHEMAS: dict[str, str] = {
+    "domain": "Domain",
+    "application": "Application",
+    "infrastructure": "Infrastructure",
+    "restapi": "RestApi",
+    "tests": "Tests",
+}
+
+
+def artifact_kind_tokens() -> list[str]:
+    """Every artifact-kind path token (`<section>.<field>`) the schema knows — derived from the
+    container schemas so it stays in lockstep with SCHEMAS (a new list-field is picked up for
+    free). This is the universe the coverage gate and the meta-coverage test range over."""
+    tokens: list[str] = []
+    for section, schema_name in _CONTAINER_SCHEMAS.items():
+        for fname, fspec in SCHEMAS[schema_name].items():
+            if isinstance(fspec.kind, tuple) and fspec.kind[0] == "list":
+                tokens.append(f"{section}.{fname}")
+    return tokens
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -692,6 +748,35 @@ def _check_sources(m: dict, uc_dir: Path, report: Report) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Stage 4 — skill-coverage gate (§16): every present artifact kind has a producer skill
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _section_list(m: dict, token: str) -> list:
+    """The artifact list for a `<section>.<field>` token in the normalized manifest (defaults
+    fill every container, so this never KeyErrors on a covered manifest)."""
+    section, field = token.split(".", 1)
+    return m.get(section, {}).get(field, [])
+
+
+def _check_skill_coverage(m: dict, report: Report) -> None:
+    """Presence-gap gate (spec §16): a non-empty artifact kind with no `KIND_TO_SKILL` entry is a
+    pre-flight stop. For a manifest that only uses today's schema this never fires (the meta-test
+    pins full coverage) — it trips the day the schema grows a new artifact kind whose skill nobody
+    registered, the deterministic detector that keeps the scaffolder off an uncovered manifest."""
+    for token in artifact_kind_tokens():
+        if token in _PROFILE_DRIVEN_KINDS:
+            continue
+        if _section_list(m, token) and token not in KIND_TO_SKILL:
+            report.add(
+                "error",
+                "skill_gap",
+                f"artifact kind {token!r} has no skill in the kind→skill registry (presence-gap, §16): "
+                f"author the producing skill (via meta-skill-author, human-reviewed) before scaffolding",
+            )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Entry points
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -709,6 +794,7 @@ def validate(data: object, uc_dir: Path | None = None) -> Report:
     report = Report()
     m = _check_mapping(data, "Manifest", "", report)
     _check_graph(m, report)
+    _check_skill_coverage(m, report)
     _check_degradation(m, report)
     if uc_dir is not None:
         _check_sources(m, uc_dir, report)

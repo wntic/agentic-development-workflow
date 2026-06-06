@@ -33,7 +33,7 @@ The rule is binding everywhere **except** for these two named files, each of whi
 1. **`<root>/domain/exceptions.py`** — `DomainError` plus every subclass live in this single file (the error catalogue stays auditable). See `domain-exception` for the file's structure.
 2. **`<root>/restapi/schemas/<resource>.py`** — the four Pydantic wire schemas for one HTTP resource (`<Resource>Response`, `<Resource>ListResponse`, `<Resource>CreateRequest`, `<Resource>UpdateRequest`) sit in one file because they describe the same wire contract from different angles. See `restapi-schema` for the file's structure.
 
-These are the **only** exceptions. The carve-out is by exact file path, not by directory or category — adding a third domain entity to a `domain/foos/foo.py` is still wrong; bundling two adapters into one `infrastructure/db/repositories/` module is still wrong; combining a command and its handler in one `application/` file is still wrong.
+These are the **only** exceptions. The carve-out is by exact file path, not by directory or category — adding a third domain entity to a `domain/foos/foo.py` is still wrong; bundling two adapters into one `infrastructure/postgres/repositories/` module is still wrong; combining a command and its handler in one `application/` file is still wrong.
 
 Route modules (`restapi/routers/<resource>.py`) contain multiple **functions**, not classes, so they don't break this rule at all. No carve-out needed for them.
 

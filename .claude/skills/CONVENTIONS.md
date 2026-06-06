@@ -44,7 +44,7 @@ If a skill's hard-stops fire, it means the spec asked for the wrong artifact —
 
 ### Infrastructure
 
-- `infra-sqlalchemy-table` — SQLAlchemy Core `Table` + lockstep Alembic migration; constraint-naming convention.
+- `infra-sqlalchemy-table` — the write-once SQLAlchemy Core `Table` scaffold (the Alembic revision is authored separately via `alembic revision`, not generated); constraint-naming convention.
 - `infra-sqlalchemy-repository` — repository adapter satisfying a domain protocol; `IntegrityError`-to-domain-exception translator.
 - `infra-capability-adapter` — adapter satisfying a domain `ICan<Verb>` capability protocol (object storage, HTTP gateway, token verifier, renderer); SDK-exception-to-domain-exception translator at the boundary.
 - `infra-settings` — one `pydantic-settings.BaseSettings` per integration.
@@ -71,8 +71,8 @@ If a skill's hard-stops fire, it means the spec asked for the wrong artifact —
 - `test-domain-value-object` — pairs with `domain-value-object`. Canonical-equality + invariant tests; skip the file entirely when the VO has no `__post_init__` and no custom `__eq__`.
 - `test-domain-enum` — pairs with `domain-enum`. Pins every member's value, asserts unknown-value rejection, covers pure-logic methods.
 - `test-domain-service` — pairs with `domain-service`. Orchestrator flavor uses a minimal inline-class protocol stub; pure-logic flavor constructs once at module scope and requires `test_idempotent` for canonicalizers.
-- `test-repository-contract` — pairs with `infra-sqlalchemy-repository`. One file per repository under `tests/integration/db/`; consumes `sf`. CRUD round-trip, every UNIQUE on insert AND update with `context["constraint"]` assertions, `updated_at` advance, cascades, `get_by_*` found/not-found, pagination + sort.
-- `test-infra-capability-adapter` — pairs with `infra-capability-adapter`. One file per adapter; three flavors — containerized (S3/MinIO/Redis under `tests/integration/<area>/`), `respx` over real `httpx` for HTTP gateways (also integration), pure-CPU verifier/renderer (`tests/unit/infrastructure/<area>/`). Asserts `context` keys on every translated `DomainError` to pin the SDK-exception map row-by-row.
+- `test-repository-contract` — pairs with `infra-sqlalchemy-repository`. One file per repository under `tests/integration/postgres/`; consumes `sf`. CRUD round-trip, every UNIQUE on insert AND update with `context["constraint"]` assertions, `updated_at` advance, cascades, `get_by_*` found/not-found, pagination + sort.
+- `test-infra-capability-adapter` — pairs with `infra-capability-adapter`. One file per adapter; three flavors — containerized (S3/MinIO/Redis under `tests/integration/<adapter>/`), `respx` over real `httpx` for HTTP gateways (also integration), pure-CPU verifier/renderer (`tests/unit/infrastructure/<adapter>/`). Asserts `context` keys on every translated `DomainError` to pin the SDK-exception map row-by-row.
 - `test-restapi-endpoint` — pairs with `restapi-endpoint`. One self-contained file per endpoint under `tests/integration/api/<resource>/`; consumes `real_app` + `authed_client`. Pydantic-validated 2xx bodies, exact counts (rollback isolation), cross-org returns 404 (not 403), per-resource fixtures live in the sibling `conftest.py`.
 - `test-architecture-rule` — adds one grep-firewall function to `tests/unit/test_architecture.py`.
 
@@ -80,11 +80,11 @@ If a skill's hard-stops fire, it means the spec asked for the wrong artifact —
 
 | Role | Name | snake_case | plural | Use for |
 
-Derived names follow mechanically:
+Derived names follow mechanically (the authoritative, exhaustive derivation registry — kind→path/class/suffix, store profiles, the kind→skill map, the stack substrate — lives in the [`conventions`](conventions/SKILL.md) reference skill; these examples only anchor the shared vocabulary):
 
 - Module: `foo.py`, `bar.py`
-- Subdomain package: `domain/foos/`, `application/foos/`, `infrastructure/db/repositories/foo_repository.py`
-- Table: `foos_table`, file `infrastructure/db/tables/foos.py`
+- Subdomain package: `domain/foos/`, `application/foos/`, `infrastructure/postgres/repositories/foo_repository.py` (infra groups by tech)
+- Table: `foos_table`, file `infrastructure/postgres/tables/foos.py`
 - Protocol: `IFooRepository` in `i_foo_repository.py`; capability `ICan<Verb>` in `i_can_<verb>.py`
 - Commands / queries: `CreateFooCommand`, `ListFoosQuery`, `CreateFooHandler`, `ListFoosResult`
 - REST schemas: `FooResponse`, `FooListResponse`, `FooCreateRequest`, `FooUpdateRequest`

@@ -1,6 +1,6 @@
 ---
 name: test-repository-contract
-description: Apply when adding or modifying an integration test for a single SQLAlchemy repository class. Produces one test file under `tests/integration/db/test_<aggregate>_repository.py` that drives the real repository against a real Postgres via the `sf` fixture from `test-integration-isolation`, exercising CRUD round-trip, every unique constraint on insert AND update, every cascade, every `get_by_<field>`, and the `updated_at` advance. Asserts `context["constraint"]` on `ConflictError` to pin the `IntegrityError`-to-domain-exception translator's constraint-name map. Does not own the rollback fixture (use `test-integration-isolation`), the repository being tested (use `infra-sqlalchemy-repository`), the schema (use `infra-sqlalchemy-table`), the protocol (use `domain-repository-protocol`), Alembic migration regression tests (separate flat files under `tests/integration/db/`), or any HTTP-layer test (use `test-restapi-endpoint`).
+description: Apply when adding or modifying an integration test for a single SQLAlchemy repository class. Produces one test file under `tests/integration/postgres/test_<aggregate>_repository.py` that drives the real repository against a real Postgres via the `sf` fixture from `test-integration-isolation`, exercising CRUD round-trip, every unique constraint on insert AND update, every cascade, every `get_by_<field>`, and the `updated_at` advance. Asserts `context["constraint"]` on `ConflictError` to pin the `IntegrityError`-to-domain-exception translator's constraint-name map. Does not own the rollback fixture (use `test-integration-isolation`), the repository being tested (use `infra-sqlalchemy-repository`), the schema (use `infra-sqlalchemy-table`), the protocol (use `domain-repository-protocol`), Alembic migration regression tests (separate flat files under `tests/integration/postgres/`), or any HTTP-layer test (use `test-restapi-endpoint`).
 ---
 
 # Test — Repository Contract
@@ -9,8 +9,8 @@ Produces one integration-test file per repository. Catches what unit-level cover
 
 ## When to use vs. neighbours
 
-- A new or modified repository adapter under `infrastructure/db/repositories/` → this skill.
-- Schema-only checks (an index exists, a migration carries data correctly) → separate flat files under `tests/integration/db/` (`test_indexes.py`, `test_<NNNN>_migration.py`) that use `db_settings` and `run_alembic`, not `sf`.
+- A new or modified repository adapter under `infrastructure/postgres/repositories/` → this skill.
+- Schema-only checks (an index exists, a migration carries data correctly) → separate flat files under `tests/integration/postgres/` (`test_indexes.py`, `test_<NNNN>_migration.py`) that use `db_settings` and `run_alembic`, not `sf`.
 - HTTP-layer integration (route, auth, OpenAPI) → `test-restapi-endpoint`.
 - The rollback `conftest.py` itself → `test-integration-isolation` (one-shot).
 - Pure domain test → `test-domain-entity` / `test-domain-value-object` / `test-domain-enum` / `test-domain-service`.
@@ -18,7 +18,7 @@ Produces one integration-test file per repository. Catches what unit-level cover
 ## Template(s)
 
 ```
-tests/integration/db/
+tests/integration/postgres/
 └── test_<aggregate_snake>_repository.py
 ```
 
@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from myapp.domain.exceptions import ConflictError, NotFoundError
 from myapp.domain.foos import Foo, FooListFilter
-from myapp.infrastructure.db.repositories.foo_repository import FooRepository
+from myapp.infrastructure.postgres.repositories.foo_repository import FooRepository
 
 def _foo(name: str = "alpha") -> Foo:
     return Foo(id=uuid.uuid7(), name=name)
@@ -163,11 +163,11 @@ async def test_attachment_with_wrong_parent_raises_not_found(
 9. **`assert list_result == expected_list`** — exact equality, not `any(...)`. Empty DB makes this correct.
 10. **No raw INSERTs for seed data on the table under test.** Drive setup through the repository's own `create`. Cross-aggregate seed rows (a referenced `Bar` for a `Foo` test) may use raw INSERT when no `BarRepository.create` is in scope — or inject the bar's repo and use it.
 11. **No FastAPI, no `httpx`, no DI container.** This test imports the repository class, takes `sf`, calls methods, asserts. The HTTP surface is `test-restapi-endpoint`.
-12. **Migration regression tests are separate.** They live flat at `tests/integration/db/test_<NNNN>_migration.py`, take `db_settings`, invoke `run_alembic`, and may `downgrade` / `upgrade`. Ordinary repository tests cannot — they assume `head` is applied.
+12. **Migration regression tests are separate.** They live flat at `tests/integration/postgres/test_<NNNN>_migration.py`, take `db_settings`, invoke `run_alembic`, and may `downgrade` / `upgrade`. Ordinary repository tests cannot — they assume `head` is applied.
 
 ## Inlined typing / import rules
 
-- `pytest`, `sqlalchemy.ext.asyncio`, stdlib `uuid`, `myapp.domain.*`, `myapp.infrastructure.db.repositories.*`. No `myapp.application.*`, no `myapp.restapi.*`.
+- `pytest`, `sqlalchemy.ext.asyncio`, stdlib `uuid`, `myapp.domain.*`, `myapp.infrastructure.postgres.repositories.*`. No `myapp.application.*`, no `myapp.restapi.*`.
 - Full annotations on every test signature including `sf: async_sessionmaker[AsyncSession]`.
 - Builder `_<aggregate>()` returns the entity type; overrides keyword-only.
 - No `from __future__ import annotations`.

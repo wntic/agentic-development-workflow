@@ -10,7 +10,7 @@ Produces one test file per capability adapter. Catches what unit-level coverage 
 
 ## When to use vs. neighbours
 
-- A new or modified adapter under `infrastructure/<area>/` (not `infrastructure/db/repositories/`) → this skill.
+- A new or modified adapter under `infrastructure/<adapter>/` (not `infrastructure/postgres/repositories/`) → this skill.
 - A SQLAlchemy repository → `test-repository-contract`, not this skill.
 - A fake the unit-test layer consumes → `test-fake-repository`. The fake's exception contract must match what the integration test pins here.
 - The rollback / container `conftest.py` itself → `test-integration-isolation` (one-shot).
@@ -19,9 +19,9 @@ Produces one test file per capability adapter. Catches what unit-level coverage 
 
 ## Pick the flavor
 
-- **Containerized backend.** Adapter speaks to a service that runs in a Testcontainer (MinIO for S3, Postgres for non-aggregate stores, Redis, Kafka). Drives the real client against the real container; consumes a resource fixture (`s3`, `minio_bucket`, `redis`) from the integration conftest. **Lives under `tests/integration/<area>/`.**
-- **HTTP gateway with `respx`.** Adapter speaks `httpx` to a third-party HTTP API. Wraps the real `httpx.AsyncClient` with `respx.mock` and asserts the request shape (URL, headers, body) on the way out and the translated response on the way back. The adapter code is real; only the network is intercepted. **Lives under `tests/integration/<area>/`.**
-- **Pure-CPU.** Adapter does no IO — a JWT verifier, a canonicalizer, a renderer over in-memory bytes. Stdlib + the real crypto / parsing library. No fixtures, no containers. **Lives under `tests/unit/infrastructure/<area>/`.**
+- **Containerized backend.** Adapter speaks to a service that runs in a Testcontainer (MinIO for S3, Postgres for non-aggregate stores, Redis, Kafka). Drives the real client against the real container; consumes a resource fixture (`s3`, `minio_bucket`, `redis`) from the integration conftest. **Lives under `tests/integration/<adapter>/`.**
+- **HTTP gateway with `respx`.** Adapter speaks `httpx` to a third-party HTTP API. Wraps the real `httpx.AsyncClient` with `respx.mock` and asserts the request shape (URL, headers, body) on the way out and the translated response on the way back. The adapter code is real; only the network is intercepted. **Lives under `tests/integration/<adapter>/`.**
+- **Pure-CPU.** Adapter does no IO — a JWT verifier, a canonicalizer, a renderer over in-memory bytes. Stdlib + the real crypto / parsing library. No fixtures, no containers. **Lives under `tests/unit/infrastructure/<adapter>/`.**
 
 The flavor mirrors the adapter's template in `infra-capability-adapter` (real-SDK, HTTP gateway, sync pure-CPU). If the spec asks for two flavors in one file, split — one file per adapter, but `unit/` for pure-CPU and `integration/` for IO-bearing means a containerized adapter and a CPU adapter live in different roots regardless.
 
@@ -30,8 +30,8 @@ The flavor mirrors the adapter's template in `infra-capability-adapter` (real-SD
 ### Containerized backend (S3 / MinIO via the `s3` fixture)
 
 ```
-tests/integration/<area>/
-└── test_<tech>_<aggregate>_<area>.py
+tests/integration/<adapter>/
+└── test_<tech>_<aggregate>_<adapter>.py
 ```
 
 ```python
@@ -39,8 +39,8 @@ import pytest
 from aioboto3 import Session
 
 from myapp.domain.exceptions import NotFoundError, UpstreamError
-from myapp.infrastructure.storage.s3_foo_storage import S3FooStorage
-from myapp.infrastructure.storage.settings import StorageSettings
+from myapp.infrastructure.s3.s3_foo_storage import S3FooStorage
+from myapp.infrastructure.s3.settings import StorageSettings
 
 async def test_upload_then_head_object_succeeds(
     s3_session: Session,
@@ -94,7 +94,7 @@ async def test_upload_to_nonexistent_bucket_raises_upstream_error(
 ### HTTP gateway with `respx`
 
 ```
-tests/integration/<area>/
+tests/integration/<adapter>/
 └── test_http_<vendor>_gateway.py
 ```
 
@@ -105,8 +105,8 @@ import respx
 
 from myapp.domain.bars import BarToken
 from myapp.domain.exceptions import NotFoundError, UpstreamError, ValidationError
-from myapp.infrastructure.gateways.bar.http_bar_gateway import HttpBarGateway
-from myapp.infrastructure.gateways.bar.settings import BarGatewaySettings
+from myapp.infrastructure.bar.http_bar_gateway import HttpBarGateway
+from myapp.infrastructure.bar.settings import BarGatewaySettings
 
 _BASE_URL = "https://api.bar.example"
 
@@ -188,7 +188,7 @@ async def test_fetch_token_network_error_raises_upstream(
 ### Pure-CPU verifier / renderer
 
 ```
-tests/unit/infrastructure/<area>/
+tests/unit/infrastructure/<adapter>/
 └── test_<tech>_<verb>.py
 ```
 
@@ -202,8 +202,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from myapp.domain.auth import BarToken
 from myapp.domain.exceptions import AuthError
-from myapp.infrastructure.auth.pyjwt_bar_token_verifier import PyJwtBarTokenVerifier
-from myapp.infrastructure.auth.settings import JwtSettings
+from myapp.infrastructure.jwt.pyjwt_bar_token_verifier import PyJwtBarTokenVerifier
+from myapp.infrastructure.jwt.settings import JwtSettings
 
 def _keypair() -> tuple[str, str]:
     private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -273,7 +273,7 @@ def test_verify_tampered_signature_raises_auth_error() -> None:
 ### Form
 
 1. **One test file per adapter.** Naming: `test_<tech>_<aggregate_or_area>.py` (containerized / respx) or `test_<tech>_<verb>.py` (CPU). Mirrors the adapter's module name.
-2. **Path follows the flavor.** Containerized + respx → `tests/integration/<area>/`. CPU → `tests/unit/infrastructure/<area>/`.
+2. **Path follows the flavor.** Containerized + respx → `tests/integration/<adapter>/`. CPU → `tests/unit/infrastructure/<adapter>/`.
 3. **Module-level helpers, not fixtures, for keypairs / canonical inputs** in CPU tests. Construct once at module scope.
 
 ### Coverage
@@ -311,7 +311,7 @@ def test_verify_tampered_signature_raises_auth_error() -> None:
 
 ## Inlined typing / import rules
 
-- `pytest`, `respx` (HTTP flavor), `httpx`, `jwt` / `cryptography` (CPU flavor), the real SDK, `myapp.domain.*`, `myapp.infrastructure.<area>.*`. No `myapp.application.*`, no `myapp.restapi.*`.
+- `pytest`, `respx` (HTTP flavor), `httpx`, `jwt` / `cryptography` (CPU flavor), the real SDK, `myapp.domain.*`, `myapp.infrastructure.<adapter>.*`. No `myapp.application.*`, no `myapp.restapi.*`.
 - Full annotations on every test signature. Resource-fixture types (`Session`, `httpx.AsyncClient`) come from the SDK / library, not the project.
 - No `from __future__ import annotations`.
 

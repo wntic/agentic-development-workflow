@@ -1,6 +1,6 @@
 ---
 name: application-unit-of-work
-description: Apply when a single operation must persist changes across multiple repositories atomically (typically a write paired with an audit-log append, or update + outbox row). Produces three artifacts — the `IUnitOfWork` protocol in `domain/`, the SQLAlchemy implementation in `infrastructure/db/`, and the handler integration pattern. Use only when ≥2 repositories must commit together; single-repo handlers stay on `session_factory` style (see `infra-sqlalchemy-repository`).
+description: Apply when a single operation must persist changes across multiple repositories atomically (typically a write paired with an audit-log append, or update + outbox row). Produces three artifacts — the `IUnitOfWork` protocol in `domain/`, the SQLAlchemy implementation in `infrastructure/postgres/`, and the handler integration pattern. Use only when ≥2 repositories must commit together; single-repo handlers stay on `session_factory` style (see `infra-sqlalchemy-repository`).
 ---
 
 # Application Unit of Work
@@ -8,7 +8,7 @@ description: Apply when a single operation must persist changes across multiple 
 Produces the cross-cutting transactional-boundary abstraction. Three artifacts:
 
 1. **Protocol:** `src/<root>/domain/i_unit_of_work.py` (or `i_<scope>_unit_of_work.py` if multiple scopes).
-2. **Implementation:** `src/<root>/infrastructure/db/sqlalchemy_unit_of_work.py`.
+2. **Implementation:** `src/<root>/infrastructure/postgres/sqlalchemy_unit_of_work.py`.
 3. **Handler integration:** modify a command handler (produced by `application-command`) to receive `uow_factory: Callable[[], IUnitOfWork]` and call `async with self._uow_factory() as uow: ...`.
 
 ## When to use it
@@ -54,10 +54,10 @@ Repository attributes are typed by their **domain protocols**, never by concrete
 ## Template — SQLAlchemy implementation
 
 ```python
-# src/<root>/infrastructure/db/sqlalchemy_unit_of_work.py
+# src/<root>/infrastructure/postgres/sqlalchemy_unit_of_work.py
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from myapp.infrastructure.db.repositories import FooRepository, AuditRepository
+from myapp.infrastructure.postgres.repositories import FooRepository, AuditRepository
 
 __all__ = ["SqlAlchemyUnitOfWork"]
 

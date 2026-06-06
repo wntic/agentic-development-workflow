@@ -1,6 +1,6 @@
 ---
 name: infra-capability-adapter
-description: Apply when a spec needs the infrastructure adapter that satisfies a `domain/.../i_can_<verb>.py` capability protocol — object storage, token verifier, file renderer, third-party HTTP gateway, message publisher. Produces one adapter class under `infrastructure/<area>/<adapter>.py` that wraps an SDK client (boto3, httpx, PyJWT, python-docx, …) and translates SDK exceptions into domain exceptions at the boundary. Does not produce the protocol (use `domain-capability-protocol`), the settings class (use `infra-settings`), the DI wiring (use `infra-di-provider`), or the SQLAlchemy repository for an aggregate (use `infra-sqlalchemy-repository`).
+description: Apply when a spec needs the infrastructure adapter that satisfies a `domain/.../i_can_<verb>.py` capability protocol — object storage, token verifier, file renderer, third-party HTTP gateway, message publisher. Produces one adapter class under `infrastructure/<adapter>/` — grouped by the external tech (`s3/`, `jwt/`, `openai/`), never by domain concern — that wraps an SDK client (boto3, httpx, PyJWT, python-docx, …) and translates SDK exceptions into domain exceptions at the boundary. Does not produce the protocol (use `domain-capability-protocol`), the settings class (use `infra-settings`), the DI wiring (use `infra-di-provider`), or the SQLAlchemy repository for an aggregate (use `infra-sqlalchemy-repository`).
 
 ---
 
@@ -12,19 +12,19 @@ Produces one adapter class that adapts a domain `ICan<Verb>` capability protocol
 
 - Aggregate-root CRUD over Postgres → `infra-sqlalchemy-repository`, not this skill.
 - The `ICan<Verb>` protocol file → `domain-capability-protocol`.
-- The settings class (`<Area>Settings`) the adapter consumes → `infra-settings`.
+- The settings class (`<Tech>Settings`) the adapter consumes → `infra-settings`.
 - The DI provider that constructs this adapter → `infra-di-provider` (almost always `Singleton`).
 - An in-memory test stand-in for this capability → `test-fake-repository` (the `Fake<Capability>` flavor).
 
 ## File layout
 
 ```
-src/<root>/infrastructure/<area>/
+src/<root>/infrastructure/<adapter>/    # <adapter> = the external tech: s3, jwt, openai, …
 ├── __init__.py            # update to re-export the new module
 └── s3_foo_storage.py      # this skill writes this file
 ```
 
-`<area>` reflects the capability, not the SDK: `storage/`, `auth/`, `rendering/`, `gateways/<vendor>/`, `messaging/`. The filename names the tech (`s3_*`, `jwt_*`, `docx_*`, `<vendor>_*`); the class follows.
+`<adapter>` is the external tech the adapter wraps (the manifest `adapter:` token): `s3/`, `jwt/`, `openai/`, `docx/`, `<vendor>/`. Infra groups by tech, not by domain concern. The filename names the tech too (`s3_*`, `pyjwt_*`, `docx_*`, `<vendor>_*`); the class follows (`<AdapterPascal><Role>`).
 
 ## Template — async, SDK-client form
 
@@ -175,7 +175,7 @@ class PyJwtBarTokenVerifier:
 1. **One class per module.** Filename names the tech (`s3_foo_storage.py`, `http_bar_gateway.py`, `pyjwt_bar_token_verifier.py`); class follows. The class name carries the concrete tech (`S3FooStorage`, not `FooStorage`).
 2. **No explicit `(ICanX)` inheritance.** Structural subtyping at the DI site is the contract.
 3. **Method signatures match the protocol exactly**, including keyword-only markers and async/sync mode.
-4. **Place the module in `infrastructure/<area>/`, not under `db/`.** `db/` is reserved for SQLAlchemy artifacts. Capability adapters live in their own area (`storage/`, `auth/`, `rendering/`, `gateways/<vendor>/`, `messaging/`).
+4. **Place the module in `infrastructure/<adapter>/`** — its own external-tech directory (`s3/`, `jwt/`, `openai/`, …). Infra groups by external tech, never by domain concern; relational artifacts live under `infrastructure/postgres/`, each capability adapter under its own tech dir.
 
 ### Constructor
 
@@ -203,7 +203,7 @@ class PyJwtBarTokenVerifier:
 
 ## Inlined typing / import rules
 
-- Domain imports absolute (`from myapp.domain.foos import ICanStoreFoos`). Sibling modules within the same `infrastructure/<area>/` package use relative imports (`from .settings import BlobsSettings`).
+- Domain imports absolute (`from myapp.domain.foos import ICanStoreFoos`). Sibling modules within the same `infrastructure/<adapter>/` package use relative imports (`from .settings import BlobsSettings`).
 - No `from __future__ import annotations`. Full annotations on every method.
 - `X | None` over `Optional`. `Mapping[K, V]` / `Sequence[T]` (from `collections.abc`) for read-only views.
 - SDK types stay inside the adapter; method signatures use domain types or primitives only.
@@ -211,7 +211,7 @@ class PyJwtBarTokenVerifier:
 
 ## Package wiring
 
-The `infrastructure/<area>/__init__.py` re-exports the new module via `from .s3_foo_storage import *`. Follow `general-python-package`.
+The `infrastructure/<adapter>/__init__.py` re-exports the new module via `from .s3_foo_storage import *`. Follow `general-python-package`.
 
 ## Hard stops
 

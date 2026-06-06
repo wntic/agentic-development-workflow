@@ -69,7 +69,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from httpx import ASGITransport, AsyncClient
 
 from myapp.domain.auth import Role
-from myapp.infrastructure.auth.settings import JwtSettings
+from myapp.infrastructure.jwt.settings import JwtSettings
 
 from tests.helpers.jwt import sign_token
 
@@ -148,7 +148,7 @@ Per-resource fixtures (`make_foo`, `foo_id`, `bar_id`, …) live in `tests/integ
 
 `real_app` (defined up-tree in `tests/integration/conftest.py` by `test-integration-isolation`) declares `jwt_settings` as one of its parameters and calls `container.jwt_settings.override(jwt_settings)`. Pytest resolves that name by walking the conftest hierarchy from the running test outward — for tests under `tests/integration/api/`, the `jwt_settings` fixture produced here is visible. Without this override, every `authed_client`-minted token would be signed with the test keypair but verified against the production public key the container loaded at startup — every authenticated test would fail with 401.
 
-The coupling has a cost: `real_app` cannot be used from tests outside `tests/integration/api/` (e.g. `tests/integration/db/`), because `jwt_settings` isn't visible there. That's fine — repository contract tests use `sf` directly and never construct the FastAPI app.
+The coupling has a cost: `real_app` cannot be used from tests outside `tests/integration/api/` (e.g. `tests/integration/postgres/`), because `jwt_settings` isn't visible there. That's fine — repository contract tests use `sf` directly and never construct the FastAPI app.
 
 ## Rules
 
@@ -165,7 +165,7 @@ The coupling has a cost: `real_app` cannot be used from tests outside `tests/int
 
 ## Inlined typing / import rules
 
-- `pytest`, `httpx`, `jwt` (PyJWT), `cryptography.hazmat.*`, stdlib `uuid` / `datetime`, `myapp.domain.auth`, `myapp.infrastructure.auth.settings`.
+- `pytest`, `httpx`, `jwt` (PyJWT), `cryptography.hazmat.*`, stdlib `uuid` / `datetime`, `myapp.domain.auth`, `myapp.infrastructure.jwt.settings`.
 - Full annotations on the factory and `_factory` closure.
 - No `from __future__ import annotations`.
 

@@ -11,7 +11,7 @@ Produces one protocol module: the collection-style data-access interface for a s
 
 - Aggregate-root data access (CRUD + aggregate-specific reads) → this skill.
 - A single-action capability that doesn't fit "collection of an aggregate" (file rendering, token verification, blob storage) → `domain-capability-protocol`.
-- The concrete implementation in `infrastructure/db/repositories/` → `infra-sqlalchemy-repository`.
+- The concrete implementation in `infrastructure/postgres/repositories/` → `infra-sqlalchemy-repository`.
 
 ## File location and naming
 

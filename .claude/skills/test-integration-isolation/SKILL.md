@@ -33,9 +33,9 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
 )
 
-from myapp.infrastructure.db.engine import create_engine, dispose_engine
-from myapp.infrastructure.db.settings import DbSettings
-from myapp.infrastructure.storage.settings import StorageSettings
+from myapp.infrastructure.postgres.engine import create_engine, dispose_engine
+from myapp.infrastructure.postgres.settings import DbSettings
+from myapp.infrastructure.s3.settings import StorageSettings
 
 # ---------- container lifecycle (session-scoped) ----------
 
@@ -198,7 +198,7 @@ async def real_app(
     Resolution note: `jwt_settings` is defined down-tree in
     `tests/integration/api/conftest.py`. This fixture works only for
     tests under `tests/integration/api/` (the only place that needs
-    `real_app`). Tests in `tests/integration/db/` use `sf` directly and
+    `real_app`). Tests in `tests/integration/postgres/` use `sf` directly and
     do not need `real_app`.
     """
     from myapp.containers import Container
@@ -277,7 +277,7 @@ One `.reset()` line per such Singleton. Skip the entire fixture if none exist �
 
 ## Inlined typing / import rules
 
-- `pytest`, `sqlalchemy.ext.asyncio`, `subprocess`, `os`, `sys`, stdlib `collections.abc` — and the project's `infrastructure.db.*` + `infrastructure.storage.*`.
+- `pytest`, `sqlalchemy.ext.asyncio`, `subprocess`, `os`, `sys`, stdlib `collections.abc` — and the project's `infrastructure.postgres.*` + `infrastructure.s3.*`.
 - Full annotations on every fixture signature. `AsyncIterator[T]` for yielding fixtures with cleanup.
 - No `from __future__ import annotations`.
 
