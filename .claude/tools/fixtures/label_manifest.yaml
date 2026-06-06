@@ -1,0 +1,276 @@
+# Label epic (UC-03) — the schema/validator parse fixture. A small, almost-pure-CRUD
+# aggregate: a ticket Label in the helpdesk domain. The generate-vs-scaffold split is
+# derived from node category, not declared (spec §3): handlers are scaffolded, the rest
+# of the domain is generated. The interesting node is DeleteLabel — its delete rule
+# (in-use / archived → ConflictError) is carried ENTIRELY by its behaviour scenarios
+# (no executable `condition` in the manifest, §5); the implementer reconstructs the check
+# from those scenarios. Exercises the §9 canonical mechanism.
+
+meta:
+  epic: 03-labels
+  name: "Manage labels — reference data CRUD"
+  sources: [UC-03]
+
+domain:
+
+  entities:
+    - name: Label
+      subdomain: support
+      fields:                          # domain state only — created_at/updated_at are a table audit
+        - {name: id, type: UUID}       # convention (DB-managed), NOT domain fields, so not listed here
+        - {name: name, type: str}
+        - {name: is_pinned, type: bool, default: "False"}
+        - {name: is_archived, type: bool, default: "False"}
+        - {name: usage_count, type: int, default: "0"}
+      # No runtime invariants: UC-03 gives no enforceable rule on Label's own state (name is
+      # "required, free text", no bounds). An invariant entry = {rule, field, source} would
+      # produce a scaffolded __post_init__; there is none here.
+      sources: [UC-03]
+
+  repository_protocols:
+    - name: ILabelRepository
+      subdomain: support
+      aggregate: Label
+      methods:
+        - "async def add(self, label: Label) -> None"
+        - "async def get_by_id(self, label_id: UUID) -> Label"
+        - "async def update(self, label: Label) -> None"
+        - "async def delete(self, label_id: UUID) -> None"
+        - "async def list(self, include_archived: bool) -> tuple[tuple[Label, ...], int]"
+      raises: [NotFoundError, ConflictError]
+      sources: [UC-03]
+
+  # Every exception the epic uses is declared here — there is no hardcoded standard catalog.
+  # Codes are SCREAMING_SNAKE (domain-exception skill); all subclass DomainError.
+  exceptions:
+    - {name: NotFoundError, code: NOT_FOUND, http_status: 404, sources: [UC-03]}
+    - {name: ConflictError, code: CONFLICT, http_status: 409, sources: [UC-03]}
+
+application:
+
+  commands:
+    - name: CreateLabel
+      input:
+        - {name: name, type: str}
+        - {name: is_pinned, type: bool, default: "False"}
+      output: "UUID"
+      handler: {dependencies: [ILabelRepository]}
+      log_event: label_created
+      behaviour:
+        - given: "a valid name"
+          arrange: []
+          when: execute
+          act: {name: "urgent"}
+          then: {persists: Label}
+          source: UC-03
+      sources: [UC-03]
+
+    - name: UpdateLabel
+      input:
+        - {name: label_id, type: UUID}
+        - {name: name, type: "str | None", optional: true}
+        - {name: is_pinned, type: "bool | None", optional: true}
+      output: "None"
+      handler: {dependencies: [ILabelRepository]}
+      log_event: label_updated
+      raises: [NotFoundError]
+      behaviour:
+        - given: "an existing label and a new name"
+          arrange:
+            - {entity: Label, fields: {id: "11111111-1111-1111-1111-111111111111", name: "billng"}}
+          when: execute
+          act: {label_id: "11111111-1111-1111-1111-111111111111", name: "billing"}
+          then: {persists: Label}
+          source: UC-03
+        - given: "no label exists with the supplied id"
+          arrange: []
+          when: execute
+          act: {label_id: "22222222-2222-2222-2222-222222222222", name: "billing"}
+          then: {raises: NotFoundError}
+          source: UC-03
+      sources: [UC-03]
+
+    - name: DeleteLabel
+      input:
+        - {name: label_id, type: UUID}
+      output: "None"
+      handler: {dependencies: [ILabelRepository]}
+      log_event: label_deleted
+      raises: [NotFoundError, ConflictError]
+      behaviour:
+        - given: "a label with usage_count > 0"
+          arrange:
+            - {entity: Label, fields: {id: "33333333-3333-3333-3333-333333333333", usage_count: 3}}
+          when: execute
+          act: {label_id: "33333333-3333-3333-3333-333333333333"}
+          then: {raises: ConflictError}
+          source: UC-03
+        - given: "an archived label"
+          arrange:
+            - {entity: Label, fields: {id: "44444444-4444-4444-4444-444444444444", is_archived: true}}
+          when: execute
+          act: {label_id: "44444444-4444-4444-4444-444444444444"}
+          then: {raises: ConflictError}
+          source: UC-03
+        - given: "a live, unused label (usage_count = 0)"
+          arrange:
+            - {entity: Label, fields: {id: "55555555-5555-5555-5555-555555555555", usage_count: 0, is_archived: false}}
+          when: execute
+          act: {label_id: "55555555-5555-5555-5555-555555555555"}
+          then: {deletes: Label}
+          source: UC-03
+      sources: [UC-03]
+
+    - name: ArchiveLabel
+      input:
+        - {name: label_id, type: UUID}
+      output: "None"
+      handler: {dependencies: [ILabelRepository]}
+      log_event: label_archived
+      raises: [NotFoundError]
+      behaviour:
+        - given: "a live label"
+          arrange:
+            - {entity: Label, fields: {id: "66666666-6666-6666-6666-666666666666", is_archived: false}}
+          when: execute
+          act: {label_id: "66666666-6666-6666-6666-666666666666"}
+          then: {persists: Label, with: {is_archived: true}}
+          source: UC-03
+      sources: [UC-03]
+
+    - name: UnarchiveLabel
+      input:
+        - {name: label_id, type: UUID}
+      output: "None"
+      handler: {dependencies: [ILabelRepository]}
+      log_event: label_unarchived
+      raises: [NotFoundError]
+      behaviour:
+        - given: "an archived label"
+          arrange:
+            - {entity: Label, fields: {id: "77777777-7777-7777-7777-777777777777", is_archived: true}}
+          when: execute
+          act: {label_id: "77777777-7777-7777-7777-777777777777"}
+          then: {persists: Label, with: {is_archived: false}}
+          source: UC-03
+      sources: [UC-03]
+
+  queries:
+    - name: ListLabels
+      input:
+        - {name: include_archived, type: bool, default: "False"}
+      output: LabelListResult
+      result_fields:
+        - {name: items, type: "tuple[Label, ...]"}
+        - {name: total, type: int}
+      handler: {dependencies: [ILabelRepository]}
+      behaviour:
+        - given: "live and archived labels exist, include_archived = false"
+          arrange:
+            - {entity: Label, fields: {name: "alpha", is_archived: false}}
+            - {entity: Label, fields: {name: "beta", is_archived: true}}
+          when: execute
+          act: {include_archived: false}
+          then: {returns: LabelListResult}
+          source: UC-03
+      sources: [UC-03]
+
+    - name: GetLabel                          # single read — used for create/update read-back
+      input:
+        - {name: label_id, type: UUID}
+      output: Label
+      handler: {dependencies: [ILabelRepository]}
+      raises: [NotFoundError]
+      behaviour:
+        - given: "an existing label"
+          arrange:
+            - {entity: Label, fields: {id: "88888888-8888-8888-8888-888888888888", name: "urgent"}}
+          when: execute
+          act: {label_id: "88888888-8888-8888-8888-888888888888"}
+          then: {returns: Label}
+          source: UC-03
+        - given: "no label with the supplied id"
+          arrange: []
+          when: execute
+          act: {label_id: "99999999-9999-9999-9999-999999999999"}
+          then: {raises: NotFoundError}
+          source: UC-03
+      sources: [UC-03]
+
+infrastructure:
+
+  # No `tables:` block (removed with the table→scaffold redesign). A repository with no
+  # `store` defaults to the implicit Postgres store (legacy single-store behaviour); the
+  # table schema is a write-once scaffold the implementer fills.
+
+  repositories:
+    - implements: ILabelRepository
+      backs: Label
+      sources: [UC-03]
+
+restapi:
+
+  schemas:
+    - name: LabelResponse
+      resource: labels
+      kind: response
+      fields:
+        - {name: id, type: UUID}
+        - {name: name, type: str}
+        - {name: is_pinned, type: bool}
+        - {name: is_archived, type: bool}
+        - {name: usage_count, type: int}
+      sources: [UC-03]
+    - name: LabelCreateRequest
+      resource: labels
+      kind: request
+      fields:
+        - {name: name, type: str}
+        - {name: is_pinned, type: bool}
+      sources: [UC-03]
+    - name: LabelUpdateRequest
+      resource: labels
+      kind: request
+      fields:
+        - {name: name, type: "str | None"}
+        - {name: is_pinned, type: "bool | None"}
+      sources: [UC-03]
+    - name: LabelListResponse
+      resource: labels
+      kind: response
+      fields:
+        - {name: items, type: "Sequence[LabelResponse]"}
+        - {name: total, type: int}
+      sources: [UC-03]
+
+  endpoints:                       # status_code derived from method (POST→201, DELETE→204);
+                                     # advertised errors derived from the handler's raises + auth
+    - method: POST
+      path: /labels
+      resource: labels
+      auth: role:ADMIN
+      request: LabelCreateRequest
+      response: LabelResponse
+      handler: CreateLabel
+      sources: [UC-03]
+    - method: GET
+      path: /labels
+      resource: labels
+      auth: authenticated
+      response: LabelListResponse
+      handler: ListLabels
+      sources: [UC-03]
+    - method: PATCH
+      path: /labels/{label_id}
+      resource: labels
+      auth: role:ADMIN
+      request: LabelUpdateRequest
+      response: LabelResponse
+      handler: UpdateLabel
+      sources: [UC-03]
+    - method: DELETE
+      path: /labels/{label_id}
+      resource: labels
+      auth: role:ADMIN
+      handler: DeleteLabel
+      sources: [UC-03]

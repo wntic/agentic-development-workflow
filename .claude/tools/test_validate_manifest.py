@@ -1,0 +1,229 @@
+"""Tests for the stdlib manifest validator (.claude/tools/validate_manifest.py).
+
+Lives next to the validator. Run it explicitly (it is outside the default `tests/` path):
+
+    uv run pytest .claude/tools/test_validate_manifest.py
+
+Mirrors the key graph/degradation/sources cases of the old codegen graph-validator test
+suite, plus the FORM checks the old design delegated to Pydantic (unknown/missing/enum/then).
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import validate_manifest as vm
+
+_FIXTURES = Path(__file__).resolve().parent / "fixtures"  # manifests live next to the tool
+_FIXTURE = _FIXTURES / "label_manifest.yaml"
+_HELPDESK = _FIXTURES / "helpdesk_manifest.yaml"
+_VECTOR_RAG = _FIXTURES / "vector_rag_manifest.yaml"
+# `sources:` resolution (--uc-dir) is exercised against a tmp_path mock — the tool stores no UCs;
+# at pipeline time the runner points --uc-dir at the consuming project's specs/use-cases.
+
+
+def _data(mutate=None) -> dict:
+    data = vm.load_yaml(_FIXTURE)
+    if mutate is not None:
+        mutate(data)
+    return data
+
+
+def _command(data: dict, name: str) -> dict:
+    return next(c for c in data["application"]["commands"] if c["name"] == name)
+
+
+def _has(report: vm.Report, code: str, needle: str | None = None) -> bool:
+    return any(f.code == code and (needle is None or needle in f.message) for f in report.findings)
+
+
+# ── clean: the real fixtures validate with no errors/questions ──────────────────
+
+
+def test_helpdesk_is_clean() -> None:
+    assert vm.validate_file(_HELPDESK).ok
+
+
+def test_vector_rag_is_clean() -> None:
+    assert vm.validate_file(_VECTOR_RAG).ok
+
+
+def test_label_fixture_is_clean() -> None:
+    report = vm.validate_file(_FIXTURE)
+    assert report.ok
+    assert report.errors == []
+    assert report.warnings == []
+
+
+# ── graph integrity (rule #2) ──────────────────────────────────────────────────
+
+
+def test_unresolved_handler_dependency() -> None:
+    report = vm.validate(
+        _data(lambda d: _command(d, "DeleteLabel")["handler"]["dependencies"].append("IGhostRepository"))
+    )
+    assert not report.ok
+    assert _has(report, "unresolved_ref", "IGhostRepository")
+
+
+def test_undeclared_exception_in_raises() -> None:
+    report = vm.validate(_data(lambda d: _command(d, "DeleteLabel")["raises"].append("BoomError")))
+    assert _has(report, "unresolved_ref", "BoomError")
+
+
+def test_endpoint_unknown_handler() -> None:
+    report = vm.validate(_data(lambda d: d["restapi"]["endpoints"][0].update({"handler": "NopeHandler"})))
+    assert _has(report, "unresolved_ref", "NopeHandler")
+
+
+def test_endpoint_unknown_response_schema() -> None:
+    report = vm.validate(_data(lambda d: d["restapi"]["endpoints"][0].update({"response": "GhostResponse"})))
+    assert _has(report, "unresolved_ref", "GhostResponse")
+
+
+def test_repository_backs_unknown_entity() -> None:
+    report = vm.validate(_data(lambda d: d["infrastructure"]["repositories"][0].update({"backs": "Ghost"})))
+    assert _has(report, "unresolved_ref", "Ghost")
+
+
+def test_repository_store_unresolved_datastore() -> None:
+    report = vm.validate(_data(lambda d: d["infrastructure"]["repositories"][0].update({"store": "ghoststore"})))
+    assert not report.ok
+    assert _has(report, "unresolved_ref", "ghoststore")
+
+
+def test_datastore_settings_unresolved() -> None:
+    def mutate(d: dict) -> None:
+        d["infrastructure"]["datastores"] = [
+            {"name": "vectors", "kind": "qdrant", "settings": "GhostSettings", "sources": []}
+        ]
+
+    report = vm.validate(_data(mutate))
+    assert _has(report, "unresolved_ref", "GhostSettings")
+
+
+def test_cross_epic_edge_is_warning_not_error() -> None:
+    report = vm.validate(
+        _data(lambda d: _command(d, "DeleteLabel")["handler"]["dependencies"].append("auth:IUserRepository"))
+    )
+    assert report.ok  # warnings do not block
+    assert _has(report, "cross_epic_edge")
+
+
+def test_reserved_audit_field_on_entity() -> None:
+    report = vm.validate(
+        _data(lambda d: d["domain"]["entities"][0]["fields"].append({"name": "created_at", "type": "datetime"}))
+    )
+    assert not report.ok
+    assert _has(report, "reserved_field", "created_at")
+
+
+# ── local behaviour consistency (rule #11) ──────────────────────────────────────
+
+
+def test_then_raises_not_in_node_raises() -> None:
+    report = vm.validate(
+        _data(lambda d: _command(d, "CreateLabel")["behaviour"][0].__setitem__("then", {"raises": "Nope"}))
+    )
+    assert _has(report, "behaviour_contract", "Nope")
+
+
+# ── form checks (extra=forbid, required, enums, then) ───────────────────────────
+
+
+def test_unknown_field_rejected() -> None:
+    report = vm.validate(_data(lambda d: _command(d, "DeleteLabel").update({"bogus": 1})))
+    assert _has(report, "unknown_field", "bogus")
+
+
+def test_missing_required_field() -> None:
+    report = vm.validate(_data(lambda d: _command(d, "DeleteLabel").pop("output")))
+    assert _has(report, "missing_field", "output")
+
+
+def test_bad_enum_value() -> None:
+    report = vm.validate(_data(lambda d: d["restapi"]["endpoints"][0].update({"method": "FETCH"})))
+    assert _has(report, "bad_enum")
+
+
+def test_then_with_no_verb() -> None:
+    report = vm.validate(_data(lambda d: _command(d, "CreateLabel")["behaviour"][0].__setitem__("then", {})))
+    assert _has(report, "empty_then")
+
+
+def test_with_requires_persists() -> None:
+    report = vm.validate(
+        _data(
+            lambda d: _command(d, "CreateLabel")["behaviour"][0].__setitem__(
+                "then", {"returns": "None", "with": {"x": "y"}}
+            )
+        )
+    )
+    assert _has(report, "with_without_persists")
+
+
+def test_protocol_method_extra_key_rejected() -> None:
+    def mutate(d: dict) -> None:
+        d["domain"]["repository_protocols"][0]["methods"].append({"signature": "async def x(self) -> None", "bogus": 1})
+
+    report = vm.validate(_data(mutate))
+    assert _has(report, "unknown_field", "bogus")
+
+
+# ── loud degradation (warnings, non-blocking) ───────────────────────────────────
+
+
+def test_body_without_behaviour_or_notes_warns() -> None:
+    def mutate(d: dict) -> None:
+        c = _command(d, "CreateLabel")
+        c.pop("behaviour", None)
+        c.pop("notes", None)
+
+    report = vm.validate(_data(mutate))
+    assert report.ok  # a warning, not a blocker
+    assert _has(report, "unspecified_body", "CreateLabel")
+
+
+def test_notes_alone_clears_the_guidance_gate() -> None:
+    def mutate(d: dict) -> None:
+        c = _command(d, "CreateLabel")
+        c.pop("behaviour", None)
+        c["notes"] = "Mint a new label; reject a duplicate with ConflictError."
+
+    report = vm.validate(_data(mutate))
+    assert not _has(report, "unspecified_body")
+
+
+def test_id_only_persists_without_with_or_notes_warns() -> None:
+    def mutate(d: dict) -> None:
+        a = _command(d, "ArchiveLabel")  # input is only label_id
+        a["behaviour"][0]["then"] = {"persists": "Label"}  # drop the post-state `with`
+        a.pop("notes", None)
+
+    report = vm.validate(_data(mutate))
+    assert report.ok
+    assert _has(report, "unspecified_transition", "ArchiveLabel")
+
+
+# ── sources resolution ──────────────────────────────────────────────────────────
+
+
+def _minimal_manifest(sources: list[str]) -> dict:
+    return {"meta": {"epic": "demo", "name": "demo", "sources": sources}}
+
+
+def test_unresolved_source(tmp_path: Path) -> None:
+    report = vm.validate(_minimal_manifest(["UC-999"]), uc_dir=tmp_path)
+    assert _has(report, "unresolved_source", "UC-999")
+
+
+def test_source_resolves_to_mock_uc(tmp_path: Path) -> None:
+    (tmp_path / "UC-001-demo.md").write_text("# mock UC")
+    report = vm.validate(_minimal_manifest(["UC-001"]), uc_dir=tmp_path)
+    assert not _has(report, "unresolved_source")
+
+
+def test_sources_not_checked_without_uc_dir() -> None:
+    report = vm.validate(_minimal_manifest(["UC-999"]), uc_dir=None)
+    assert not _has(report, "unresolved_source")
