@@ -72,9 +72,9 @@ Input is a set of BA use cases (PDF), or free text, or "prototype X". The flow (
 | 1. UC refinement (product questions → BA) | analyst agent | agent, file-channel | `/refine-usecases` *(planned)* |
 | 2. Manifest build / delta (architecture questions → you) | architect agent | agent, interactive chat | `/build-manifest`, `/apply-delta` *(planned)* |
 | — Manifest validation | stdlib graph check (no deps) | deterministic, no LLM | `/validate-manifest` *(planned)* — exists as `.claude/tools/validate_manifest.py` |
-| 3. Scaffolding (declarative + glue + body scaffolds + red tests) | scaffolder agent | agent (role) | `/scaffold` *(planned)* |
-| 4. Scaffold tail (fill scaffolded bodies behind contracts) | implementer agent | agent, parallel by DAG | `implement-node` (runner-internal) |
-| — Verification loop (mypy / ruff / behavioural tests, TDD mode) | runner + implementer | code + agent in a loop | `/verify` *(planned)* |
+| 3. Scaffolding (declarative + glue + body scaffolds + red tests) | scaffolder agent | agent (role) | `/scaffold` *(planned)* — exists as `.claude/agents/scaffolder.md` |
+| 4. Scaffold tail (fill scaffolded bodies behind contracts) | implementer agent | agent, parallel by DAG | `.claude/agents/implementer.md` + `/verify` (dispatch) |
+| — Verification loop (mypy / ruff / behavioural tests, TDD mode) | runner + implementer | code + agent in a loop | `/verify` — exists (`.claude/commands/verify.md` + thin runner `.claude/tools/plan_implementation.py` + `.claude/tools/scaffold_snapshot.py` for baseline/diff attribution) |
 
 **Only four agent roles exist** (analyst, architect, scaffolder, implementer) — *not* one persona per
 component type. Scaffolders/implementers are differentiated by **context** (which skill is loaded + which
@@ -117,10 +117,18 @@ generator, store profiles, and drift check still exist and their tests still pas
 the path and **must not be extended** (removal is deferred to §13's "потом", after the agentic path is
 proven on an epic; `main` stays the generator archive — this branch is not merged there).
 
-**Still to build (spec §13 steps 3–5, then the upstream bundle):** the **scaffolder** and (rewritten)
-**implementer** agents + the verification loop, then the first Helpdesk epic end-to-end without the
-generator; afterwards the **analyst / architect** agents and the pipeline slash-commands. See the work
-order in `codegen_workflow_spec.md` (§13) and `notes/6_build_plan.txt`.
+**Done (spec §13 steps 3–4):** the **scaffolder** agent (`.claude/agents/scaffolder.md`); the rewritten
+**implementer** agent (`.claude/agents/implementer.md` — body-fill only, file-as-unit, strict §9
+anti-collusion) + the verification loop as `/verify` (`.claude/commands/verify.md`) driven by the thin
+stdlib runner `.claude/tools/plan_implementation.py` (deterministic NotImplementedError/column-less-table
+trigger + DAG-level worklist, reusing the validator). Smoke-green on helpdesk5 (3 nodes / 3 skills
+red→green, mypy clean, anti-collusion held).
+
+**Still to build (spec §13 step 5, then the upstream bundle):** the first Helpdesk epic end-to-end —
+drive the full `/verify` over every node incl. the §9 review tail (manual-stub asserts + adversarial
+verifier are deferred seams) and the deps-installed integration run; afterwards the **analyst /
+architect** agents and the pipeline slash-commands. See the work order in `codegen_workflow_spec.md`
+(§13) and `notes/6_build_plan.txt`.
 
 ## Repository map
 
@@ -219,9 +227,10 @@ agentic path: `uv run pytest tests/` and `uv run python examples/generate.py <ma
 `mypy` is part of the *designed* verification loop (spec §12) — type-correctness is load-bearing for
 catching contract drift on scaffolded bodies.
 
-Pipeline slash-commands (`/ingest-usecases`, `/refine-usecases`, `/build-manifest`, `/apply-delta`,
-`/validate-manifest`, `/scaffold`, `/verify`) are **not built yet** — see the stage table above and
-`notes/6_build_plan.txt`. Building them, in workflow order, is the current work.
+Pipeline slash-commands: `/verify` is **built** (`.claude/commands/verify.md` + the runner
+`.claude/tools/plan_implementation.py`); the upstream ones (`/ingest-usecases`, `/refine-usecases`,
+`/build-manifest`, `/apply-delta`, `/validate-manifest`, `/scaffold`) are **not built yet** — see the
+stage table above and `notes/6_build_plan.txt`. Building them, in workflow order, is the current work.
 
 ## Conventions when extending the pipeline
 
