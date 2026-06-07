@@ -53,14 +53,14 @@ All paths below are relative to the target package root `src/<package>/` (e.g. `
 
 ## B. kind→skill registry
 
-**Producer skills — the deterministic dispatch** (one skill per manifest artifact kind). This table is mirrored as data in the validator's `KIND_TO_SKILL` (the way `SCHEMAS` mirrors MANIFEST_SCHEMA.md) and is the source the §16 coverage gate reads. Choosing the skill for a node is a deterministic lookup, **not** an agent judgment (spec §2).
+**Producer skills — the deterministic dispatch** (one skill per manifest artifact kind). This table is the source of truth, mirrored as data in the validator's `KIND_TO_SKILL` (which the §16 coverage gate reads — the same way the validator's `SCHEMAS` dict, not the stale `MANIFEST_SCHEMA.md` prose, is the source of truth for the manifest shape). Choosing the skill for a node is a deterministic lookup, **not** an agent judgment (spec §2).
 
 | Artifact kind | Producer skill |
 |---|---|
 | `domain.enums` | `domain-enum` |
 | `domain.value_objects` | `domain-value-object` |
 | `domain.entities` | `domain-entity` |
-| `domain.services` | `domain-service` (the `kind: orchestrator | pure` axis is handled inside the skill) |
+| `domain.services` | `domain-service` (orchestrator vs. pure is DERIVED from the presence of `dependencies`, not a declared field) |
 | `domain.filters` | `domain-filter` |
 | `domain.repository_protocols` | `domain-repository-protocol` |
 | `domain.capability_protocols` | `domain-capability-protocol` |
@@ -79,13 +79,15 @@ All paths below are relative to the target package root `src/<package>/` (e.g. `
 - **Non-relational repositories.** The producer table maps `infrastructure.repositories` to `infra-sqlalchemy-repository` (SQLAlchemy Core) — correct for a relational store. A repository on a non-bootstrap store (qdrant/redis) is a store-profile-driven scaffold with **no dedicated skill yet**; the first one built is a §16 coverage-gap to close by authoring the missing `infra-<kind>-repository` skill, at which point this dispatch becomes store-kind-aware.
 - **Library middlewares.** `restapi.middlewares` models only *custom* middlewares today — a body-bearing ASGI class via `restapi-middleware`. A middleware that maps to a library class (e.g. `CORSMiddleware`, a starlette built-in) is **not modelled yet**; the first one declared is a §16 coverage-gap to close by adding a library-middleware profile (mirroring store profiles, block C), at which point `restapi.middlewares` dispatch becomes profile-aware.
 
-**Companion skills** — conditionally applied to a producer's artifact, not separately dispatched: `application-compensating-tx` (a command with an external side-effect before its DB write), `restapi-error-responses` (every endpoint advertises its error codes), `restapi-file-transfer` (multipart upload / streaming download), `restapi-auth-dependency` (reference — picks the route's auth dependency).
+**Companion skills** — conditionally applied to a producer's artifact, not separately dispatched (this bucket includes the cross-cutting `pattern-` skills, whose prefix marks that they span layers rather than producing one layer's artifact): `infra-di-provider` (wires each producer's class into `containers.py` — graph-glue applied to every wired class), `infra-sqlalchemy-table` (the write-once `Table` scaffold, triggered by a relational repository — there is no `infrastructure.tables` manifest kind, so it is not a producer dispatch), `pattern-compensating-tx` (a command with an external side-effect before its DB write — its trigger is **derivable** from the handler dependency + `behaviour.then.calls`, so it needs no manifest signal), `pattern-unit-of-work` (≥2 repositories committing atomically — its trigger is **not** derivable from "two dependencies", so it will need a small per-command manifest signal; that signal is **deferred until the first epic that needs it**, §16, and no fixture exercises it today), `restapi-error-responses` (every endpoint advertises its error codes), `restapi-file-transfer` (multipart upload / streaming download), `restapi-auth-dependency` (reference — picks the route's auth dependency).
 
 **Test skills** — derived per artifact (tests are derived, not enumerated; MANIFEST_SCHEMA core principle 3), not from a manifest field: `test-domain-entity` ← entities, `test-domain-enum` ← enums, `test-domain-value-object` ← VOs, `test-domain-service` ← services, `test-application-handler` ← commands/queries, `test-fake-repository` ← per aggregate/capability a handler test needs, `test-repository-contract` ← repositories, `test-infra-capability-adapter` ← capabilities, `test-restapi-endpoint` ← endpoints.
 
 **Bootstrap skills** — run once, triggered by the working tree (not a manifest node; MANIFEST_SCHEMA core principle 4): `restapi-app-bootstrap`, `domain-exception` (first creation of `domain/exceptions.py`), `test-integration-isolation`, `test-integration-authed-client`, `test-discovery-invariants`.
 
-**Reference / cross-cutting skills** — always consulted, never dispatched per node: `general-typing-conventions`, `general-imports-conventions`, `general-python-package`, `general-layered-architecture`, `general-logging`, `test-principles`.
+**Reference / cross-cutting skills** — always consulted, never dispatched per node: `conventions` (this registry itself — the pack's derivation layer), `general-typing-conventions`, `general-imports-conventions`, `general-python-package`, `general-layered-architecture`, `general-logging`, `test-principles`.
+
+> **Coverage is bidirectional (§16).** The forward gate (KIND_TO_SKILL) guarantees every artifact *kind* has a producer skill. The reverse — every skill *directory* is classified into exactly one of the buckets above (producer / companion / test / bootstrap / reference / meta) — is asserted by a meta-test (`test_every_skill_is_classified`), so a producing skill that maps to no manifest kind (an orphan, as `pattern-unit-of-work` once was) cannot hide. The four non-producer buckets are mirrored as data in that test, the way KIND_TO_SKILL mirrors the producer table; keep them in lockstep with this prose.
 
 **Meta skills** — extend the pipeline itself, not the target app: `meta-skill-author` (drafts a new skill when the gate reports a presence-gap — human-reviewed, §16), `meta-uc-author`.
 

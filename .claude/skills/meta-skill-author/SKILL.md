@@ -111,7 +111,7 @@ Extends an existing file rather than creating a new one. Section emphasis:
 - `Template(s)` — shows what gets inserted (a class body, a function, a decorator argument, a registry entry), not a whole file.
 - `Package wiring` — usually absent; the file already lives in a package.
 
-Examples: `infra-di-provider` (modifies `containers.py`), `restapi-error-responses` (adds decorator kwarg + optional `MIDDLEWARE_ERRORS` entry), `application-compensating-tx` (modifies a handler body), `domain-exception` in extend mode, `test-architecture-rule` (appends a test function).
+Examples: `infra-di-provider` (modifies `containers.py`), `restapi-error-responses` (adds decorator kwarg + optional `MIDDLEWARE_ERRORS` entry), `pattern-compensating-tx` (modifies a handler body), `domain-exception` in extend mode, `test-architecture-rule` (appends a test function).
 
 ### Bootstrap (~5 skills)
 

@@ -1,5 +1,5 @@
 ---
-name: application-compensating-tx
+name: pattern-compensating-tx
 description: Apply when a command handler must perform an external side effect (blob upload, third-party POST, file write) before the DB write that records it, and the side effect must be undone if a later step fails. Defines the catch → undo → re-raise pattern that is the only sanctioned `try/except` in `application/`. Used in tandem with `application-command`.
 ---
 
@@ -12,7 +12,7 @@ This skill produces **no new file**. It modifies the body of an existing command
 ## When to use vs. neighbours
 
 - The handler creates an external side effect (blob upload, third-party POST, file write) **before** a DB write that can still fail, and the side effect must be undone on failure → this skill.
-- The handler performs writes across multiple repositories atomically → `application-unit-of-work` (the patterns nest: compensation outside, UoW inside).
+- The handler performs writes across multiple repositories atomically → `pattern-unit-of-work` (the patterns nest: compensation outside, UoW inside).
 - The handler has no external side effect, only a DB write → no compensation needed; the default `application-command` shape (no `try/except`) suffices.
 - The side effect is harmless if left behind (cache warm-up), is the *last* step (nothing after to fail), or can be reordered after the DB write → skip this skill.
 
@@ -75,7 +75,7 @@ That trailing call is normal cleanup, not compensation — it runs only on succe
 5. **No logging inside `except`.** The central error handler logs once.
 6. **The side effect runs *outside* the `try`.** Only the fallible *next* step is inside.
 7. **Pre-side-effect validation runs *before* the upload.** Fail fast without compensation when possible.
-8. **Compensation pairs with `application-unit-of-work` cleanly** — compensation wraps the UoW; the patterns nest: try / async with uow / commit / except / undo / raise.
+8. **Compensation pairs with `pattern-unit-of-work` cleanly** — compensation wraps the UoW; the patterns nest: try / async with uow / commit / except / undo / raise.
 
 ## Hard stops
 

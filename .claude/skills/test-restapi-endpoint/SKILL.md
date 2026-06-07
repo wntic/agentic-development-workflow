@@ -172,7 +172,7 @@ async def test_download_attachment_streams_bytes(authed_client, foo_id, attachme
 8. **Per-resource fixtures live in the sibling `conftest.py`.** Factory fixtures (`make_foo`) return one fresh row per call. Single-row fixtures (`foo_id`) wrap a factory call. Both are function-scoped; no session-scoped row fixtures, ever.
 9. **Error responses are asserted by `code`, not by message.** `assert response.json()["code"] == ConflictError.code` — message text drifts, the `code` constant is the contract. The actual HTTP status is asserted separately.
 10. **No `@pytest.mark.integration` and no `@pytest.mark.asyncio`.** Path-scoped collection covers integration; `pytest-asyncio` is in auto mode. Markers are not needed and not added.
-11. **No mocking inside this file.** No `unittest.mock`, no `monkeypatch` on infrastructure. If a test needs to mock, it isn't an integration test; move it to a domain unit test or to `application-compensating-tx` coverage at the repository-contract level.
+11. **No mocking inside this file.** No `unittest.mock`, no `monkeypatch` on infrastructure. If a test needs to mock, it isn't an integration test; move it to a domain unit test or to `pattern-compensating-tx` coverage at the repository-contract level.
 12. **The S3 prefix is per-test.** Tests that upload/download blobs pass `s3_prefix` through to the route under test (typically via a header, query param, or payload field) and assert only on contents under that prefix.
 
 ## Inlined typing / import rules

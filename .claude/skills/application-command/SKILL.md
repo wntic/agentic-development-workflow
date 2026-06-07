@@ -14,8 +14,8 @@ Produces a mutation use case as two files in `application/<subdomain>/`:
 
 - Mutation (create/update/delete/rename/move) → this skill.
 - Read (get/list/count/search) → `application-query`.
-- The mutation includes an external IO step before the DB write (file upload, third-party POST) and needs rollback → still this skill, but the handler body follows `application-compensating-tx`.
-- Multiple repositories must update atomically (write + audit log) → still this skill, plus inject an `IUnitOfWork` (see `application-unit-of-work`).
+- The mutation includes an external IO step before the DB write (file upload, third-party POST) and needs rollback → still this skill, but the handler body follows `pattern-compensating-tx`.
+- Multiple repositories must update atomically (write + audit log) → still this skill, plus inject an `IUnitOfWork` (see `pattern-unit-of-work`).
 
 ## File layout
 
@@ -101,7 +101,7 @@ class DeleteFooHandler:
 2. **Constructor takes only domain protocols / services / unit-of-work / tunable value objects.** Never a session, never an HTTP client, never `Any`.
 3. **Return type:** `UUID` for create, `None` for everything else. Never return the entity.
 4. **No business logic in the handler.** Build/mutate domain entities; let `__post_init__` and domain policies enforce rules. The handler orchestrates: load entities, mutate them, call the repository. **Normalization (strip / lowercase / canonicalize) is a domain concern — it lives in the entity's `__post_init__` or a value object, never in the handler.** Pass `cmd.name`, not `cmd.name.strip()`.
-5. **No `try/except`.** The only sanctioned use is the compensating-transaction pattern — see `application-compensating-tx`.
+5. **No `try/except`.** The only sanctioned use is the compensating-transaction pattern — see `pattern-compensating-tx`.
 6. **Log on success only, after the mutation completes.**
    - Event name: snake_case past tense (`foo_created`, `bar_renamed`).
    - Always include `caller_id=str(cmd.caller_id)` and the affected resource id.
@@ -125,5 +125,5 @@ Follow `general-python-package` to register both modules in the subpackage `__in
 - Spec asks the handler to return a list, a `Result`, or the entity → stop, use `application-query` (and re-read the spec — mutations don't return data).
 - Spec asks the handler to catch a `DomainError` and translate it → stop, that's the central error handler's job (`restapi-error-responses`).
 - Spec asks the handler to validate cross-aggregate state inline → stop, extract a `domain-service` and inject it.
-- Spec implies multiple writes must be atomic → stop, request an `IUnitOfWork` dependency (see `application-unit-of-work`).
-- Spec implies an external IO step before the DB write → stop, this still uses this skill but the body must follow `application-compensating-tx`.
+- Spec implies multiple writes must be atomic → stop, request an `IUnitOfWork` dependency (see `pattern-unit-of-work`).
+- Spec implies an external IO step before the DB write → stop, this still uses this skill but the body must follow `pattern-compensating-tx`.

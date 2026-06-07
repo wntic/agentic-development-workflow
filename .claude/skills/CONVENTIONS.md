@@ -4,7 +4,9 @@ Shared vocabulary used by every skill in this directory. When a skill needs a wo
 
 ## How to choose a skill
 
-Skills are **component-narrow** — each one produces exactly one kind of artifact (one entity file, one repository module, one endpoint, …). Pick the skill whose `description` line matches what the spec asks the agent to produce. A single feature usually invokes several skills in sequence; sequencing is the runner's concern, not the skill's.
+**Producer** skills are **component-narrow** — each produces exactly one kind of artifact (one entity file, one repository module, one endpoint, …). Pick the producer whose `description` line matches what the spec asks the agent to produce. A single feature usually invokes several skills in sequence; sequencing is the runner's concern, not the skill's.
+
+Producers are not the only category. **Companion / cross-cutting `pattern-` skills** (which span layers or wrap a producer's work), **bootstrap** skills (run once, triggered by the working tree), and **reference** skills (always consulted, never dispatched) are the deliberate exceptions to component-narrowness — see the full taxonomy in the `conventions` reference skill (registry B). A `pattern-` skill claims no single layer precisely because it touches several.
 
 If a skill's hard-stops fire, it means the spec asked for the wrong artifact — switch to the right skill rather than stretching the current one.
 
@@ -39,8 +41,13 @@ If a skill's hard-stops fire, it means the spec asked for the wrong artifact —
 
 - `application-command` — frozen command DTO + handler returning `UUID | None`, success-only logging.
 - `application-query` — frozen query DTO + handler + optional `*Result` DTO.
-- `application-compensating-tx` — the only sanctioned `try/except` in `application/`: catch → undo → re-raise.
-- `application-unit-of-work` — `IUnitOfWork` protocol + SQLAlchemy implementation + handler integration when ≥2 repositories must commit together.
+
+### Patterns (cross-cutting)
+
+The `pattern-` prefix marks a skill that **spans layers** (a domain port + an infra adapter + an application usage) rather than producing one layer's artifact. A pattern is a **companion** — conditionally applied to a producer's work — never a per-node producer dispatch, so it never appears in the `kind→skill` registry.
+
+- `pattern-compensating-tx` — the only sanctioned `try/except` in `application/`: catch → undo → re-raise (an external side-effect before the DB write). Its trigger is **derivable** from the handler dependency + `behaviour.then.calls`, so it carries no manifest signal.
+- `pattern-unit-of-work` — `IUnitOfWork` protocol (domain) + SQLAlchemy implementation (infra) + handler integration (application) when ≥2 repositories must commit atomically. Its trigger is **not** derivable from "two dependencies", so it will need a small per-command manifest signal — **deferred until the first epic that needs it** (§16); no fixture exercises it today.
 
 ### Infrastructure
 
@@ -66,7 +73,7 @@ If a skill's hard-stops fire, it means the spec asked for the wrong artifact —
 - `test-integration-authed-client` — **one-shot per project.** Produces `tests/integration/api/conftest.py` with the `authed_client` factory plus `rsa_keypair` + `jwt_settings` session fixtures (the latter consumed by `real_app`) and the `tests/helpers/jwt.py` `sign_token(...)` helper.
 - `test-discovery-invariants` — **one-shot per project.** Five test files under `tests/integration/api/` that iterate `app.routes` and `app.openapi()` to assert global properties. Adding an endpoint never requires editing these.
 - `test-fake-repository` — pairs with `infra-sqlalchemy-repository` (and with `domain-repository-protocol` / `domain-capability-protocol`). Produces one in-memory `Fake<Aggregate>Repository` under `tests/unit/fakes/`, copying the real adapter's exception contract verbatim. No flags; one-off failures come from inline subclasses at the handler-test site.
-- `test-application-handler` — pairs with `application-command` / `application-query` / `application-compensating-tx`. One file per handler under `tests/unit/application/`. AAA + fakes + inline `_RaiseXxxRepo` subclasses for one-off failure injection, including the compensating-tx "DB-fails-after-upload" assertion.
+- `test-application-handler` — pairs with `application-command` / `application-query` / `pattern-compensating-tx`. One file per handler under `tests/unit/application/`. AAA + fakes + inline `_RaiseXxxRepo` subclasses for one-off failure injection, including the compensating-tx "DB-fails-after-upload" assertion.
 - `test-domain-entity` — pairs with `domain-entity`. Identity-equality block, `_make_<entity>(**overrides)` builder, one `test_*` per `__post_init__` invariant.
 - `test-domain-value-object` — pairs with `domain-value-object`. Canonical-equality + invariant tests; skip the file entirely when the VO has no `__post_init__` and no custom `__eq__`.
 - `test-domain-enum` — pairs with `domain-enum`. Pins every member's value, asserts unknown-value rejection, covers pure-logic methods.

@@ -12,7 +12,7 @@ Produces one repository class that adapts a domain repository protocol to SQLAlc
 - The protocol file (`i_foo_repository.py`) → `domain-repository-protocol`.
 - The table + Alembic migration → `infra-sqlalchemy-table`.
 - The DI provider that constructs this repository → `infra-di-provider`.
-- The UoW protocol/impl/integration when the repo joins multi-repo transactions → `application-unit-of-work`.
+- The UoW protocol/impl/integration when the repo joins multi-repo transactions → `pattern-unit-of-work`.
 
 ## Pick the constructor style
 

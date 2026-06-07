@@ -1,6 +1,6 @@
 ---
 name: domain-exception
-description: Apply when a spec requires `domain/exceptions.py` (bootstrap) or a new error class added to it. The file is the single error catalog for the whole project — one `DomainError` root with `code: str` + `http_status: int` class attributes and a `(message, context=None)` constructor that every subclass inherits unchanged. Subclasses use bare `code = "..."` / `http_status = ...` assignments and add nothing else. Does not handle raising — use `infra-sqlalchemy-repository` or `application-compensating-tx`. Does not handle HTTP translation — use `restapi-error-responses`.
+description: Apply when a spec requires `domain/exceptions.py` (bootstrap) or a new error class added to it. The file is the single error catalog for the whole project — one `DomainError` root with `code: str` + `http_status: int` class attributes and a `(message, context=None)` constructor that every subclass inherits unchanged. Subclasses use bare `code = "..."` / `http_status = ...` assignments and add nothing else. Does not handle raising — use `infra-sqlalchemy-repository` or `pattern-compensating-tx`. Does not handle HTTP translation — use `restapi-error-responses`.
 ---
 
 # Domain Exception

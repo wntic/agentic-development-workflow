@@ -199,7 +199,7 @@ class PyJwtBarTokenVerifier:
 
 ### Compensating-transaction contract
 
-16. **Mutating capabilities expose both the forward operation and the undo.** A storage adapter has `upload` *and* `delete`; a publisher that supports retraction has `publish` *and* `retract`. The catch-and-undo logic lives in the application handler (see `application-compensating-tx`), not in the adapter. The adapter's job is to make the undo callable.
+16. **Mutating capabilities expose both the forward operation and the undo.** A storage adapter has `upload` *and* `delete`; a publisher that supports retraction has `publish` *and* `retract`. The catch-and-undo logic lives in the application handler (see `pattern-compensating-tx`), not in the adapter. The adapter's job is to make the undo callable.
 
 ## Inlined typing / import rules
 

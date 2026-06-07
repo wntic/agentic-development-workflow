@@ -18,6 +18,20 @@ Produces a read use case as two or three files in `application/<subdomain>/`:
 - Domain filter dataclass that the query handler passes into the repository → `domain-filter` (this skill consumes it).
 - Authorization-scoped read ("things I can see") → still this skill; the query DTO carries `caller_id`.
 
+## Read models — the CQRS read/write split
+
+The domain entity is the **write** model: commands load and mutate it, and it carries the invariants.
+A **read** that needs more than the entity exposes — **audit timestamps** (`created_at`/`updated_at`,
+which are deliberately *not* entity fields), denormalized or computed values, a join across
+aggregates, date-range filtering — returns a **read-model DTO** that the repository projects
+**directly from the row**, bypassing the domain entity. The `*Result` DTO below is exactly this
+mechanism: it holds whatever the API needs, not necessarily a bare `Foo`.
+
+So "the screen shows a creation date" or "filter by `updated_at`" is satisfied by a read-model + a
+repository filter — **never** by pulling the timestamp onto the domain aggregate (that would make the
+write model carry display-only state). When a query's output is exposed by the API and needs fields
+the entity does not (and should not) carry, return a read-model rather than the bare entity.
+
 ## File layout
 
 ```

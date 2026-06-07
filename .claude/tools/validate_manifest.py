@@ -81,7 +81,9 @@ class Report:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Schema as data — one entry per node kind (mirrors MANIFEST_SCHEMA.md)
+# Schema as data — one entry per node kind. THIS dict is the CANONICAL manifest shape:
+# manifest.template.yaml is generated from it (gen_template.py), and the prose in
+# MANIFEST_SCHEMA.md is a stale restatement scheduled for a thin rewrite (validator wins).
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -162,7 +164,10 @@ SCHEMAS: dict[str, dict[str, F]] = {
     "Service": {
         "name": F("str"),
         "subdomain": F("str"),
-        "kind": F("enum", required=False, default="orchestrator", choices=("orchestrator", "pure")),
+        # No `kind:` field. The orchestrator-vs-pure structural axis is DERIVED, not declared:
+        # a service is an orchestrator iff it has `dependencies`, pure otherwise (a derivable
+        # decision fails earn-its-place — spec §5). The domain-service skill reads `dependencies`
+        # to pick the template; the validator carries nothing.
         "dependencies": F("strlist", required=False, default=[]),
         "methods": F(("list", "ServiceMethod")),
         "notes": F("str", required=False, default=None),
@@ -318,6 +323,11 @@ SCHEMAS: dict[str, dict[str, F]] = {
     },
     "Middleware": {
         "name": F("str"),
+        # `config` is the ONE sanctioned open key→value map in the schema. A middleware's __init__
+        # kwargs are an irreducibly open passthrough (header name, max_bytes, …) validated at runtime
+        # by the constructor — not architect-reviewable structure, so it is not the arbitrary
+        # per-artifact escape-hatch map the earn-its-place rule forbids. Same family as behaviour
+        # `act`/`then.with`: flat literals the validator deliberately never inspects.
         "config": F("map", required=False, default={}),
         "introduces_http": F("intlist", required=False, default=[]),
         "notes": F("str", required=False, default=None),

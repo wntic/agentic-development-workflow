@@ -1,5 +1,16 @@
 # Manifest Schema
 
+> **⚠️ STALE — not maintained. Do not treat this prose as the contract.**
+> The canonical manifest **shape** is the validator's `SCHEMAS` dict
+> (`.claude/tools/validate_manifest.py`) + the generated skeleton
+> (`manifest.template.yaml`, emitted by `gen_template.py`) + the validated fixtures under
+> `.claude/tools/fixtures/`. This document drifted from those (it predates the storage redesign and
+> the `conventions` knowledge layer — e.g. it still describes `tables:`/`subpackage:`/`alembic:`/
+> `Service.kind`, none of which the validator accepts) and is scheduled for a thin, pointer-only
+> rewrite. **When this prose disagrees with the validator, the validator wins.** Field semantics
+> live in `codegen_workflow_spec.md` §5 and the `conventions` skill; the read/write (read-model)
+> split now lives in the `application-query` skill.
+
 This document defines the YAML schema for an **epic manifest** — the intermediate representation between BA-authored use cases and the agent pipeline (a scaffolder lays down files, an implementer fills bodies; see `codegen_workflow_spec.md`).
 
 ## Where manifests live
@@ -185,7 +196,7 @@ That file IS YAML — comments annotate the fields. A real `manifest.yaml` produ
 - **Alembic migrations and the revision/down-revision chain.** Not generated — Alembic owns the chain in `versions/` (`alembic revision`); the manifest is a desired-schema snapshot, not a journal. No `alembic:` field.
 - **A settings `subpackage`.** Derived from the consuming tech (capability `adapter` / datastore `kind`); infra groups by integration, not domain subdomain.
 - **An open freeform map per artifact.** No artifact carries an arbitrary key/value escape hatch — it bypassed the schema. Human-readable context uses the typed `notes:` field where modelled.
-- **A command's external-effect flag.** External effects are captured by the handler's dependency + `behaviour.then.calls` (+ the `application-compensating-tx` skill), not a declared list.
+- **A command's external-effect flag.** External effects are captured by the handler's dependency + `behaviour.then.calls` (+ the `pattern-compensating-tx` skill), not a declared list.
 - **A repository's standalone/uow mode.** Unit-of-work is an operation-level decision (see `application.unit_of_work`), not a per-repo flag.
 - **An endpoint's upload/download flag.** Not modelled.
 - **Test cases or test file paths.** Derived by each `test-*` skill from the artifact entry.

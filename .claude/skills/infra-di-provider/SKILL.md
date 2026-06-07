@@ -103,7 +103,7 @@ When adding a new provider, **find the right section in `containers.py` and inse
 
 ## Adding a UoW factory
 
-When the handler uses a Unit of Work (`application-unit-of-work`):
+When the handler uses a Unit of Work (`pattern-unit-of-work`):
 
 ```python
 uow_factory: providers.Provider[IUnitOfWork] = providers.Factory(

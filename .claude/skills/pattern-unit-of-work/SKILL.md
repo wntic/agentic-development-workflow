@@ -1,5 +1,5 @@
 ---
-name: application-unit-of-work
+name: pattern-unit-of-work
 description: Apply when a single operation must persist changes across multiple repositories atomically (typically a write paired with an audit-log append, or update + outbox row). Produces three artifacts — the `IUnitOfWork` protocol in `domain/`, the SQLAlchemy implementation in `infrastructure/postgres/`, and the handler integration pattern. Use only when ≥2 repositories must commit together; single-repo handlers stay on `session_factory` style (see `infra-sqlalchemy-repository`).
 ---
 
@@ -18,7 +18,7 @@ Use when a handler writes to **two or more repositories in one transaction** (wr
 Skip when:
 
 - Only one repository → the `session_factory` style (`infra-sqlalchemy-repository`) is simpler.
-- Atomic group is blob upload + DB write → that's `application-compensating-tx`. The patterns nest: compensation outside, UoW inside.
+- Atomic group is blob upload + DB write → that's `pattern-compensating-tx`. The patterns nest: compensation outside, UoW inside.
 - The only motivation is read performance → `expire_on_commit=False` already covers it.
 
 ## Naming
@@ -113,7 +113,7 @@ class CreateFooHandler:
         return foo.id
 ```
 
-When compensation is also required, compensation wraps the UoW block (see `application-compensating-tx`):
+When compensation is also required, compensation wraps the UoW block (see `pattern-compensating-tx`):
 
 ```python
 storage_key = await self._storage.put(...)
@@ -167,5 +167,5 @@ create_foo_handler = providers.Factory(CreateFooHandler, uow_factory=uow_factory
 ## Hard stops
 
 - Only one repository participates → stop, this isn't a UoW case; keep the handler on `session_factory` via `infra-sqlalchemy-repository`.
-- The "atomic group" spans two backends (Postgres + S3) → stop, this is `application-compensating-tx` or a saga, not a UoW.
+- The "atomic group" spans two backends (Postgres + S3) → stop, this is `pattern-compensating-tx` or a saga, not a UoW.
 - Spec asks for a UoW per aggregate (`IFooUnitOfWork`) → stop, that's the wrong shape; one shared UoW for the scope.

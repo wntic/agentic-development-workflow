@@ -240,6 +240,90 @@ def test_datastore_kind_is_exempt_from_the_gate() -> None:
     assert not _has(report, "skill_gap")
 
 
+# ── bidirectional coverage: every skill dir is classified (§16, reverse direction) ─────────
+#
+# The forward gate above guarantees every artifact KIND has a producer skill. This is the REVERSE:
+# every skill DIRECTORY is classified into exactly the registry-B taxonomy of the `conventions`
+# skill — producer (a value of KIND_TO_SKILL), companion, test, bootstrap, reference, or meta. A
+# producing skill that maps to no manifest kind (the orphan `pattern-unit-of-work` was exactly
+# this) can no longer hide; adding a skill forces a classification decision here. These four sets
+# mirror registry-B prose the way KIND_TO_SKILL mirrors the producer table — keep them in lockstep.
+
+_SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
+
+_COMPANION_SKILLS = frozenset(
+    {
+        "infra-di-provider",  # wires each producer's class into containers.py
+        "infra-sqlalchemy-table",  # write-once Table scaffold, triggered by a relational repository
+        "pattern-compensating-tx",
+        "pattern-unit-of-work",
+        "restapi-auth-dependency",
+        "restapi-error-responses",
+        "restapi-file-transfer",
+    }
+)
+_TEST_SKILLS = frozenset(
+    {
+        "test-application-handler",
+        "test-domain-entity",
+        "test-domain-enum",
+        "test-domain-service",
+        "test-domain-value-object",
+        "test-fake-repository",
+        "test-infra-capability-adapter",
+        "test-repository-contract",
+        "test-restapi-endpoint",
+    }
+)
+_BOOTSTRAP_SKILLS = frozenset(
+    {
+        "restapi-app-bootstrap",
+        "test-integration-isolation",
+        "test-integration-authed-client",
+        "test-discovery-invariants",
+    }
+)
+_REFERENCE_SKILLS = frozenset(
+    {
+        "conventions",
+        "general-typing-conventions",
+        "general-imports-conventions",
+        "general-python-package",
+        "general-layered-architecture",
+        "general-logging",
+        "test-principles",
+    }
+)
+_META_SKILLS = frozenset({"meta-skill-author", "meta-uc-author"})
+
+
+def test_template_is_in_sync() -> None:
+    """Anti-rot (R4): the committed manifest.template.yaml must equal a fresh generation from
+    SCHEMAS. The template has no independent source of truth — it is emitted, not hand-edited — so
+    it cannot drift (the exact failure the audit found: a hand-maintained template still carrying
+    `tables:`/`subpackage:`/`alembic:` fields the validator had long dropped). Regenerate with
+    `uv run .claude/tools/gen_template.py` when SCHEMAS changes."""
+    import gen_template
+
+    assert gen_template._TEMPLATE.read_text() == gen_template.render(), (
+        "manifest.template.yaml is stale — regenerate: uv run .claude/tools/gen_template.py"
+    )
+
+
+def test_every_skill_is_classified() -> None:
+    """Reverse §16 gate: the taxonomy union must EXACTLY equal the skill dirs on disk — an
+    uncovered dir is an unclassified (orphan) skill; a classified name with no dir is stale.
+    `domain-exception` is both a producer (domain.exceptions) and a bootstrap skill; it is listed
+    once, under producers — coverage needs each dir in at least one bucket, not exactly one."""
+    dirs = {p.name for p in _SKILLS_DIR.iterdir() if p.is_dir()}
+    producers = set(vm.KIND_TO_SKILL.values())
+    classified = producers | _COMPANION_SKILLS | _TEST_SKILLS | _BOOTSTRAP_SKILLS | _REFERENCE_SKILLS | _META_SKILLS
+    orphans = dirs - classified
+    stale = classified - dirs
+    assert not orphans, f"unclassified skill dirs (classify in conventions registry B): {sorted(orphans)}"
+    assert not stale, f"classified skill names with no directory (stale/typo): {sorted(stale)}"
+
+
 # ── domain.filters (first-class declarative section) ─────────────────────────────
 
 

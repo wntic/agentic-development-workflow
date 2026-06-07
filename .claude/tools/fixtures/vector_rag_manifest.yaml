@@ -66,8 +66,7 @@ domain:
   services:
     - name: ChunkingService              # pure: split source text into chunk strings
       subdomain: corpus
-      kind: pure
-      dependencies: []
+      dependencies: []                     # empty ⇒ pure (kind is derived, not declared)
       methods:
         - signature: "def split(self, text: str) -> list[str]"
           behaviour:

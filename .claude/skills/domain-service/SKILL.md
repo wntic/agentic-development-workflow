@@ -48,6 +48,12 @@ class FooUniquenessService:
         return await self._repo.exists_by_canonical_key(canonical_key)
 ```
 
+**Orchestrator vs. pure is derived from `dependencies`, never a declared field.** A service that
+lists `dependencies` is an *orchestrator* (the form above — injected protocols on `__init__`, async
+methods that touch them). A service with no `dependencies` is *pure*: no `__init__` parameters, only
+sync transformation methods (`canonicalize`, `derive_*`). Read the form off the presence of
+`dependencies` — there is no manifest `kind:` axis (it would be derivable, so it does not exist).
+
 ## Rules
 
 1. **Plain class, no dataclass decorator.** Domain services are not data — they're behavior with dependencies.

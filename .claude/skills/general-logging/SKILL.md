@@ -88,7 +88,7 @@ Required fields (when applicable):
 
 **Do not log errors in handlers.** Domain exceptions propagate up; the central error handler in the entrypoint logs them. Logging in both places duplicates entries.
 
-The one sanctioned `try/except` in `application/` (compensating transactions, see `application-compensating-tx`) is **not** an exception to this rule — the catch undoes a side effect and re-raises. **No log call inside the `except`.**
+The one sanctioned `try/except` in `application/` (compensating transactions, see `pattern-compensating-tx`) is **not** an exception to this rule — the catch undoes a side effect and re-raises. **No log call inside the `except`.**
 
 ### Entrypoints (`restapi/`, `cli/`, `worker/`) — log errors at the point of handling
 

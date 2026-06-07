@@ -96,7 +96,8 @@ The **knowledge layer**: the **skill catalog** (`.claude/skills/`, 44 component-
 derivation (kind→path/class/suffix, the kind→skill registry, store profiles, the stack substrate as a
 *list of libraries without versions*, toolchain commands), absorbing what the generator's
 `naming.py`/`store_profiles.py`/constants used to hold. Plus the `uc-extractor` input-prep agent +
-`/extract-ucs`, and the manifest schema (`MANIFEST_SCHEMA.md` + `manifest.template.yaml`).
+`/extract-ucs`, and the manifest shape (the validator's `SCHEMAS` is canonical; `manifest.template.yaml` is
+generated from it; `MANIFEST_SCHEMA.md` is stale prose pending rewrite).
 
 **Schema facts the manifest carries** (auth is manifest-declared, not hardcoded): domain
 `enums`/`value_objects`/`entities`/`services`/`filters`/`capability_protocols`; infra
@@ -131,12 +132,13 @@ codegen_pipeline_v2_with_ingestion.svg  # the pipeline diagram
     CONVENTIONS.md                # catalog index + shared vocabulary + the four-section format
     conventions/SKILL.md          # the derivation registry (kind→path/class, kind→skill, store profiles, substrate)
     <prefix>-<name>/SKILL.md      # e.g. domain-entity, application-command, restapi-endpoint
-  tools/                          # the stdlib manifest validator (validate_manifest.py) + its tests + fixtures/
+  tools/                          # the stdlib manifest validator (validate_manifest.py — SCHEMAS is the
+                                  # CANONICAL manifest shape) + gen_template.py + its tests + fixtures/
   agents/                         # uc-extractor (done); implementer (WIP); scaffolder/analyst/architect to build
   commands/                       # slash-commands: extract-ucs, brainstorm, commit (pipeline commands to be built)
   templates/
-    MANIFEST_SCHEMA.md            # the manifest contract (principles, validation; derivation lives in the conventions skill)
-    manifest.template.yaml        # the canonical machine-parseable manifest shape
+    MANIFEST_SCHEMA.md            # STALE prose, not the contract — pending a thin rewrite (validator wins on conflict)
+    manifest.template.yaml        # the manifest shape skeleton — GENERATED from validate_manifest.SCHEMAS (gen_template.py), never hand-edited
 src/codegen/                      # RETIRED generator — archive only, do not extend (its tests still pass)
 tests/                            # the archived generator's own test suite + fixtures
 specs/
