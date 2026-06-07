@@ -23,8 +23,10 @@ This skill fires when **package mechanics change** — a new `.py` module is cre
 - In module files: `__all__` goes **after** imports and **before** the class definition, never at the very top.
 - In `__init__.py`: always `from .module import *`, never `from .module import ClassName`.
 - In `__init__.py`: always `__all__ = module.__all__` (or `+`-joined across modules), never `__all__ = ["ClassName"]`.
-- Never add an extra `from . import module_name` — `from .module import *` already binds `module` in the package namespace.
+- In `__init__.py`: **precede the wildcards with one `from . import <module>, …` line** naming every re-exported submodule (alphabetical). The wildcard binds the submodule at runtime, but **mypy does not model that side effect** — without the explicit `from . import …`, the `__all__ = module.__all__` reference fails type-checking (`name-defined`). The explicit import is what makes the re-export contract type-check; it is **required, not redundant**.
 - Subpackages are directories with their own `__init__.py`; only the top-level package's `__init__.py` carries a `__version__`.
+- **A package re-exports ALL its immediate children — direct modules AND child subpackages.** So a layer package (`domain/`, `application/`, `infrastructure/`) re-exports its subdomain subpackages, not only its direct modules: `from . import auth, support` + `from .auth import *` + `from .support import *` + `__all__ = auth.__all__ + support.__all__`. An **empty layer `__init__.py` that has children is wrong** — re-export them so `from <root>.domain import X` resolves and `__all__` aggregates up the tree.
+- **Entrypoint carve-out.** A package whose `__init__` would wildcard a module with **import-time side effects** stays minimal. The one case today is `restapi/__init__.py` — do **not** `from .main import *` (importing `main.py` builds the FastAPI app); re-export only the side-effect-free public surface, or leave it empty.
 
 ## Named exceptions to "one class per module"
 
@@ -55,16 +57,26 @@ class Manager:
 **A subpackage `__init__.py`** (re-exports a single module `manager`):
 
 ```python
+from . import manager
 from .manager import *
 
 __all__ = manager.__all__
 ```
 
-For multiple modules, repeat the `from .<module> import *` line per module and concatenate the `__all__` lists with `+`.
+For multiple modules, list them all in the `from . import …` line, repeat the `from .<module> import *` line per module, and concatenate the `__all__` lists with `+`:
+
+```python
+from . import command, handler
+from .command import *
+from .handler import *
+
+__all__ = command.__all__ + handler.__all__
+```
 
 **A top-level package `__init__.py`** additionally carries a version string:
 
 ```python
+from . import manager
 from .manager import *
 
 __version__ = "0.1.0"
@@ -89,4 +101,4 @@ package_name/
 - `__all__` placed at the top of a module before the imports → stop, `__all__` goes after imports and before the class.
 - An `__init__.py` containing `from .module import ClassName` rather than `from .module import *` → stop, use the wildcard so the package `__all__` can be `+`-joined.
 - An `__init__.py` containing class definitions, constants, or logic → stop, `__init__.py` is imports + `__all__` only.
-- A `from . import module_name` line added alongside `from .module import *` → stop, the wildcard already binds `module` in the package namespace; the explicit `import` is redundant.
+- An `__init__.py` that references `module.__all__` (in its own `__all__`) without a matching `from . import module` line → stop, add the explicit submodule import; the wildcard alone does not bind the name for mypy (`name-defined`), so the re-export contract won't type-check.

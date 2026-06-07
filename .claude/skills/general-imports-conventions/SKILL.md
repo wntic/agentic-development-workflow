@@ -62,6 +62,7 @@ For the collapsed-import form to work, **every subpackage `__init__.py` must re-
 
 ```python
 # domain/foos/__init__.py
+from . import foo, foo_category, foo_pattern, i_foo_repository
 from .foo import *
 from .foo_category import *
 from .foo_pattern import *
@@ -70,6 +71,7 @@ from .i_foo_repository import *
 
 Rules:
 
+- Precede the wildcards with one `from . import <module>, …` line naming every submodule (alphabetical). It binds the submodule names so the `__all__ = module.__all__` concatenation below type-checks under mypy — `from .module import *` binds them at runtime but **not** for the type-checker (`name-defined`). See `general-python-package`.
 - One `from .module import *` per submodule, in alphabetical order.
 - Every module being wildcarded must declare `__all__` listing its public symbols (see `general-python-package`). Wildcard imports without `__all__` leak private helpers.
 - The package's own `__all__` is the concatenation of submodule `__all__`s, e.g.:
@@ -108,7 +110,9 @@ Subpackages designed to be the public face of a subdomain (the typical `domain/<
 - All policies.
 - All commands, queries, results, handlers (in `application/<subdomain>/`).
 
-If a symbol isn't re-exported, the collapsed-import form breaks at the first call site — and any contributor who adds a new symbol later will hit confusing import errors. Adding a new module means: declare `__all__` in the module, then add `from .<module> import *` to the subpackage `__init__.py` and append `<module>.__all__` to the package's own `__all__`.
+**Layer packages re-export their subdomains too.** The same contract applies one level up: `domain/__init__.py`, `application/__init__.py`, and `infrastructure/__init__.py` re-export their child subpackages (`from . import auth, support` + `from .auth import *` + … + `__all__ = auth.__all__ + support.__all__`), so `from <root>.domain import X` resolves and `__all__` aggregates to the layer root. An empty layer `__init__.py` that has children is a gap. The lone exception is the entrypoint package `restapi/__init__.py`, kept minimal because wildcarding `main.py` would trigger app construction at import (see `general-python-package`).
+
+If a symbol isn't re-exported, the collapsed-import form breaks at the first call site — and any contributor who adds a new symbol later will hit confusing import errors. Adding a new module means: declare `__all__` in the module, then add it to the `from . import …` line, add `from .<module> import *` to the subpackage `__init__.py`, and append `<module>.__all__` to the package's own `__all__`.
 
 ## Hard stops
 

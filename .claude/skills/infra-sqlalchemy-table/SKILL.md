@@ -1,11 +1,11 @@
 ---
 name: infra-sqlalchemy-table
-description: Apply when a spec adds a new persistent table, modifies columns/constraints/indexes, or removes one. Produces ONE artifact — the write-once SQLAlchemy Core `Table` SCAFFOLD under `infrastructure/postgres/tables/` (the scaffolder lays the skeleton once; the implementer fills column types — they are judgment, not transcription). The matching Alembic migration is NOT produced here: Alembic owns the revision chain natively (`alembic revision` assigns the id + `down_revision` from head), authored by the implementer in the verification loop when schema drift is detected; this skill also documents how that hand-edited revision is written. Enforces the constraint-naming convention that `infra-sqlalchemy-repository` depends on for `IntegrityError` translation. Defers package mechanics to `general-python-package`.
+description: Apply when a spec adds a new persistent table, modifies columns/constraints/indexes, or removes one. Produces the SQLAlchemy Core `Table` under `infrastructure/postgres/tables/` — column types are a design decision (jsonb/pgvector/check/FK), not a mechanical transcription of entity fields. The matching Alembic migration is authored separately (Alembic owns the revision chain natively — `alembic revision` assigns the id + `down_revision` from head); this skill also documents how that hand-edited revision is written. Enforces the constraint-naming convention that `infra-sqlalchemy-repository` depends on for `IntegrityError` translation. Defers package mechanics to `general-python-package`.
 ---
 
 # Infrastructure SQLAlchemy Table
 
-Produces the SQLAlchemy **Core** `Table` — a **write-once scaffold** (the scaffolder lays the skeleton once; the implementer fills column types and never regenerates it, so a later field change surfaces as schema drift, not a rewrite). The Alembic migration is **not** generated here — Alembic owns the revision chain (`alembic revision`); the implementer authors it in the verification loop, using this skill's migration template + rules as the reference. The two are a coordinated change, but only the `Table` is this skill's output. Naming follows the project metadata `naming_convention` so that integrity-error translation can dispatch on `constraint_name`.
+Produces the SQLAlchemy **Core** `Table`. Column types are a **design decision** (jsonb/pgvector/check/FK), not a mechanical transcription of the entity's fields — that is why this guide leads with the column-type rules. The Alembic migration is **not** part of this file — Alembic owns the revision chain (`alembic revision`); a schema change is a coordinated pair (the `Table` here + a new revision), but only the `Table` is this skill's output, and a later field change is reconciled by authoring a **new** revision, never by rewriting a prior one. Naming follows the project metadata `naming_convention` so that integrity-error translation can dispatch on `constraint_name`.
 
 ## When to use vs. neighbours
 
@@ -21,7 +21,7 @@ src/<root>/infrastructure/postgres/
 ├── metadata.py                    # already exists, shared MetaData with naming_convention
 └── tables/
     ├── __init__.py                # update to re-export the new module
-    └── foos.py                    # this skill's output — the write-once Table scaffold
+    └── foos.py                    # this skill's output — the Table module
 
 alembic/versions/
 └── 0042_create_foos.py            # NOT this skill's output — authored via `alembic revision`
@@ -87,7 +87,7 @@ foos_table: Table = Table(
 
 ## Template — Alembic migration (authored via `alembic revision`, not generated here)
 
-This is the **reference** for the revision the implementer authors with `alembic revision` in the verification loop — Alembic assigns the real `revision` / `down_revision` (from the current head), then the draft is hand-edited to match the rules below. It is not this skill's output and is never emitted from the manifest (the manifest is a desired-schema snapshot, not a revision journal).
+This is the **reference** for the revision authored with `alembic revision` — Alembic assigns the real `revision` / `down_revision` (from the current head), then the draft is hand-edited to match the rules below. It is not this skill's output and is never emitted from the manifest (the manifest is a desired-schema snapshot, not a revision journal).
 
 ```python
 # alembic/versions/0042_create_foos.py  (id + down_revision assigned by `alembic revision`)
@@ -174,7 +174,7 @@ Pick once; document the consequence in the repository's `delete` method.
 
 ## Coordinated change (the Table scaffold + an Alembic revision)
 
-A schema change is two coordinated edits, but they have **different owners**: the `Table` scaffold (this skill's output, write-once) and an Alembic revision authored separately via `alembic revision` (Alembic owns the chain — the manifest never carries migrations). A deterministic schema-drift check (entity fields ↔ table columns) is what flags the table out of date and triggers the implementer to author the revision; the two land in the same commit. `alembic revision --autogenerate` is only a draft — it misses naming-convention nuance, partial indexes, and seed data — so hand-edit it against the rules above after generating.
+A schema change is two coordinated edits: the `Table` here (this skill's output) and an Alembic revision authored separately via `alembic revision` (Alembic owns the chain — the manifest never carries migrations). The two land in the same commit. `alembic revision --autogenerate` is only a draft — it misses naming-convention nuance, partial indexes, and seed data — so hand-edit it against the rules above after generating.
 
 ## Inlined typing / import rules
 
@@ -186,7 +186,7 @@ A schema change is two coordinated edits, but they have **different owners**: th
 
 ## Package wiring
 
-The `tables/__init__.py` must re-export the new module via `from .foos import *` — otherwise Alembic autogenerate cannot see the table. Follow `general-python-package` for the mechanics.
+The `tables/__init__.py` must re-export the new module — `from . import foos` + `from .foos import *` — otherwise Alembic autogenerate cannot see the table. Follow `general-python-package` for the mechanics.
 
 ## Hard stops
 
