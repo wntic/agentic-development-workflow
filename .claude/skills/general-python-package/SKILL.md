@@ -25,8 +25,10 @@ This skill fires when **package mechanics change** — a new `.py` module is cre
 - In `__init__.py`: always `__all__ = module.__all__` (or `+`-joined across modules), never `__all__ = ["ClassName"]`.
 - In `__init__.py`: **precede the wildcards with one `from . import <module>, …` line** naming every re-exported submodule (alphabetical). The wildcard binds the submodule at runtime, but **mypy does not model that side effect** — without the explicit `from . import …`, the `__all__ = module.__all__` reference fails type-checking (`name-defined`). The explicit import is what makes the re-export contract type-check; it is **required, not redundant**.
 - Subpackages are directories with their own `__init__.py`; only the top-level package's `__init__.py` carries a `__version__`.
-- **A package re-exports ALL its immediate children — direct modules AND child subpackages.** So a layer package (`domain/`, `application/`, `infrastructure/`) re-exports its subdomain subpackages, not only its direct modules: `from . import auth, support` + `from .auth import *` + `from .support import *` + `__all__ = auth.__all__ + support.__all__`. An **empty layer `__init__.py` that has children is wrong** — re-export them so `from <root>.domain import X` resolves and `__all__` aggregates up the tree.
-- **Entrypoint carve-out.** A package whose `__init__` would wildcard a module with **import-time side effects** stays minimal. The one case today is `restapi/__init__.py` — do **not** `from .main import *` (importing `main.py` builds the FastAPI app); re-export only the side-effect-free public surface, or leave it empty.
+- **A package re-exports its immediate children — direct modules AND child subpackages — except the three carve-outs below.** A layer package (`domain/`, `application/`, `infrastructure/`) re-exports its subdomain subpackages, not only its direct modules: `from . import auth, support` + `from .auth import *` + `from .support import *` + `__all__ = auth.__all__ + support.__all__`. An **empty layer `__init__.py` that has children is wrong** — re-export them so `from <root>.domain import X` resolves.
+- **Carve-out 1 — the package root stays minimal.** The top-level package `__init__.py` of a layered app (`<root>/__init__.py`) carries only `__version__`; it does **not** wildcard the layer subpackages. Aggregating them to the root would make `import <root>` transitively pull in `infrastructure`/entrypoint third-party deps on every use and break the dependency-free `domain`/`application` import path. Re-export stops at the layer + subdomain level — it does not climb to the root.
+- **Carve-out 2 — entrypoint packages stay minimal.** A package whose `__init__` would wildcard a module with **import-time side effects** stays minimal. The case today is `restapi/__init__.py` — do **not** `from .main import *` (importing `main.py` builds the FastAPI app); re-export only the side-effect-free public surface, or leave it empty.
+- **Carve-out 3 — wildcard only class-modules.** `from .x import *` is for a module that defines `__all__` (a class module). A module whose public name is a bare object/instance rather than a class — e.g. `infrastructure/postgres/metadata.py` exposing the `metadata` `MetaData()` instance — is **not** wildcarded into its package `__init__` (the wildcard binds a `metadata` name that shadows the submodule); reach it by explicit relative import (`from ..metadata import metadata`) where needed.
 
 ## Named exceptions to "one class per module"
 
@@ -73,7 +75,13 @@ from .handler import *
 __all__ = command.__all__ + handler.__all__
 ```
 
-**A top-level package `__init__.py`** additionally carries a version string:
+**A top-level package `__init__.py`** carries `__version__`. A **layered app root** (`<root>/__init__.py`, carve-out 1) carries *only* that:
+
+```python
+__version__ = "0.1.0"
+```
+
+A flat single-package library root may additionally re-export its own modules:
 
 ```python
 from . import manager
