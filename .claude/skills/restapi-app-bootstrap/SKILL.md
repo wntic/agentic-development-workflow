@@ -1,6 +1,6 @@
 ---
 name: restapi-app-bootstrap
-description: Apply once per project to bootstrap the FastAPI entrypoint. Produces five files — `restapi/main.py`, `restapi/error_handler.py`, `restapi/dependencies.py`, `restapi/schemas/errors.py`, `restapi/schemas/__init__.py` — and registers the DI container, lifespan hooks, the central `DomainError` handler, CORS, and `MaxRequestSizeMiddleware`. Does not produce any router or per-resource schema — those come from `restapi-endpoint` and `restapi-schema`. Run this skill first, then per-resource skills can land their endpoints in `app.include_router(...)`.
+description: Apply once per project to bootstrap the FastAPI entrypoint. Produces five files — `restapi/main.py`, `restapi/error_handler.py`, `restapi/dependencies.py`, `restapi/schemas/errors.py`, `restapi/schemas/__init__.py` — and registers the DI container, lifespan hooks, the central `DomainError` handler, and CORS. Application middleware (request-size caps, request-id logging, …) is NOT bootstrapped here — it is declared per app (the `restapi.middlewares` manifest section) and produced by `restapi-middleware`. Does not produce any router or per-resource schema — those come from `restapi-endpoint` and `restapi-schema`. Run this skill first, then per-resource skills can land their endpoints in `app.include_router(...)`.
 ---
 
 # REST API App Bootstrap
@@ -14,7 +14,7 @@ One-shot per project. Creates the FastAPI app skeleton so subsequent skills (`re
 - A new domain exception is plumbed → `domain-exception` (creates/extends `domain/exceptions.py`). The catalog used by `error_responses(...)` derives from `domain.exceptions.__all__` automatically.
 - A new middleware needs a new HTTP status registered → `restapi-error-responses` middleware-code path.
 
-**Catalog ordering.** This skill runs once, early. The expected sequence is: `domain-exception` (bootstrap) → `infra-di-provider` (initial scaffold so `Container()` is importable) → **this skill** → `restapi-schema` (per-resource modules) → `restapi-endpoint` (per route) → `restapi-error-responses` and `restapi-file-transfer` as applicable. `MaxRequestSizeMiddleware` at `restapi/middleware/max_request_size.py` is assumed to exist; if not, it is a bootstrap one-off the spec author authors directly (out of scope for this skill).
+**Catalog ordering.** This skill runs once, early. The expected sequence is: `domain-exception` (bootstrap) → `infra-di-provider` (initial scaffold so `Container()` is importable) → **this skill** → `restapi-schema` (per-resource modules) → `restapi-endpoint` (per route) → `restapi-error-responses` and `restapi-file-transfer` as applicable. **Application middleware is not part of this bootstrap** — it is declared per app (the `restapi.middlewares` manifest section) and produced by `restapi-middleware`. This skill presumes **none** (no request-size cap, no request-id); `main.py` leaves a placeholder where declared middlewares are wired in manifest order.
 
 ## Template(s)
 
@@ -41,7 +41,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from myapp.containers import Container
 
 from .error_handler import register_error_handlers
-from .middleware.max_request_size import MaxRequestSizeMiddleware
 
 __all__ = ["create_app"]
 
@@ -66,10 +65,8 @@ def create_app(container: Container | None = None) -> FastAPI:
         expose_headers=["Content-Disposition"],
     )
 
-    app.add_middleware(
-        MaxRequestSizeMiddleware,
-        max_bytes=10 * 1024 * 1024,
-    )
+    # Declared middlewares (restapi.middlewares) are wired here by restapi-middleware,
+    # in manifest order. None are presumed — not even a request-size cap.
 
     register_error_handlers(app)
 
@@ -175,10 +172,10 @@ class ErrorResponse(BaseModel):
     context: dict[str, object] = Field(default_factory=dict)
 
 # Status codes emitted by middleware that have no DomainError class behind them.
-# Extend via the restapi-error-responses middleware-code path.
-MIDDLEWARE_ERRORS: dict[str, int] = {
-    "PAYLOAD_TOO_LARGE": 413,
-}
+# Empty by default — no middleware is presumed. The restapi-error-responses
+# middleware-code path adds an entry when a declared middleware introduces a code
+# (e.g. a size-cap middleware → PAYLOAD_TOO_LARGE 413).
+MIDDLEWARE_ERRORS: dict[str, int] = {}
 
 _DESCR: dict[int, str] = {
     400: "Bad request",
