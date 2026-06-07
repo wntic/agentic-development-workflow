@@ -269,6 +269,70 @@ def test_domain_filter_missing_name_is_flagged() -> None:
     assert _has(report, "missing_field", "name")
 
 
+# ── restapi.middlewares (entrypoint cross-cutting section) ───────────────────────
+
+
+def test_restapi_middleware_section_validates() -> None:
+    def mutate(d: dict) -> None:
+        d.setdefault("restapi", {})["middlewares"] = [
+            {
+                "name": "RequestId",
+                "config": {"header": "X-Request-ID"},
+                "notes": "bind the request id into structlog contextvars",
+                "sources": [],
+            },
+            {
+                "name": "MaxRequestSize",
+                "config": {"max_bytes": 10485760},
+                "introduces_http": [413],
+                "notes": "reject bodies over max_bytes with a 413 before the route runs",
+                "sources": [],
+            },
+        ]
+
+    report = vm.validate(_data(mutate))
+    assert report.ok, [f.message for f in report.errors + report.questions]
+    assert "restapi.middlewares" in vm.KIND_TO_SKILL  # covered by the gate
+
+
+def test_middleware_introduces_http_must_be_ints() -> None:
+    def mutate(d: dict) -> None:
+        d.setdefault("restapi", {})["middlewares"] = [
+            {"name": "MaxRequestSize", "introduces_http": ["413"], "sources": []}  # strings, not ints
+        ]
+
+    report = vm.validate(_data(mutate))
+    assert _has(report, "bad_type", "introduces_http")
+
+
+def test_middleware_missing_name_is_flagged() -> None:
+    def mutate(d: dict) -> None:
+        d.setdefault("restapi", {})["middlewares"] = [{"config": {}, "sources": []}]  # no name
+
+    report = vm.validate(_data(mutate))
+    assert _has(report, "missing_field", "name")
+
+
+def test_middleware_unknown_field_rejected() -> None:
+    def mutate(d: dict) -> None:
+        d.setdefault("restapi", {})["middlewares"] = [{"name": "RequestId", "sources": [], "bogus": "nope"}]
+
+    report = vm.validate(_data(mutate))
+    assert _has(report, "unknown_field", "bogus")
+
+
+def test_middleware_without_config_or_notes_warns() -> None:
+    """A middleware is body-bearing (the ASGI __call__); with neither config nor notes the
+    implementer has no contract — a loud-degradation warning, not a hard error."""
+
+    def mutate(d: dict) -> None:
+        d.setdefault("restapi", {})["middlewares"] = [{"name": "BareMiddleware", "sources": []}]
+
+    report = vm.validate(_data(mutate))
+    assert report.ok  # warning, not error
+    assert _has(report, "unspecified_body", "BareMiddleware")
+
+
 # ── sources resolution ──────────────────────────────────────────────────────────
 
 

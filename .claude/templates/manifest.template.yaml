@@ -385,6 +385,18 @@ restapi:
       # header). Empty for almost every route (thin routes carry no business logic).
       sources: [UC-001]
 
+  middlewares:                               # OPTIONAL. App-wide ASGI middleware; list ORDER = app.add_middleware order.
+    - name: RequestId                        # PascalCase → RequestIdMiddleware @ restapi/middleware/request_id.py
+      config: {header: X-Request-ID}         # kwargs passed to the middleware __init__
+      notes: "bind the request id into structlog contextvars for the request"
+      sources: [UC-001]
+    - name: MaxRequestSize
+      config: {max_bytes: 10485760}
+      introduces_http: [413]                 # HTTP codes it emits with no DomainError behind them
+                                             # (feeds MIDDLEWARE_ERRORS so routes can advertise the code)
+      notes: "reject bodies over max_bytes with a 413 before the route runs"
+      sources: [UC-001]
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Tests — cross-cutting only. Per-artifact tests are derived by each test-*
 # skill from the artifact entry. Do NOT enumerate per-artifact test files here.

@@ -534,6 +534,17 @@ restapi:
       handler: DeleteTicket
       sources: []
 
+  middlewares:
+    - name: RequestId
+      config: {header: X-Request-ID}
+      notes: "bind the request id into structlog contextvars so every log line for the request carries it"
+      sources: []
+    - name: MaxRequestSize
+      config: {max_bytes: 1048576}
+      introduces_http: [413]
+      notes: "reject request bodies larger than max_bytes with a 413 before the route runs"
+      sources: []
+
 tests:
   architecture_rules:
     - name: test_no_print_outside_entrypoints

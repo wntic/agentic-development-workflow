@@ -88,7 +88,7 @@ class Report:
 @dataclass(frozen=True)
 class F:
     """A field spec. `kind` is one of:
-    "str" | "int" | "bool" | "strlist" | "map" | "any" | "enum"
+    "str" | "int" | "bool" | "strlist" | "intlist" | "map" | "any" | "enum"
     | ("obj", <SchemaName>) | ("list", <SchemaName>) | "protocol_methods".
     `any` = a free literal/expression the validator never inspects (types, defaults)."""
 
@@ -316,9 +316,17 @@ SCHEMAS: dict[str, dict[str, F]] = {
         "notes": F("str", required=False, default=None),
         "sources": F("strlist"),
     },
+    "Middleware": {
+        "name": F("str"),
+        "config": F("map", required=False, default={}),
+        "introduces_http": F("intlist", required=False, default=[]),
+        "notes": F("str", required=False, default=None),
+        "sources": F("strlist"),
+    },
     "RestApi": {
         "schemas": F(("list", "RestSchema"), required=False, default=[]),
         "endpoints": F(("list", "Endpoint"), required=False, default=[]),
+        "middlewares": F(("list", "Middleware"), required=False, default=[]),
     },
     "ArchitectureRule": {
         "name": F("str"),
@@ -374,6 +382,7 @@ KIND_TO_SKILL: dict[str, str] = {
     "infrastructure.capabilities": "infra-capability-adapter",
     "restapi.schemas": "restapi-schema",
     "restapi.endpoints": "restapi-endpoint",
+    "restapi.middlewares": "restapi-middleware",
     "tests.architecture_rules": "test-architecture-rule",
 }
 
@@ -412,7 +421,7 @@ def artifact_kind_tokens() -> list[str]:
 def _empty_for(kind: object) -> object:
     if isinstance(kind, tuple):
         return [] if kind[0] == "list" else {}
-    return {"strlist": [], "map": {}, "protocol_methods": [], "int": 0, "bool": False}.get(kind)  # type: ignore[arg-type]
+    return {"strlist": [], "intlist": [], "map": {}, "protocol_methods": [], "int": 0, "bool": False}.get(kind)  # type: ignore[arg-type]
 
 
 def _check_value(value: object, fspec: F, path: str, report: Report) -> object:
@@ -449,6 +458,11 @@ def _check_value(value: object, fspec: F, path: str, report: Report) -> object:
     if kind == "strlist":
         if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
             report.add("error", "bad_type", f"{path}: expected a list of strings")
+            return value if isinstance(value, list) else []
+        return value
+    if kind == "intlist":
+        if not isinstance(value, list) or not all(isinstance(x, int) and not isinstance(x, bool) for x in value):
+            report.add("error", "bad_type", f"{path}: expected a list of ints")
             return value if isinstance(value, list) else []
         return value
     if kind == "map":
@@ -716,6 +730,15 @@ def _check_degradation(m: dict, report: Report) -> None:
                     f"service {svc['name']} method {meth['signature']!r}: no behaviour "
                     f"and no service notes — no contract to fill the body from",
                 )
+
+    for mw in m["restapi"]["middlewares"]:
+        if not mw["config"] and not mw["notes"]:
+            report.add(
+                "warning",
+                "unspecified_body",
+                f"middleware {mw['name']}: no config and no notes — the implementer has no "
+                f"contract to fill the ASGI body from",
+            )
 
     for c in m["application"]["commands"]:
         if c["notes"] or any(not _is_uuid_type(f["type"]) for f in c["input"]):

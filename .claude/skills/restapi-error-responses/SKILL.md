@@ -28,6 +28,7 @@ Domain exception classes themselves are registered automatically: `error_respons
 
 ```python
 from collections.abc import Iterable
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -65,12 +66,15 @@ def _all_known_statuses() -> set[int]:
     }
     return domain_statuses | set(MIDDLEWARE_ERRORS.values())
 
-def error_responses(*codes: int) -> dict[int, dict[str, object]]:
+def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
     known = _all_known_statuses()
     unknown = [c for c in codes if c not in known]
     if unknown:
         raise ValueError(f"HTTP statuses not produced by any DomainError or middleware: {unknown}")
-    return {c: {"model": ErrorResponse, "description": _DESCR.get(c, str(c))} for c in codes}
+    out: dict[int | str, dict[str, Any]] = {
+        c: {"model": ErrorResponse, "description": _DESCR.get(c, str(c))} for c in codes
+    }
+    return out
 ```
 
 The domain-side registry is derived dynamically from `domain.exceptions.__all__` — no manual list to maintain. Adding a new `DomainError` subclass automatically widens the allowed statuses on the next import.

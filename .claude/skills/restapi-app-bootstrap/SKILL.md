@@ -65,8 +65,10 @@ def create_app(container: Container | None = None) -> FastAPI:
         expose_headers=["Content-Disposition"],
     )
 
-    # Declared middlewares (restapi.middlewares) are wired here by restapi-middleware,
-    # in manifest order. None are presumed — not even a request-size cap.
+    # Application middlewares (from the manifest) are added here, in manifest order,
+    # AFTER CORS. Starlette wraps the last-added outermost, so the last middleware
+    # listed is the request's outermost layer; CORS (added above) sits innermost.
+    # None are presumed — not even a request-size cap.
 
     register_error_handlers(app)
 
@@ -118,6 +120,7 @@ The translator stays minimal forever. New domain exceptions plug in without touc
 
 ```python
 from collections.abc import Callable
+from typing import cast
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -136,7 +139,9 @@ def get_current_user(
     if creds is None or creds.scheme.lower() != "bearer":
         raise UnauthorizedError("Missing bearer token", {"reason": "missing_credentials"})
     verifier = request.app.state.container.jwt_verifier()
-    return verifier.verify(creds.credentials)
+    # The DI container resolves untyped (`app.state` is `Any`) — cast at this boundary
+    # so the function honours its `-> CurrentUser` contract under strict mypy.
+    return cast(CurrentUser, verifier.verify(creds.credentials))
 
 def require_role(required: Role) -> Callable[..., CurrentUser]:
     def _dep(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
@@ -159,6 +164,8 @@ The bearer scheme is declared **once** at module level. `get_current_user` resol
 ### `restapi/schemas/errors.py`
 
 ```python
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from myapp.domain import exceptions as _domain_exceptions
@@ -195,17 +202,20 @@ def _all_known_statuses() -> set[int]:
             domain_statuses.add(cls.http_status)
     return domain_statuses | set(MIDDLEWARE_ERRORS.values())
 
-def error_responses(*codes: int) -> dict[int, dict[str, object]]:
+def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
     known = _all_known_statuses()
     unknown = [c for c in codes if c not in known]
     if unknown:
         raise ValueError(
             f"HTTP statuses not produced by any DomainError or middleware: {unknown}"
         )
-    return {
+    # `dict[int | str, dict[str, Any]]` is exactly FastAPI's `responses=` parameter type —
+    # a narrower `dict[str, object]` value trips a strict-mypy arg-type error at the decorator.
+    out: dict[int | str, dict[str, Any]] = {
         c: {"model": ErrorResponse, "description": _DESCR.get(c, str(c))}
         for c in codes
     }
+    return out
 ```
 
 The domain-side registry is **derived dynamically** from `domain.exceptions.__all__`. Adding a new `DomainError` subclass automatically widens the allowed `error_responses(...)` codes — no manual append, no `domain/error_catalog.py` to maintain.

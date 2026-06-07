@@ -37,6 +37,7 @@ All paths below are relative to the target package root `src/<package>/` (e.g. `
 | `infrastructure.capabilities[*]` | `implements: ICanEmbedText`, `adapter: openai`, `role: TextEmbedder` | `OpenaiTextEmbedder` | `infrastructure/openai/openai_text_embedder.py` |
 | `restapi.schemas[*]` | `name: LoginRequest`, `resource: auth` | `LoginRequest` | grouped into `restapi/schemas/auth.py` |
 | `restapi.endpoints[*]` | `method`, `path`, `resource: auth` | endpoint function (name from method+path) | grouped into `restapi/routers/auth.py` |
+| `restapi.middlewares[*]` | `name: RequestId`, `config` | `RequestIdMiddleware` | `restapi/middleware/request_id.py` |
 
 **Application subdomain is derived, not declared.** Commands and queries carry no `subdomain` field. The subdomain is the subdomain of the first `handler.dependencies` entry that names a `repository_protocol` (a repository protocol carries its own `subdomain`); when the handler has no repository dependency, fall back to the first domain entity's subdomain. So `CreateTicket` with `handler.dependencies: [ITicketRepository]` (whose protocol is `subdomain: support`) lands in `application/support/`.
 
@@ -71,10 +72,12 @@ All paths below are relative to the target package root `src/<package>/` (e.g. `
 | `infrastructure.capabilities` | `infra-capability-adapter` |
 | `restapi.schemas` | `restapi-schema` (the `kind: request | response` axis is handled inside the skill) |
 | `restapi.endpoints` | `restapi-endpoint` |
+| `restapi.middlewares` | `restapi-middleware` |
 | `tests.architecture_rules` | `test-architecture-rule` |
 
 - `infrastructure.datastores` has **no producer skill** — a datastore is wired from its **store profile** (block C), not a per-kind skill, and an unknown `kind` degrades gracefully rather than tripping the gate. It is the one artifact kind exempt from the coverage gate.
 - **Non-relational repositories.** The producer table maps `infrastructure.repositories` to `infra-sqlalchemy-repository` (SQLAlchemy Core) — correct for a relational store. A repository on a non-bootstrap store (qdrant/redis) is a store-profile-driven scaffold with **no dedicated skill yet**; the first one built is a §16 coverage-gap to close by authoring the missing `infra-<kind>-repository` skill, at which point this dispatch becomes store-kind-aware.
+- **Library middlewares.** `restapi.middlewares` models only *custom* middlewares today — a body-bearing ASGI class via `restapi-middleware`. A middleware that maps to a library class (e.g. `CORSMiddleware`, a starlette built-in) is **not modelled yet**; the first one declared is a §16 coverage-gap to close by adding a library-middleware profile (mirroring store profiles, block C), at which point `restapi.middlewares` dispatch becomes profile-aware.
 
 **Companion skills** — conditionally applied to a producer's artifact, not separately dispatched: `application-compensating-tx` (a command with an external side-effect before its DB write), `restapi-error-responses` (every endpoint advertises its error codes), `restapi-file-transfer` (multipart upload / streaming download), `restapi-auth-dependency` (reference — picks the route's auth dependency).
 
