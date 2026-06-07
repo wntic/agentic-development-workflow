@@ -94,8 +94,7 @@ domain:
   services:
     - name: TicketAssignmentService    # cross-aggregate rule → a domain service
       subdomain: support
-      kind: orchestrator
-      dependencies: [IUserRepository]
+      dependencies: [IUserRepository]   # non-empty ⇒ orchestrator (kind is derived, not declared)
       methods:
         - signature: "async def assert_assignable(self, assignee_id: UUID) -> None"
           raises: [NotFoundError, ValidationError]
