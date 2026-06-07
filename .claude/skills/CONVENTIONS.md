@@ -44,10 +44,12 @@ If a skill's hard-stops fire, it means the spec asked for the wrong artifact —
 
 ### Patterns (cross-cutting)
 
-The `pattern-` prefix marks a skill that **spans layers** (a domain port + an infra adapter + an application usage) rather than producing one layer's artifact. A pattern is a **companion** — conditionally applied to a producer's work — never a per-node producer dispatch, so it never appears in the `kind→skill` registry.
+The `pattern-` prefix marks a skill that **spans layers** (a domain port + an infra adapter + an application usage) rather than producing one layer's artifact.
 
-- `pattern-compensating-tx` — the only sanctioned `try/except` in `application/`: catch → undo → re-raise (an external side-effect before the DB write). Its trigger is **derivable** from the handler dependency + `behaviour.then.calls`, so it carries no manifest signal.
-- `pattern-unit-of-work` — `IUnitOfWork` protocol (domain) + SQLAlchemy implementation (infra) + handler integration (application) when ≥2 repositories must commit atomically. Its trigger is **not** derivable from "two dependencies", so it will need a small per-command manifest signal — **deferred until the first epic that needs it** (§16); no fixture exercises it today.
+- `pattern-compensating-tx` — the only sanctioned `try/except` in `application/`: catch → undo → re-raise, shaping a command handler's body when an external side-effect precedes the DB write.
+- `pattern-unit-of-work` — `IUnitOfWork` protocol (domain) + SQLAlchemy implementation (infra) + the handler form that uses it (application), when ≥2 repositories must commit atomically.
+
+(How each pattern is keyed to a producer's work — and the deferred unit-of-work manifest signal — lives in the `conventions` reference skill's registry B, not here.)
 
 ### Infrastructure
 

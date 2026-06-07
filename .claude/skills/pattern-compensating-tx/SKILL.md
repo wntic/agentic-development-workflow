@@ -7,7 +7,7 @@ description: Apply when a command handler must perform an external side effect (
 
 A pattern applied inside a command handler when it has already done something the outside world can see (an upload, a webhook, a file) before a later step (usually the DB write) can still fail. The handler must undo the visible side effect before letting the exception propagate.
 
-This skill produces **no new file**. It modifies the body of an existing command handler (produced by `application-command`) so the orchestration uses the compensation pattern.
+This skill produces **no new file** — it shapes a command handler's `execute` body (the form `application-command` writes when compensation is required): the try → undo → re-raise structure around the visible side effect.
 
 ## When to use vs. neighbours
 

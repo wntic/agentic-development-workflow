@@ -9,7 +9,7 @@ Produces the cross-cutting transactional-boundary abstraction. Three artifacts:
 
 1. **Protocol:** `src/<root>/domain/i_unit_of_work.py` (or `i_<scope>_unit_of_work.py` if multiple scopes).
 2. **Implementation:** `src/<root>/infrastructure/postgres/sqlalchemy_unit_of_work.py`.
-3. **Handler integration:** modify a command handler (produced by `application-command`) to receive `uow_factory: Callable[[], IUnitOfWork]` and call `async with self._uow_factory() as uow: ...`.
+3. **Handler integration:** a command handler that needs atomic multi-repository commits takes `uow_factory: Callable[[], IUnitOfWork]` and wraps its mutations in `async with self._uow_factory() as uow: ...` (the handler form `application-command` writes for this case).
 
 ## When to use it
 
@@ -155,14 +155,9 @@ class FooRepository:
 6. **Repositories joining the UoW take `session: AsyncSession`.** The same repository class cannot serve both `session_factory` and UoW callers — split into two adapters if you genuinely need both forms.
 7. **Don't retry a failing UoW in the handler.** Propagate to the central error handler.
 
-## DI wiring (handled by `infra-di-provider`, not this skill)
+## DI wiring (owned by `infra-di-provider`)
 
-```python
-uow_factory = providers.Factory(SqlAlchemyUnitOfWork, session_factory=session_factory)
-create_foo_handler = providers.Factory(CreateFooHandler, uow_factory=uow_factory.provider, ...)
-```
-
-`.provider` exposes the zero-arg callable matching `Callable[[], IUnitOfWork]`.
+The container wires the UoW as a `Factory` and passes `uow_factory.provider` — the `.provider` attribute exposes the zero-arg callable that matches `Callable[[], IUnitOfWork]`. The provider declarations themselves are `infra-di-provider`'s.
 
 ## Hard stops
 

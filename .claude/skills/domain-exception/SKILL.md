@@ -1,21 +1,17 @@
 ---
 name: domain-exception
-description: Apply when a spec requires `domain/exceptions.py` (bootstrap) or a new error class added to it. The file is the single error catalog for the whole project — one `DomainError` root with `code: str` + `http_status: int` class attributes and a `(message, context=None)` constructor that every subclass inherits unchanged. Subclasses use bare `code = "..."` / `http_status = ...` assignments and add nothing else. Does not handle raising — use `infra-sqlalchemy-repository` or `pattern-compensating-tx`. Does not handle HTTP translation — use `restapi-error-responses`.
+description: Apply when the manifest declares one or more `domain.exceptions`. Produces the project's single error catalog `domain/exceptions.py` — one `DomainError` root with `code: str` + `http_status: int` class attributes and a `(message, context=None)` constructor that every subclass inherits unchanged, plus one bare subclass per declared exception. Does not handle raising — use `infra-sqlalchemy-repository` or `pattern-compensating-tx`. Does not handle HTTP translation — use `restapi-error-responses`.
 ---
 
 # Domain Exception
 
-The whole project uses a single error catalog: `src/<root>/domain/exceptions.py`. This skill has two modes:
+The whole project uses a single error catalog: `src/<root>/domain/exceptions.py`. It holds the `DomainError` root plus one bare subclass per declared exception — every error the domain can raise lives in this one file, so the catalogue stays auditable.
 
-- **Bootstrap** — the file doesn't exist yet. Create it with `DomainError` + the standard subclass set.
-- **Extend** — the file exists. Insert one new class with a stable `code` (and `http_status` only when it differs from the parent).
-
-Both modes operate on the same file and obey the same shape: classes inherit from `DomainError` (or a `DomainError` subclass), override only the two class attributes, and **inherit the `(message, context=None)` constructor unchanged**.
+The `DomainError` root is **always present**: it is the base every subclass inherits, not a declared entry. Each `domain.exceptions` entry is a subclass that overrides only `code` and `http_status`.
 
 ## When to use vs. neighbours
 
-- A new project / first error class → bootstrap mode of this skill.
-- A spec needs a new named error to express a domain rule violation → extend mode.
+- A spec needs a new named error to express a domain rule violation → declare it as a `domain.exceptions` entry; this skill gives its shape. **First confirm no existing class already serves the rule** (scan `__all__` for a semantic match, read the candidate's body); if one fits, reuse it rather than minting a near-duplicate.
 - A spec needs to map a low-level library exception to a domain exception inside a repository → `infra-sqlalchemy-repository` (which references this skill for the target class name).
 - A spec needs to advertise an error on a REST route → `restapi-error-responses` (which references the new `code`).
 
@@ -28,8 +24,11 @@ Both modes operate on the same file and obey the same shape: classes inherit fro
 - Every subclass declares `code` and `http_status` as **bare class attributes** (no type annotation — the type is inherited from `DomainError`'s annotation).
 - **No subclass overrides `__init__`.** Every subclass automatically accepts `(message, context=None)` because it inherits from `DomainError`.
 - A subclass may inherit from another subclass when it's a refinement (e.g. `InUseError(ConflictError)`), in which case it also inherits `http_status` unless explicitly overridden.
+- Order: `__all__` (alphabetized), then `DomainError`, then direct subclasses, then refinements of subclasses (e.g. `InUseError(ConflictError)` after `ConflictError`).
 
-## Bootstrap template — full `domain/exceptions.py`
+## Catalog file shape (illustrative)
+
+A populated `domain/exceptions.py` — the `DomainError` root plus the common errors a typical catalog declares. Which subclasses actually appear is determined by the manifest's `domain.exceptions` set; the shapes below are the form each takes.
 
 ```python
 __all__ = [
@@ -75,9 +74,9 @@ class InUseError(ConflictError):
     http_status = 409
 ```
 
-Order: `__all__` (alphabetized), then `DomainError`, then direct subclasses, then refinements of subclasses (e.g. `InUseError(ConflictError)` after `ConflictError`).
+## How one declared exception renders
 
-## Extend template — adding one class
+Each `domain.exceptions` entry is a bare subclass of `DomainError` — or of the most specific existing parent, when a subclass is a semantic match (a refinement inherits `http_status` unless it differs):
 
 ```python
 class FooConflictError(ConflictError):
@@ -89,7 +88,7 @@ That's the entire class body. No `__init__`, no fields, no methods — the `(mes
 
 ## How a custom subclass is raised (reference — not produced by this skill)
 
-Custom exceptions still carry `context`. The raise site (in `infrastructure/` or `application/`) passes a `context` dict whose keys are agreed in the spec:
+Custom exceptions still carry `context`. The raise site (in `infrastructure/` or `application/`) passes a `context` dict whose keys express the structured detail:
 
 ```python
 raise FooConflictError(
@@ -98,26 +97,9 @@ raise FooConflictError(
 )
 ```
 
-The skill does not enforce the keys — but the spec author should list them in `expected_context_keys` so downstream code (test assertions, `infra-sqlalchemy-repository._map_integrity_error`) populates the same keys.
+The skill does not enforce the keys — the raise site and its test agree on them (e.g. the repository's `IntegrityError` translation in `infra-sqlalchemy-repository._map_integrity_error` and the handler test assert the same `context` keys).
 
 ## Rules
-
-### Procedure — bootstrap mode
-
-1. Confirm the file does not exist.
-2. Create `src/<root>/domain/exceptions.py` using the bootstrap template above.
-3. Pick the subclass set from `initial_subclasses`. Always include `DomainError`. Standard set covers most needs: `NotFoundError`, `ConflictError`, `ValidationError`, `ForbiddenError`, `UnauthorizedError`, `InUseError`.
-
-### Procedure — extend mode
-
-1. Read `domain/exceptions.py` in full.
-2. Confirm no existing class already serves the spec's rule (search `__all__` for similar names; read candidate class bodies). If reuse is possible, **stop and recommend reuse**.
-3. Pick the most specific existing parent. Direct inheritance from `DomainError` is only correct when no subclass is a semantic match.
-4. Insert the new class in a position that respects inheritance order (parents above children). Place it next to siblings of the same parent so the file stays readable.
-5. Insert `<ClassName>` into `__all__` in alphabetical order.
-6. Verify the new `code` does not collide with any existing `code` in the file (every `code` must be unique across the catalog).
-
-### Constraints
 
 1. **Never define exceptions outside `domain/exceptions.py`.** Not in `application/`, not in `infrastructure/`, not in `restapi/`. New classes are added to this file or not at all.
 2. **Never inherit from bare `Exception` or stdlib exceptions.** Inherit from `DomainError` or one of its subclasses.
@@ -126,6 +108,7 @@ The skill does not enforce the keys — but the spec author should list them in 
 5. **Subclass class attributes use bare assignment.** `code = "X"`, not `code: str = "X"`. The annotation lives on `DomainError`; subclasses just override the value.
 6. **`http_status` is inherited from the parent unless explicitly overridden.** Only set it when it differs from the parent's value.
 7. **`code` values are `SCREAMING_SNAKE_CASE`.** Keep them consistent — the public catalog and dashboards depend on the format.
+8. **Every `code` is unique** across the catalog — two classes never share a `code`.
 
 ## Inlined typing / import rules
 

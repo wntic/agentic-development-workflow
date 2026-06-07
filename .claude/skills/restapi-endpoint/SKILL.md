@@ -22,9 +22,9 @@ Produces one HTTP endpoint for one resource. Routers grow incrementally — this
 src/<root>/restapi/routers/<resource>.py
 ```
 
-If the file does not exist, create it with the skeleton below and register the router in `src/<root>/restapi/main.py` via `app.include_router(...)`. If it exists, append the new endpoint function in the correct position (see Route ordering).
+One router file per resource holds **all** of that resource's endpoint functions; the file declares the `APIRouter`, defines each endpoint function (ordered per Route ordering), and is registered once in `src/<root>/restapi/main.py` via `app.include_router(...)`. The skeleton below is the whole-file shape; an endpoint function is the per-route shape that follows it.
 
-## Skeleton — new router file
+## Skeleton — router file
 
 ```python
 from typing import Annotated
