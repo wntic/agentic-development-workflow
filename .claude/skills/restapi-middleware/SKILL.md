@@ -5,7 +5,7 @@ description: Apply when a request needs cross-cutting handling that wraps every 
 
 # REST API Middleware
 
-Produces one ASGI middleware — a class that wraps the whole app to handle a cross-cutting request/response concern (correlation ids, a body-size cap, rate limiting, timing) that belongs to no single route. One class per file under `restapi/middleware/<snake>.py`, named `<Name>Middleware`.
+Produces one ASGI middleware — a class that wraps the whole app to handle **any** cross-cutting request/response concern that belongs to no single route (correlation ids, a body-size cap, rate limiting, timing — an open list, not a fixed catalog). One class per file under `restapi/middleware/<snake>.py`, named `<Name>Middleware`.
 
 ## When to use vs. neighbours
 
@@ -16,6 +16,10 @@ Produces one ASGI middleware — a class that wraps the whole app to handle a cr
 - Advertising an HTTP code a route can return → `restapi-error-responses`.
 
 ## Template(s)
+
+Two shapes, picked by whether the middleware ever stops a request — one template per shape. Both share
+the same skeleton (non-`http` passthrough, `app` + config on `self`); they differ only in whether
+`__call__` grows a reject branch. The concerns shown are illustrations, not a fixed catalog.
 
 ### Pass-through — observes/annotates, never short-circuits (e.g. a correlation id)
 
@@ -50,9 +54,9 @@ class RequestIdMiddleware:
 ### Short-circuit with an error — rejects before the route runs (e.g. a request-size cap)
 
 ```python
-import json
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from ..schemas.errors import ErrorResponse
 
 __all__ = ["MaxRequestSizeMiddleware"]
 
@@ -68,30 +72,15 @@ class MaxRequestSizeMiddleware:
         if scope["type"] != "http":
             await self._app(scope, receive, send)
             return
-
-        body_size = 0
-
-        async def _receive() -> Message:
-            nonlocal body_size
-            message = await receive()
-            if message["type"] == "http.request":
-                body_size += len(message.get("body", b""))
-                if body_size > self._max_bytes:
-                    raise _PayloadTooLarge
-            return message
-
-        try:
-            await self._app(scope, _receive, send)
-        except _PayloadTooLarge:
+        declared = dict(scope["headers"]).get(b"content-length")
+        if declared and int(declared) > self._max_bytes:
             await _send_error(send, _PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "Request body too large")
-
-
-class _PayloadTooLarge(Exception):
-    pass
+            return
+        await self._app(scope, receive, send)
 
 
 async def _send_error(send: Send, status: int, code: str, message: str) -> None:
-    body = json.dumps({"code": code, "message": message, "context": {}}).encode()
+    body = ErrorResponse(code=code, message=message).model_dump_json().encode()
     await send(
         {"type": "http.response.start", "status": status,
          "headers": [(b"content-type", b"application/json")]}
@@ -99,19 +88,25 @@ async def _send_error(send: Send, status: int, code: str, message: str) -> None:
     await send({"type": "http.response.body", "body": body})
 ```
 
+The cap reads the **declared** `Content-Length` and rejects before the body is read — nothing is
+buffered. It does not catch a chunked upload that omits the header or a client that lies about its
+length; that absolute byte ceiling is an **edge** concern (a reverse proxy's `client_max_body_size`),
+and this middleware is the app-layer defense-in-depth on top of it.
+
 ## Rules
 
 1. **One class per file**, named `<Name>Middleware`, under `restapi/middleware/`. It is a **raw ASGI callable**, not a `starlette.middleware.base.BaseHTTPMiddleware` subclass (that buffers the whole body and breaks streaming + the size cap).
 2. **Exact ASGI shape.** `__init__(self, app: ASGIApp, <config…>)` stores `app` + the config on `self`; `async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None`. Configuration arrives as constructor keyword arguments (the values passed at `app.add_middleware(Cls, **config)`). These kwargs are the manifest's `restapi.middlewares[*].config` map — the one sanctioned **open** key→value map in the schema (a middleware's kwargs are an irreducibly open passthrough validated by the constructor at runtime, not architect-reviewable structure), so it is not the arbitrary escape-hatch map earn-its-place forbids.
 3. **Pass non-`http` scopes straight through** — `if scope["type"] != "http": await self._app(scope, receive, send); return`. Lifespan and websocket scopes must not be intercepted.
-4. **A middleware that REJECTS a request emits an `ErrorResponse`-shaped JSON body** — `{"code": "<STABLE_STRING>", "message": "...", "context": {}}` — with the HTTP status it owns. Keep the code string stable: the API contract and `restapi/schemas/errors.py`'s `MIDDLEWARE_ERRORS` key on it (see `restapi-error-responses`).
+4. **A middleware that REJECTS a request emits an `ErrorResponse`-shaped JSON body** — `{"code": "<STABLE_STRING>", "message": "...", "context": {}}` — with the HTTP status it owns, and `return`s **before** `await self._app(...)`; a pass-through, by contrast, always reaches the call. Keep the code string stable: the API contract and `restapi/schemas/errors.py`'s `MIDDLEWARE_ERRORS` key on it (see `restapi-error-responses`).
 5. **No business/domain logic.** A middleware is transport-level — bytes, headers, timing, the structlog context. Anything needing a domain entity, a repository, or an application handler is not a middleware.
-6. **`self` holds only `app` + config** (built once, at wiring time). Per-request state is a local inside `__call__` (e.g. `body_size`), never an instance attribute.
+6. **`self` holds only `app` + config** (built once, at wiring time). Any per-request value is a local inside `__call__` (e.g. the request id, the declared content length), never an instance attribute.
 7. **Ordering is significant — Starlette wraps the last-added outermost.** Each `app.add_middleware(...)` call wraps the app as a new **outermost** layer, so the **last** middleware added is the first to see a request and the last to touch a response. A middleware that must see the raw request before anything else (a size cap) is therefore added **last**. The relative order is the consuming app's wiring decision.
 
 ## Inlined typing / import rules
 
-- ASGI types from `starlette.types` (`ASGIApp`, `Scope`, `Receive`, `Send`, `Message`). `X | None` over `Optional[X]`; full annotations on `__init__` and `__call__`. No `from __future__ import annotations`.
+- ASGI types from `starlette.types` (`ASGIApp`, `Scope`, `Receive`, `Send`; add `Message` only if a `__call__` wraps `receive`/`send`). `X | None` over `Optional[X]`; full annotations on `__init__` and `__call__`. No `from __future__ import annotations`.
+- A middleware that rejects emits its body through the shared `ErrorResponse` schema (`from ..schemas.errors import ErrorResponse`) — never hand-roll the `{"code", "message", "context"}` dict, so the wire shape stays single-sourced.
 - When the middleware logs, `import structlog` (+ `structlog.contextvars` helpers) at module top — see `general-logging`.
 
 ## Package wiring
@@ -124,4 +119,4 @@ Register the module in `restapi/middleware/__init__.py` per `general-python-pack
 - It needs a domain entity / repository / application handler → stop, that's application logic, not a middleware.
 - It authenticates or authorizes a request → stop, use `restapi-auth-dependency` (a FastAPI dependency on the route).
 - You reach for `BaseHTTPMiddleware` → stop, use the raw ASGI class (BaseHTTPMiddleware buffers the body, breaking the size cap and streaming downloads).
-- The middleware introduces an HTTP status with no domain exception behind it and you're unsure how a route advertises it → see `restapi-error-responses` (the middleware-code path).
+- The middleware introduces an HTTP status with no domain exception behind it → stop, register the code via `restapi-error-responses` (the middleware-code path).
