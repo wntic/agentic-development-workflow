@@ -112,10 +112,12 @@ The dependency manifest (`pyproject.toml`) is regenerated glue: the framework su
 
 - **Framework substrate** (the FastAPI-hexagon stack, always present): `fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`, `dependency-injector`, `structlog`.
 - **Relational bootstrap** (added only when a `uses_bootstrap` store backs a repository): `sqlalchemy[asyncio]`, `asyncpg`, `alembic`.
-- **Dev**: `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `testcontainers`, `httpx`.
+- **Dev**: `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `testcontainers`, `httpx`, `cryptography` — the last because the `test-integration-authed-client` conftest mints RS256 tokens from a generated RSA keypair (sign with the private key, the app verifies with the public one), so it is a hard dependency of the integration test bootstrap whenever the app has authenticated endpoints.
 - **SDK packages are not listed here** — each rides on the infra node that needs it (`datastore` / `capability` `requires_packages`, e.g. `qdrant-client`, `openai`, `pyjwt`) and is unioned in from the graph.
 
 **No versions.** This list carries names only; `uv add <lib>` pins the latest compatible version at scaffold time, so nothing rots. A pinned `>=` here would reintroduce the generator's chief disease (baked-in `fastapi>=0.115` under eternal manual bump).
+
+**Dev deps live under `[dependency-groups]` (PEP 735).** Emit `[dependency-groups]` with `dev = [...]` — `uv run` / `uv sync` install the `dev` group by default. Do **not** emit the deprecated `[tool.uv.dev-dependencies]` table (uv warns on it and it is slated for removal).
 
 ## E. Toolchain commands (the verification loop)
 
@@ -123,6 +125,7 @@ Determinism in the redesign lives in verification, not authoring (spec §0 princ
 
 - type-check: `uv run mypy src/<package>`
 - lint / format: `uv run ruff check src tests` · `uv run ruff format src tests`
+- **ruff lint config** (emitted into `pyproject.toml`): `[tool.ruff.lint]` `select = ["E", "F", "I", "B904"]`, plus `[tool.ruff.lint.per-file-ignores]` `"**/__init__.py" = ["F403", "F405"]`. `B904` makes a bare `raise X` inside an `except` an error: chain the cause with `raise X(...) from exc`, or deliberately suppress it with `from None` (e.g. translating a lookup-miss to an auth error without leaking the internal cause). The `__init__.py` F403/F405 ignore is the **only** sanctioned ruff suppression — never an inline `# noqa` on a content module.
 - tests: `uv run pytest`
 - pin a substrate / SDK package at scaffold time: `uv add <lib>` (dev: `uv add --dev <lib>`)
 - migrations — **Alembic owns the chain natively; migrations are never generated** (spec §3): `uv run alembic revision --autogenerate -m "<change>"` then `uv run alembic upgrade head`. A schema-drift check (entity fields ↔ table columns) is the deterministic trigger that wakes the implementer to author the next revision.

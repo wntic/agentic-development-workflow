@@ -13,8 +13,9 @@
   проверено end-to-end на свежем дереве helpdesk3 (scaffold + 21 имплементер по DAG):
   ноль `# noqa: F401`, ноль `# type: ignore` в инфре, mypy 65 чисто, ruff чисто, unit 17/10,
   attribution = 21 тело-несущий файл, ноль overreach. I5 — СНЯТО (не дефект).
-  Открыты только follow-ups: FU1 (аудит всех Template'ов), FU2 (ruff B904), FU3 (cryptography в
-  integration-conftest). Их статус — TODO, отдельными заходами.
+  Follow-ups FU2 (ruff B904), FU3 (cryptography в integration-conftest), FU4 (dev-deps →
+  [dependency-groups]) — ✅ ВНЕДРЕНО (conventions D/E + scaffolder.md), проверено на helpdesk3.
+  Открыт только FU1 (аудит ВСЕХ Template'ов на тулчейн-чистоту) — TODO, отдельный заход.
 
 ═══════════════════════════════════════════════════════════════════════════════
 ВЛАДЕНИЕ (§4) — вердикт: ДЕРЖИТСЯ
@@ -292,18 +293,33 @@ FU3 [всплыло на e2e helpdesk3, 2026-06-08] — integration conftest т�
   `cryptography.hazmat...` для генерации RSA-ключей под минтинг тестовых JWT, но `cryptography`
   НЕ попадает в pyproject (deps-derivation скаффолдера) → на свежем venv `pytest tests/integration`
   падает на сборке (ModuleNotFoundError). В helpdesk2 маскировалось (в venv крипто уже стояло).
-  Двойной запах: (1) deps не строго graph-derived (ср. scaffolder-followups memory);
-  (2) тест-бутстрап минтит RSA, хотя приложение на HS256 (симметрично, крипто не нужно) —
-  test-integration-authed-client, похоже, хардкодит RSA независимо от алгоритма манифеста.
-  Ортогонально 12 находкам этого ревью. Решить отдельным заходом.
-  СТАТУС: TODO (новый, не из исходного скоупа).
+  РАЗБОР (2026-06-08). RS256-минтинг — ОСОЗНАННЫЙ паттерн test-integration-authed-client
+  (подписать приватным ключом, приложение проверяет публичным; conftest переопределяет
+  JwtSettings на RS256 — нормальная тестовая практика, НЕ баг). Единственная проблема —
+  `cryptography` не объявлен в dev-deps. (В helpdesk2 маскировалось — крипто уже стояло в venv.)
+  РЕШЕНИЕ. Добавить `cryptography` в Dev-список conventions block D (он всегда нужен бутстрапу
+  authed-client). НЕ переписываем authed-client на HS256 — RS256 by-design.
+  ПРОВЕРЕНО (helpdesk3): cryptography ставится, `pytest tests/integration/api --co` собирает
+  11 тестов (импорт резолвится). Полный RUN всё ещё требует Docker (testcontainers) — отдельный gap.
+  СТАТУС: ✅ ВНЕДРЕНО (conventions block D) + проверено на helpdesk3.
 
 FU2 [из I2] — включить ruff B904 (`raise ... from`) в тулчейн.
   Гигиена: B904 делает видимым `raise X` без `from`/`from None` внутри except (теряется
-  причинная цепочка). На login'е после O2 except пропадает → там moot, но как общее правило
-  стоит включить (+ задать стиль: трансляция-с-сокрытием = `from None`, иначе `from exc`).
-  Где: pyproject ruff config (substrate в conventions) + упоминание в general-* скилле.
-  СТАТУС: TODO (отдельный заход).
+  причинная цепочка). Стиль: трансляция-с-сокрытием = `from None`, иначе `from exc`.
+  РЕШЕНИЕ. conventions block E: канон `[tool.ruff.lint] select = ["E","F","I","B904"]` + стиль
+  from exc/from None; scaffolder.md pyproject-glue ссылается на block E.
+  ПРОВЕРЕНО (helpdesk3): select с B904 → `ruff check src tests` All checks passed (код уже
+  везде использует `from exc`).
+  СТАТУС: ✅ ВНЕДРЕНО (conventions block E + scaffolder.md) + проверено на helpdesk3.
+
+FU4 [всплыло на e2e helpdesk3, 2026-06-08] — scaffolder эмитит устаревшую секцию dev-deps.
+  Симптом. pyproject.toml: `[tool.uv]` / `dev-dependencies = [...]` → uv предупреждает (deprecated,
+  под удаление), советует `[dependency-groups]`.
+  РЕШЕНИЕ. conventions block D: dev-deps под `[dependency-groups]` / `dev = [...]` (PEP 735,
+  uv ставит группу dev по умолчанию); scaffolder.md pyproject-glue ссылается. НЕ эмитить
+  `[tool.uv.dev-dependencies]`.
+  ПРОВЕРЕНО (helpdesk3): после правки `uv sync` без предупреждения.
+  СТАТУС: ✅ ВНЕДРЕНО (conventions block D + scaffolder.md) + проверено на helpdesk3.
 
 ═══════════════════════════════════════════════════════════════════════════════
 ПРОВЕРЕНО И СНЯТО (НЕ баги)
