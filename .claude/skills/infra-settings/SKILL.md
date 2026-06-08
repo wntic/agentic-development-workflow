@@ -22,7 +22,7 @@ Produces one settings class per external integration. The class is the **only** 
 ## Template
 
 ```python
-from pydantic import SecretStr, computed_field, field_validator
+from pydantic import SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = ["DbSettings"]
@@ -108,7 +108,7 @@ All three keys are mandatory:
 
 ## Inlined typing / import rules
 
-- `from pydantic import SecretStr, computed_field, field_validator`.
+- `from pydantic import SecretStr, computed_field` — add `field_validator` to this line **only when the class defines one** (rule 11); an unused import is an F401.
 - `from pydantic_settings import BaseSettings, SettingsConfigDict`.
 - Full annotations on every field and validator.
 - No `from __future__ import annotations`.

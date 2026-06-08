@@ -26,7 +26,8 @@ the same skeleton (non-`http` passthrough, `app` + config on `self`); they diffe
 ```python
 import uuid
 
-import structlog
+import uuid
+
 from starlette.types import ASGIApp, Receive, Scope, Send
 from structlog.contextvars import bind_contextvars, clear_contextvars
 

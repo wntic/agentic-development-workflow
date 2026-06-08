@@ -27,7 +27,6 @@ Domain exception classes themselves are registered automatically: `error_respons
 ### 1. `restapi/schemas/errors.py` — wire shape + helper + middleware registry
 
 ```python
-from collections.abc import Iterable
 from typing import Any
 
 from pydantic import BaseModel, Field

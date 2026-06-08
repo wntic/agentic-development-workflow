@@ -34,7 +34,7 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
-from myapp.restapi.dependencies import get_current_user, require_role
+from myapp.restapi.dependencies import get_current_user
 
 def _is_protected(route: APIRoute) -> bool:
     """A route is protected iff its dependency tree includes `get_current_user`

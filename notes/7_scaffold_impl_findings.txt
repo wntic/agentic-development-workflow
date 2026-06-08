@@ -13,9 +13,10 @@
   проверено end-to-end на свежем дереве helpdesk3 (scaffold + 21 имплементер по DAG):
   ноль `# noqa: F401`, ноль `# type: ignore` в инфре, mypy 65 чисто, ruff чисто, unit 17/10,
   attribution = 21 тело-несущий файл, ноль overreach. I5 — СНЯТО (не дефект).
-  Follow-ups FU2 (ruff B904), FU3 (cryptography в integration-conftest), FU4 (dev-deps →
-  [dependency-groups]) — ✅ ВНЕДРЕНО (conventions D/E + scaffolder.md), проверено на helpdesk3.
-  Открыт только FU1 (аудит ВСЕХ Template'ов на тулчейн-чистоту) — TODO, отдельный заход.
+  Follow-ups FU2 (ruff B904), FU3 (cryptography), FU4 (dev-deps → [dependency-groups]) — ✅ ВНЕДРЕНО.
+  FU1 (аудит ВСЕХ Template'ов на тулчейн-чистоту): ✅ импорт/костыль-измерения закрыты по всему
+  каталогу (свип 44 скиллов → 4 мёртвых импорта починены, 0 костылей); остаётся опциональный
+  vector_rag-прогон для mypy-проверки неупражнённых вариантов шаблонов (bounded, не блокер).
 
 ═══════════════════════════════════════════════════════════════════════════════
 ВЛАДЕНИЕ (§4) — вердикт: ДЕРЖИТСЯ
@@ -285,8 +286,42 @@ FU1 [из S1] — Аудит ВСЕХ producer-скиллов на чистот�
   выявлено это в infra-sqlalchemy-repository (+ infra-capability-adapter под подозрением).
   ЗАДАЧА: пройти КАЖДЫЙ producer-скилл и проверить, что его Template, скопированный как
   есть, проходит ruff (incl. F401) + mypy без noqa/type: ignore-костылей. Где не проходит —
-  починить эталон. Кандидат-критерий: «прогнать Template-сниппет через тулчейн в изоляции».
-  СТАТУС: TODO (отдельный заход, не блокирует S1).
+  починить эталон.
+
+  СВИП ВЫПОЛНЕН (2026-06-08). Извлёк все ```python-блоки из 44 SKILL.md (конкатенация по
+  скиллу, чтобы кросс-блочное использование резолвилось) и прогнал ruff. Импорт/костыль-
+  измерения покрыты ПОЛНОСТЬЮ по каталогу:
+    - F401 (мёртвые импорты): найдено и ПОЧИНЕНО 4 эталона —
+        · infra-settings: убран `field_validator` из дефолтного импорта (проза rule 11 остаётся;
+          импортируется только когда класс реально объявляет валидатор);
+        · restapi-error-responses: убран неиспользуемый `from collections.abc import Iterable`;
+        · restapi-middleware: `import structlog` → `import uuid` (bare structlog был мёртв, а `uuid`
+          в примере ИСПОЛЬЗОВАЛСЯ, но НЕ импортировался — двойной фикс; ровно это имплементер
+          helpdesk3 правил руками на итерации 1);
+        · test-discovery-invariants: убран `require_role` (детект использует маркер
+          `__wrapped_role__`, не identity функции — import был мёртв).
+    - `# noqa` в коде Template'ов: 0.
+    - `# type: ignore` костыли: 0 нелегитимных; 1 легитимный (restapi-app-bootstrap
+      `_dep.__wrapped_role__ = required  # type: ignore[attr-defined]` — произвольный атрибут на
+      функции, ruled, helpdesk3 чист с ним).
+    - двойные импорты / F811: 0 реальных (только иллюстративные redefinition в
+      general-imports-conventions — by design).
+    - Остаток ruff-шума — invalid-syntax от конкатенации фрагментных/иллюстративных блоков
+      (плейсхолдеры `def test_no_<thing>`, walrus-заглушки, reference-скиллы без файла:
+      general-imports-conventions, test-architecture-rule, restapi-auth-dependency,
+      infra-di-provider, test-application-handler/-fake-repository/-integration-isolation) — НЕ дефекты.
+  ПЕРЕПРОВЕРЕНО: повторный свип после правок — именованных F401 ноль.
+
+  ГРАНИЦА (честно). Механический свип ловит импорты/костыли катало­г-широко, но НЕ mypy-
+  корректность НЕупражнённых вариантов шаблонов (placeholder-импорты не резолвятся в изоляции —
+  так и всплыл бы `row: object`-класс). Главный путь mypy-проверен на helpdesk3 e2e; capability-
+  adapter SDK/HTTP-формы, compensating-tx, unit-of-work, file-transfer и часть test-скиллов
+  manifest'ом helpdesk не упражнены. Их латентный mypy-риск низок (костылей в них нет) и всплыл
+  бы при первом манифесте, что их задействует (ловит /verify, чинится JIT — §16-философия).
+  Глубже = прогнать другой фикстур-манифест (vector_rag: capability-адаптеры, polyglot-сторы) —
+  опционально, отдельным заходом.
+  СТАТУС: ✅ ВНЕДРЕНО — импорт/костыль-измерения закрыты по всему каталогу (4 фикса + 0 костылей).
+    Остаточная mypy-проверка неупражнённых вариантов — bounded, опциональный vector_rag-прогон.
 
 FU3 [всплыло на e2e helpdesk3, 2026-06-08] — integration conftest требует `cryptography`, не объявленного в pyproject.
   `tests/integration/api/conftest.py` (из test-integration-authed-client) импортит
