@@ -310,7 +310,13 @@ FU2 [из I2] — включить ruff B904 (`raise ... from`) в тулчей�
   from exc/from None; scaffolder.md pyproject-glue ссылается на block E.
   ПРОВЕРЕНО (helpdesk3): select с B904 → `ruff check src tests` All checks passed (код уже
   везде использует `from exc`).
-  СТАТУС: ✅ ВНЕДРЕНО (conventions block E + scaffolder.md) + проверено на helpdesk3.
+  СВИП ВСЕХ СКИЛЛОВ (2026-06-08). Прогнал каждый SKILL.md на `except → raise X`: корпус УЖЕ
+  B904-совместим, правок Template'ов НЕ нужно. Единственные две точки except→raise —
+  infra-sqlalchemy-repository (r15) и infra-capability-adapter (r8) — уже `from exc`;
+  pattern-compensating-tx (r4) — голый re-raise (B904 не трогает). Всё прочее (`__post_init__`
+  инварианты, guard `if ...: raise`, фейки) — НЕ в except. Вывод: глобальный B904 не сломает
+  ни одного генерируемого дерева.
+  СТАТУС: ✅ ВНЕДРЕНО (conventions block E + scaffolder.md) + свип скиллов чист + проверено на helpdesk3.
 
 FU4 [всплыло на e2e helpdesk3, 2026-06-08] — scaffolder эмитит устаревшую секцию dev-deps.
   Симптом. pyproject.toml: `[tool.uv]` / `dev-dependencies = [...]` → uv предупреждает (deprecated,
