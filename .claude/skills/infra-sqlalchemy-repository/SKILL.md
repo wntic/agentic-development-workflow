@@ -33,22 +33,31 @@ src/<root>/infrastructure/postgres/repositories/
 
 ```python
 from collections.abc import Sequence
+from typing import cast
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import CursorResult, RowMapping, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.sql import func as sqlfunc
 
+# Import only the domain exceptions THIS repository actually raises — not the whole
+# catalog. (Here all four are raised: unique → ConflictError, FK-on-delete → InUseError,
+# missing row → NotFoundError, check violation → ValidationError. A repo that raises
+# fewer imports fewer.)
 from myapp.domain.exceptions import (
     ConflictError, InUseError, NotFoundError, ValidationError,
 )
-from myapp.domain.foos import Foo, FooListFilter, IFooRepository
+# Never import IFooRepository — the adapter does NOT inherit the protocol (structural
+# subtyping at the DI site is the contract, Rule 2). Importing it leaves a dead F401.
+from myapp.domain.foos import Foo, FooListFilter
 
 from ..tables.foos import foos_table
 
 __all__ = ["FooRepository"]
 
+# _FK_FIELD_MAP + the FK branch in _map_integrity_error exist ONLY because Foo carries a
+# foreign key (bar_id). An aggregate with NO foreign keys omits BOTH the map and the
+# `pgcode == "23503"` branch — never carry an empty `_FK_FIELD_MAP = {}`.
 _FK_FIELD_MAP = {
     "fk_foos_bar_id_bars": "bar_id",
 }
@@ -76,14 +85,17 @@ class FooRepository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory
 
-    def _row_to_entity(self, row: object) -> Foo:
-        return Foo(id=row.id, name=row.name)
+    def _row_to_entity(self, row: RowMapping) -> Foo:
+        # Rows come from `.mappings()` → RowMapping; access columns by KEY. `row["id"]` is
+        # Any, but it is consumed as a constructor argument (not returned), so Foo(...) is a
+        # concrete return — mypy-clean with NO `# type: ignore`.
+        return Foo(id=row["id"], name=row["name"])
 
     async def get_by_id(self, id: UUID) -> Foo:
         async with self._sf() as session:
             row = (
                 await session.execute(select(foos_table).where(foos_table.c.id == id))
-            ).one_or_none()
+            ).mappings().one_or_none()
         if row is None:
             raise NotFoundError("Foo not found", {"id": str(id)})
         return self._row_to_entity(row)
@@ -92,20 +104,21 @@ class FooRepository:
         async with self._sf() as session:
             row = (
                 await session.execute(select(foos_table).where(foos_table.c.name == name))
-            ).one_or_none()
+            ).mappings().one_or_none()
         return self._row_to_entity(row) if row is not None else None
 
     async def list(self, *, filter: FooListFilter) -> Sequence[Foo]:
         stmt = _apply_filter(select(foos_table), filter).order_by(foos_table.c.created_at.desc())
         stmt = stmt.limit(filter.limit).offset(filter.offset)
         async with self._sf() as session:
-            rows = (await session.execute(stmt)).all()
+            rows = (await session.execute(stmt)).mappings().all()
         return [self._row_to_entity(r) for r in rows]
 
     async def count(self, *, filter: FooListFilter) -> int:
         stmt = _apply_filter(select(func.count()).select_from(foos_table), filter)
         async with self._sf() as session:
-            return (await session.execute(stmt)).scalar_one()
+            total: int = (await session.execute(stmt)).scalar_one()
+        return total
 
     async def create(self, foo: Foo) -> None:
         try:
@@ -120,10 +133,16 @@ class FooRepository:
     async def update(self, foo: Foo) -> None:
         try:
             async with self._sf() as session:
-                result = await session.execute(
-                    foos_table.update()
-                    .where(foos_table.c.id == foo.id)
-                    .values(name=foo.name, updated_at=sqlfunc.now())
+                # cast to CursorResult so `.rowcount` type-checks — AsyncSession.execute is
+                # typed Result[Any], which has no `rowcount`. This is the one canonical form;
+                # do not mix in `# type: ignore`.
+                result = cast(
+                    CursorResult[object],
+                    await session.execute(
+                        foos_table.update()
+                        .where(foos_table.c.id == foo.id)
+                        .values(name=foo.name, updated_at=func.now())
+                    ),
                 )
                 if result.rowcount == 0:
                     raise NotFoundError("Foo not found", {"id": str(foo.id)})
@@ -134,8 +153,11 @@ class FooRepository:
     async def delete(self, id: UUID) -> None:
         try:
             async with self._sf() as session:
-                result = await session.execute(
-                    foos_table.delete().where(foos_table.c.id == id)
+                result = cast(
+                    CursorResult[object],
+                    await session.execute(
+                        foos_table.delete().where(foos_table.c.id == id)
+                    ),
                 )
                 if result.rowcount == 0:
                     raise NotFoundError("Foo not found", {"id": str(id)})
@@ -193,8 +215,9 @@ class FooRepository:
 ### Mutations
 
 12. `create(entity)` returns `None`. Handler generates the ID. Wrap in `try/except IntegrityError`.
-13. `update(entity)` returns `None`. `rowcount == 0` → `NotFoundError`. Use `sqlfunc.now()` for `updated_at`.
+13. `update(entity)` returns `None`. `rowcount == 0` → `NotFoundError`. Use `func.now()` for `updated_at`.
 14. `delete(id)` returns `None` (or a list of related keys when needed for compensation). `rowcount == 0` → `NotFoundError`. FK `IntegrityError` → `InUseError`, not generic `ConflictError`.
+14a. **Reading `rowcount` is mypy-clean only via a cast.** `AsyncSession.execute` is typed `Result[Any]`, which has no `rowcount`. Wrap the DML execute exactly once: `result = cast(CursorResult[object], await session.execute(...))`. One canonical form — never reach for `# type: ignore` instead.
 
 ### IntegrityError translation
 
@@ -229,8 +252,8 @@ Don't introduce this preemptively. Add it the first time a third repository forc
 
 ## Inlined typing / import rules
 
-- Domain imports absolute (`from myapp.domain.foos import Foo, IFooRepository`). Table imports relative (`from ..tables.foos import foos_table`).
-- Row objects typed as `object` in mapper signatures; access columns by attribute.
+- Domain imports absolute (`from myapp.domain.foos import Foo`). Table imports relative (`from ..tables.foos import foos_table`). **Never import the protocol the adapter satisfies** (`IFooRepository`) — structural subtyping needs no import (Rule 2); importing it is a dead F401.
+- Rows are read via `.mappings()` → `RowMapping`; the mapper is typed `_row_to_entity(self, row: RowMapping)` and accesses columns by **key** (`row["id"]`). This is mypy-clean with **no** `# type: ignore` (the `Any` key value is consumed as a constructor argument, never returned). Never type a row as `object` + attribute access — that forces a `# type: ignore[attr-defined]` at every column.
 - Parameters keep domain types — never downcast to `dict`.
 - No `from __future__ import annotations`. Full annotations on every method.
 

@@ -17,6 +17,7 @@ Imports follow three rules: how far you reach with relative dots, how you collap
 ## Relative vs absolute
 
 - **Within a package, use relative imports up to two dots** (`from .sibling import X`, `from ..parent import Y`).
+- **Same package → one dot, never up-and-back-down.** A module importing a sibling in its **own** package uses `.sibling` — never route through the parent back into the same package (`from ..pkg.sibling import X` when you are already inside `pkg/` is wrong; it resolves but reads as a cross-package reach). The toolchain does **not** flag this (the import is valid Python), so it is on the author.
 - **Three or more dots → use absolute.** `from ...thing import Z` is banned; write `from myapp.subpkg.thing import Z`.
 - **Cross-package boundaries → absolute.** Anything reaching from `application/` into `domain/`, or `restapi/` into `application/`, is absolute regardless of dot count.
 
@@ -26,6 +27,10 @@ from .create_foo_command import CreateFooCommand   # same dir — relative
 from ..bars.create_bar_command import CreateBarCommand            # one level up — relative
 from myapp.domain.foos import IFooRepository    # cross-package — absolute
 from myapp.domain.auth import CurrentUser                      # cross-package — absolute
+
+# inside infrastructure/postgres/engine.py importing infrastructure/postgres/db_settings.py
+from .db_settings import DbSettings          # same package — one dot
+# NOT: from ..postgres.db_settings import DbSettings   # up-and-back-down into the same package
 ```
 
 The two-dot ceiling exists to keep relative imports readable; once you'd be writing `...` or more, the absolute path is shorter and clearer.

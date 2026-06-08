@@ -55,6 +55,10 @@ A self-contained, disposable, git-ignored project under the output root:
 
 For a body-bearing **method** node, take the **structure and signature** from the skill's `Template`, and replace the executable body with a contract-comment + `raise NotImplementedError`. Keep `__init__` (including `self._dep = dep` assignments — the DI container references the constructor) and the fully-typed signature; emit only the **contract-type imports** the signature names (graph edges). Incidental imports (`uuid`, `structlog`, body internals) are the implementer's — do not pre-import them.
 
+**The skill `Template` shows the FILLED file — body imports, body-helpers, and all. You emit a strict subset: only what the signature and `__init__` name.** Two consequences the skill Templates will tempt you to violate:
+- **No module-level body-helpers in a scaffold.** A private helper that exists only to serve a method body — `_RANK` (an enum's rank map), `_map_integrity_error` / `_FK_FIELD_MAP` (a repository's integrity translator), `_ERROR_CODE_MAP` (a capability adapter's), a module-level `logger` — is **body**, the implementer's to write. The scaffold of a body-bearing node is the declaration (enum members / `class` + `__init__` + signature) + the `CONTRACT —` comment + `raise NotImplementedError`, and nothing else. Same rule as the column-less table: read the helper in the Template for shape, do not emit it.
+- **Never import the protocol the file implements.** A repository/capability adapter satisfies its protocol by **structural** subtyping (no `(IFooRepository)` base, no import) — the protocol appears in the *consumer's* signature (a handler's `__init__`), not the adapter's. Importing it into the adapter is a dead import. (A handler/service whose `__init__` *takes* a protocol genuinely names it → that import stays — it is signature-named there.)
+
 Worked transformation — `application-command` (the skill `Template` shows a *filled* body; you emit the scaffold):
 
 ```python
@@ -80,6 +84,8 @@ class CreateTicketHandler:
 ```
 
 (`import uuid` for the `uuid.UUID` return annotation is a contract import — the signature names it — so it stays; `structlog` and the entity construction do not, they are the body.)
+
+**Never silence F401 with `# noqa`.** A scaffold's bodies are `raise NotImplementedError`, so a correctly-scoped import set is **fully used** by the signatures — `ruff check` is clean with no suppression. If an import would be flagged unused, that is the signal you **over-imported** (a body type, the implemented protocol, an exception only the body raises): **delete the import**, do not annotate `# noqa: F401`. The implementer adds body imports when it writes the body. (The sole sanctioned ruff suppression is the project-wide `__init__.py` F403/F405 per-file ignore in `pyproject.toml` — never an inline `# noqa` on a content module.)
 
 **Contract-comment — ONE canonical block, byte-identical shape every run.** Distil it from the node's `behaviour`, `raises`, `log_event`, and `notes` (node-level + per-method). It restates the contract at the call site so the implementer (who reads it, not the test) knows what to write. Use **exactly** this shape and line order — no variation in glyphs, wrapping, or which optional lines appear:
 
@@ -141,7 +147,7 @@ Fixed rules, no latitude: ASCII `->` (never the unicode `→`); the line order i
      - **Manual stub — write-once, implementer fills the assert** (`test_<verb>_<noun>_handler_manual.py`): **otherwise** — multiple dependencies, a `then` of `calls`/`logs`, a `returns` of a `*Result` DTO (list/projection), or relations/time/negative beyond a flat literal. One `@pytest.mark.skip` function per scenario carrying the contract-comment; the implementer writes the assertion later (separate context — anti-collusion). You **own the scenario list** — never silently drop a scenario.
 
 7. **Self-verify (the placement safety net — spec §3/§4/E).** Scaffolds compile and type-check even with `NotImplementedError`, so a misplaced file or a wrong signature goes red **before** any implementer runs. Run, from the output root:
-   - `uv run ruff format <tree>` then `uv run ruff check <tree>` — clean.
+   - `uv run ruff format <tree>` then `uv run ruff check <tree>` — clean, **with zero inline `# noqa: F401`**. Grep the tree: `grep -rn "# noqa: F401" <tree>/src` must return nothing. A hit means you over-imported and silenced the linter — delete the offending import (the protocol the file implements, a body-only type, an exception only the body raises), do not keep the `# noqa`. (`__init__.py` files rely on the project-wide F403/F405 per-file ignore in `pyproject.toml`, not inline noqa.)
    - **First-party reference integrity** — every `<package>.*` / `tests.*` import resolves to a module/name you emitted; no undefined names. (A broken first-party import is *your* bug — a misderived path or a missing re-export.)
    - `uv run mypy …src/<package>` — green with the `NotImplementedError` bodies in place.
    - `uv run pytest <tree>/tests/unit` — unit tests **collect** and the flat tests fail **only** on `NotImplementedError`; `_manual` stubs are skipped.
@@ -172,7 +178,7 @@ Fixed rules, no latitude: ASCII `->` (never the unicode `→`); the line order i
 
 4. **Declarative/glue is regenerated; body-bearing is written once.** On a re-run you overwrite every declarative/glue file from the manifest, but you **must not** overwrite an existing body-bearing file — the implementer owns it (§4). On a fresh output everything is new; on a re-run, inspect the tree (step 3) and leave filled bodies alone.
 
-5. **Imports are graph edges.** In a scaffold, emit only the contract-type imports the signature names, resolved by `general-imports-conventions` (same-subdomain `.module`, cross-subdomain `..subdomain`, cross-layer absolute `<package>.domain.<subdomain>`, stdlib canonical). Incidental body imports are the implementer's. In declarative/glue, emit every import the rendered file needs.
+5. **Imports are graph edges.** In a scaffold, emit only the contract-type imports the signature names, resolved by `general-imports-conventions` (same-package `.module` — **never `..self.module`**, i.e. never route up to the parent and back into your own package; cross-subdomain `..subdomain`, cross-layer absolute `<package>.domain.<subdomain>`, stdlib canonical). Incidental body imports — and module-level body-helpers (`_RANK`, `_map_integrity_error`, `_FK_FIELD_MAP`, `logger`) — are the implementer's; do not emit them. **Never** import the protocol a repository/capability adapter implements (structural subtyping), and **never** silence an unused import with `# noqa: F401` — an unused import means you over-imported, so delete it (see "The scaffold form"). In declarative/glue, emit every import the rendered file needs.
 
 6. **The contract-comment is from `behaviour` + `notes`, not `sources`.** It restates the contract for the implementer. `sources` is provenance — never copied into a scaffold (§5).
 

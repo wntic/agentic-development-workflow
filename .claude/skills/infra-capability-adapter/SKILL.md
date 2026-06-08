@@ -37,7 +37,8 @@ from botocore.exceptions import ClientError
 from myapp.domain.exceptions import (
     NotFoundError, UpstreamError, ValidationError,
 )
-from myapp.domain.foos import ICanStoreFoos
+# No import of the protocol the adapter satisfies (ICanStoreFoos) — structural subtyping
+# at the DI site is the contract (Rule 2); importing it leaves a dead F401.
 
 from .settings import StorageSettings
 
@@ -88,7 +89,7 @@ class S3FooStorage:
 import httpx
 
 from myapp.domain.exceptions import NotFoundError, UpstreamError, ValidationError
-from myapp.domain.bars import BarToken, ICanFetchBarToken
+from myapp.domain.bars import BarToken  # the protocol (ICanFetchBarToken) is NOT imported — Rule 2
 
 from .settings import BarGatewaySettings
 
@@ -137,7 +138,7 @@ For verifiers / canonicalizers / renderers with no IO. No `try/except` for IO; o
 ```python
 import jwt
 
-from myapp.domain.auth import BarToken, ICanVerifyBarToken
+from myapp.domain.auth import BarToken  # the protocol (ICanVerifyBarToken) is NOT imported — Rule 2
 from myapp.domain.exceptions import AuthError
 
 from .settings import JwtSettings
@@ -203,7 +204,7 @@ class PyJwtBarTokenVerifier:
 
 ## Inlined typing / import rules
 
-- Domain imports absolute (`from myapp.domain.foos import ICanStoreFoos`). Sibling modules within the same `infrastructure/<adapter>/` package use relative imports (`from .settings import BlobsSettings`).
+- Domain imports absolute (`from myapp.domain.bars import BarToken` — the entities/VOs the signatures name). **Never import the capability protocol the adapter satisfies** (`ICanStoreFoos`, `ICanFetchBarToken`, …) — structural subtyping needs no import (Rule 2); importing it is a dead F401. Sibling modules within the same `infrastructure/<adapter>/` package use relative imports (`from .settings import BlobsSettings`).
 - No `from __future__ import annotations`. Full annotations on every method.
 - `X | None` over `Optional`. `Mapping[K, V]` / `Sequence[T]` (from `collections.abc`) for read-only views.
 - SDK types stay inside the adapter; method signatures use domain types or primitives only.

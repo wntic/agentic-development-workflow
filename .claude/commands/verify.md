@@ -81,6 +81,12 @@ package root:
 - `uv run mypy src/<package>` · `uv run ruff check src tests` · `uv run ruff format src tests` ·
   `uv run pytest` (flat tests green; `_manual` stubs stay skipped — expected, their asserts are a
   deferred step, §9).
+- **No-silenced-imports gate (deterministic).** `grep -rn "# noqa: F401" src` must return **nothing**.
+  An inline `# noqa: F401` on a content module is never sanctioned (only the project-wide
+  `__init__.py` F403/F405 per-file ignore in `pyproject.toml` is) — a hit means the scaffolder
+  over-imported and silenced ruff, or an implementer left a dead import. Surface it loudly as a defect
+  and have the owner delete the import (not the `# noqa`). This is what keeps ruff F401 armed on the
+  imports most prone to contract drift (spec §0-P3).
 
 Then produce the **attribution diff** against the scaffold baseline the scaffolder froze:
 - `uv run .claude/tools/scaffold_snapshot.py diff <package-root>`. Every changed file is implementer
