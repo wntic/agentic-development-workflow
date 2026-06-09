@@ -27,6 +27,8 @@ src/<root>/application/<subdomain>/
 
 ## Template — command DTO
 
+(Authenticated form — carries `caller_id`. A command dispatched only by anonymous routes, or any command in an app that declares no auth, drops `caller_id` entirely; see DTO rule 2.)
+
 ```python
 from dataclasses import dataclass
 from uuid import UUID
@@ -91,7 +93,7 @@ class DeleteFooHandler:
 ### Command DTO
 
 1. **`@dataclass(frozen=True)`.** Always frozen.
-2. **`caller_id: UUID` is the first field.** Every command carries the actor.
+2. **`caller_id: UUID` is the first field — when the command runs behind an authenticated route.** Auth is manifest-declared (`restapi-auth-dependency`), so the actor is conditional: a command dispatched only by anonymous routes — or any command in an app that declares no auth — has no caller to thread, so it **omits `caller_id`** (there is no source to populate it). The templates here show the authenticated form; for the auth-free case drop the field. Presence is derived from whether the dispatching endpoint(s) are authenticated, never a blanket convention.
 3. **No methods, no behavior.** Just data.
 4. **Optional fields use `field: T | None = None`** or a concrete default — never sentinel strings.
 
@@ -104,7 +106,7 @@ class DeleteFooHandler:
 5. **No `try/except`.** The only sanctioned use is the compensating-transaction pattern — see `pattern-compensating-tx`.
 6. **Log on success only, after the mutation completes.**
    - Event name: snake_case past tense (`foo_created`, `bar_renamed`).
-   - Always include `caller_id=str(cmd.caller_id)` and the affected resource id.
+   - Always include the affected resource id; include `caller_id=str(cmd.caller_id)` **only when the command carries `caller_id`** (the authenticated form — see DTO rule 2). An auth-free command logs just the resource id.
    - Never log on failure — exceptions propagate; the central handler logs once.
 7. **No transaction management inside the handler.** Transaction lifecycle is wired in the entrypoint via DI (typically through `IUnitOfWork` if multiple writes must be atomic).
 

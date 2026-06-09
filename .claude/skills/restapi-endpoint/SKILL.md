@@ -63,8 +63,48 @@ Rules:
 - `__all__ = ["router"]` — only `router` is public.
 - `prefix` is kebab-case and matches the file name's resource.
 - `tags=[...]` echoes the resource word.
+- **The auth imports are conditional.** `from myapp.domain.auth import CurrentUser, Role` and `from ..dependencies import get_current_user, require_role` appear **only** when the app declares auth (`restapi-auth-dependency`) and this resource has ≥1 authenticated route. An auth-less app — or a router whose every route is public — omits both imports entirely; importing them would reference a `domain/auth` module and a `dependencies.py` that an auth-less app does not have. See Auth variants below.
 
 ## Templates — one per `kind`
+
+**The per-`kind` templates below show the AUTHENTICATED form** (an authed app, a gated route). Auth is manifest-declared (see `restapi-auth-dependency` — derived from the graph, no manifest flag). When the route is **public** (`auth: anonymous`), or the whole app declares no auth, derive the public form by dropping four things and nothing else: the auth-dependency parameter, the `domain.auth` + `..dependencies` imports, the `401`/`403` codes in `error_responses(...)`, and the `caller_id=user.id` argument to the command/query. The two shapes side by side:
+
+### Authenticated vs public — the two shapes
+
+Authenticated `create` (the form every per-`kind` template below uses):
+
+```python
+@router.post(
+    "", response_model=FooResponse, status_code=201,
+    responses=error_responses(401, 403, 409),
+)
+async def create_foo(
+    body: FooCreateRequest,
+    request: Request,
+    user: CurrentUser = Depends(require_role(Role.<MIN_RANK>)),
+) -> FooResponse:
+    handler: CreateFooHandler = request.app.state.container.create_foo_handler()
+    new_id = await handler.execute(CreateFooCommand(caller_id=user.id, name=body.name))
+    ...  # read-back
+```
+
+Public `create` (route is `auth: anonymous`, or the app declares no auth) — no auth dep, no `domain.auth`/`..dependencies` import, no 401/403, no `caller_id`:
+
+```python
+@router.post(
+    "", response_model=FooResponse, status_code=201,
+    responses=error_responses(409),
+)
+async def create_foo(
+    body: FooCreateRequest,
+    request: Request,
+) -> FooResponse:
+    handler: CreateFooHandler = request.app.state.container.create_foo_handler()
+    new_id = await handler.execute(CreateFooCommand(name=body.name))
+    ...  # read-back
+```
+
+(A read — `list`/`get` — drops the same: the `_: CurrentUser = Depends(get_current_user)` line, the imports, and the `401`. The `caller_id` drop applies only where the command/query carried it.)
 
 ### `list` (paginated read) — pagination shape mirrors `domain-filter`
 
@@ -141,7 +181,7 @@ async def get_foo(
 async def create_foo(
     body: FooCreateRequest,
     request: Request,
-    user: CurrentUser = Depends(require_role(Role.SUPER_ADMIN)),
+    user: CurrentUser = Depends(require_role(Role.<MIN_RANK>)),
 ) -> FooResponse:
     handler: CreateFooHandler = request.app.state.container.create_foo_handler()
     new_id = await handler.execute(
@@ -164,7 +204,7 @@ async def update_foo(
     id: UUID,
     body: FooUpdateRequest,
     request: Request,
-    user: CurrentUser = Depends(require_role(Role.SUPER_ADMIN)),
+    user: CurrentUser = Depends(require_role(Role.<MIN_RANK>)),
 ) -> FooResponse:
     handler: UpdateFooHandler = request.app.state.container.update_foo_handler()
     await handler.execute(
@@ -186,7 +226,7 @@ async def update_foo(
 async def delete_foo(
     id: UUID,
     request: Request,
-    user: CurrentUser = Depends(require_role(Role.SUPER_ADMIN)),
+    user: CurrentUser = Depends(require_role(Role.<MIN_RANK>)),
 ) -> Response:
     handler: DeleteFooHandler = request.app.state.container.delete_foo_handler()
     await handler.execute(DeleteFooCommand(caller_id=user.id, id=id))
@@ -204,7 +244,7 @@ async def delete_foo(
 async def reorder_foos(
     body: ReorderRequest,
     request: Request,
-    user: CurrentUser = Depends(require_role(Role.SUPER_ADMIN)),
+    user: CurrentUser = Depends(require_role(Role.<MIN_RANK>)),
 ) -> Response:
     handler: ReorderFoosHandler = request.app.state.container.reorder_foos_handler()
     await handler.execute(ReorderFoosCommand(caller_id=user.id, order=body.order))

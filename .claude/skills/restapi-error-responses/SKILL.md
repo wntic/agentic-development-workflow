@@ -31,7 +31,9 @@ Domain exception classes themselves are registered automatically: `error_respons
 
 ## Standard code sets per operation
 
-| Operation | `error_responses(...)` |
+The sets below assume an **authenticated** route. `401` and `403` are auth codes, not universal: `401` appears only when the route attaches an auth dependency, `403` only when it is role-gated (`require_role`) — see `restapi-auth-dependency`. A **public** route (`auth: anonymous`), or any route in an app that declares no auth, **drops `401` and `403`** from its set (Create → just `409`, Read by id → just `404`, etc.). This is load-bearing, not cosmetic: `error_responses(...)` validates each code against the known set, and on an auth-less app there is no `UnauthorizedError` class, so a stray `401` raises `ValueError`.
+
+| Operation | `error_responses(...)` (authenticated route) |
 |-----------|------------------------|
 | Read (auth-only) | `401` |
 | Read by id | `401, 404` |
@@ -42,7 +44,7 @@ Domain exception classes themselves are registered automatically: `error_respons
 | Lookup / detect (read with input) | `401, 404, 422` |
 | Multipart upload | add `413` to whichever set applies |
 
-**List a code only if the route can actually produce it.** Don't list `403` on a public endpoint, don't list `409` on a read.
+**List a code only if the route can actually produce it.** Don't list `401` on a public/unauthenticated route (or in an auth-less app — it would raise `ValueError`), don't list `403` on a route that is not role-gated, don't list `409` on a read.
 
 ## Procedure — routine path (route only)
 

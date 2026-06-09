@@ -48,7 +48,7 @@ class Foo(StrEnum):
 
 Module-level constants like `_RANK` are allowed only when they encode pure mappings the enum uses. They are private (leading underscore) and excluded from `__all__`.
 
-**`_RANK` is body-level — it belongs to the method, not the scaffold.** This Template shows the *filled* end state. The scaffolder emits only the enum members + the method **signature** + the `CONTRACT —` comment + `raise NotImplementedError`; it does **not** pre-write `_RANK` (that is the method's logic, distilled from `notes` — e.g. "rank order ADMIN >= AGENT >= MEMBER"). The **implementer** writes `_RANK` together with the method body. A module-level helper that exists only to serve a method body is the implementer's, the same way `_map_integrity_error` / `logger` are (see the scaffolder's "no body-helpers in the scaffold" rule).
+**`_RANK` is method-body logic, not part of the enum's declaration.** This Template shows the *filled* end state; `_RANK` (the rank-order map) exists only to serve `satisfies` and is written together with that method's body, distilled from its rule (e.g. "rank order ADMIN >= AGENT >= MEMBER"). It is not part of the type's public shape: the enum's declaration is its members + the method signature, while `_RANK` is implementation — a module-level helper that serves a single method's body belongs to that body, the same way a repository's `_map_integrity_error` or a module-level `logger` does.
 
 ## Template — `Enum` (non-string values)
 

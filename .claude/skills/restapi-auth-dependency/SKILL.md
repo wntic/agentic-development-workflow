@@ -7,6 +7,8 @@ description: Reference skill consulted by `restapi-endpoint` and `restapi-file-t
 
 A reference rule for choosing the right auth dependency on each route. Both dependencies live in `src/<root>/restapi/dependencies.py` (produced by `restapi-app-bootstrap`) and are imported as `from ..dependencies import get_current_user, require_role` inside router files.
 
+**Auth is a manifest-declared feature, not a universal.** A route is authenticated only when its endpoint declares `auth != anonymous`; "this app has auth" is a property of the graph — true when any endpoint declares `auth != anonymous`, or a token-verifier capability is wired — not a separate manifest flag. An app whose every endpoint is anonymous has **no auth layer at all**: no `restapi/dependencies.py`, no `CurrentUser`/`Role`, no `get_current_user`/`require_role`, and every route attaches **no** auth dependency (and advertises no 401/403). Everything below applies only to the routes an authed app gates; on an auth-less app there is nothing here to apply — that is not "skipping auth", it is the absence of the feature.
+
 ## When to use vs. neighbours
 
 - Picking the dependency for a specific endpoint → this skill (the choice is then encoded as `auth_mode` input to `restapi-endpoint` / `restapi-file-transfer`).
@@ -25,7 +27,7 @@ A reference rule for choosing the right auth dependency on each route. Both depe
 | Read (any authenticated caller), handler does not need `caller_id` | `Depends(get_current_user)` | `_: CurrentUser` |
 | Read, handler needs `caller_id` (auth-scoped lists) | `Depends(get_current_user)` | `user: CurrentUser` |
 | Mutation, requires role rank ≥ `<Role>` | `Depends(require_role(Role.<MIN_RANK>))` | `user: CurrentUser` |
-| Public (health/info only) | none | n/a |
+| Public route (health/info), **or any route in an app that declares no auth** | none | n/a |
 
 **Pick the lowest privilege the operation actually requires.** If a list endpoint shows different rows depending on role, do the row filtering in the handler based on `caller_id`; do not promote the dependency to a higher role.
 
@@ -49,7 +51,7 @@ async def list_foos(
 async def create_foo(
     body: FooCreateRequest,
     request: Request,
-    user: CurrentUser = Depends(require_role(Role.SUPER_ADMIN)),
+    user: CurrentUser = Depends(require_role(Role.<MIN_RANK>)),
 ) -> FooResponse:
     ...
     await handler.execute(CreateFooCommand(caller_id=user.id, ...))
@@ -57,7 +59,7 @@ async def create_foo(
 
 ### Role rank (reference)
 
-`Role` is a `StrEnum` ordered by rank — `COLLABORATOR < ADMIN < SUPER_ADMIN`. `user.role.satisfies(required)` returns `true` when the caller's rank meets or exceeds the requirement. `require_role(Role.ADMIN)` admits both `ADMIN` and `SUPER_ADMIN`.
+`Role` is a rank-ordered `StrEnum` whose members the manifest's `domain.enums` declares (the Helpdesk fixture's are `COLLABORATOR < ADMIN < SUPER_ADMIN`, illustrative only — another app may have a two-tier or differently-named ladder). `user.role.satisfies(required)` returns `true` when the caller's rank meets or exceeds the requirement, and `require_role(Role.<MIN_RANK>)` admits that rank and every higher one. Use the placeholder `Role.<MIN_RANK>` in templates — the concrete member comes from the route's declared auth requirement against the app's own `Role`, never a fixed `SUPER_ADMIN`.
 
 ### Constraints on every route that uses an auth dependency
 
@@ -67,7 +69,7 @@ async def create_foo(
 4. **Never hand-roll auth checks in a route body.** No `if user.role != Role.ADMIN: raise ...`. If the rule is more nuanced than a single-role rank, that's an application-handler concern; let the handler raise `ForbiddenError`.
 5. **Never decode the bearer token outside `get_current_user`.** No `jwt.decode` in routes, no manual `Authorization` header parsing.
 6. **Never catch `UnauthorizedError` / `ForbiddenError`.** They propagate to the central error handler.
-7. **Authentication is mandatory by default.** "Trusted internal" routes that skip auth are forbidden; internal-only access is enforced at the network/gateway layer.
+7. **Within an app that declares auth, authentication is the default for non-public routes.** "Trusted internal" routes that skip auth (in an authed app) are forbidden; internal-only access is enforced at the network/gateway layer. This does **not** manufacture auth on an app whose manifest declares none — see the opening note: an auth-less app has no auth layer to default to.
 
 ### Coordinated error-code advertisement
 
@@ -83,6 +85,6 @@ The auth choice from this skill drives the `error_codes` input to `restapi-error
 - Spec asks the route to inline a role check after `get_current_user` → stop, use `require_role(...)` instead.
 - Spec asks for a custom JWT verifier per route → stop, the verifier lives in `containers.py`; routes use the standard dependency.
 - Spec asks the route to read the `Authorization` header directly → stop, that's what the bearer scheme is for.
-- Spec asks to omit auth on a non-public route → stop, default is authenticated; only health/info endpoints are public.
+- Spec asks to omit auth on a non-public route of an app that **does** declare auth → stop, default is authenticated; only health/info endpoints are public. (Distinct from an app that declares no auth at all — there every route is auth-free by construction; that is the absence of the feature, not "omitting auth".)
 - Spec proposes a third auth dependency type → stop, the two declared by `restapi-app-bootstrap` are exhaustive; introduce a finer-grained authorization rule in the application handler instead.
 - Role-gated route's `error_codes` (for `restapi-error-responses`) omits `403` → stop, the advertised codes must match the chosen dependency.

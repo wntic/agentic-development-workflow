@@ -113,7 +113,8 @@ The dependency manifest (`pyproject.toml`) is regenerated glue: the framework su
 
 - **Framework substrate** (the FastAPI-hexagon stack, always present): `fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`, `dependency-injector`, `structlog`.
 - **Relational bootstrap** (added only when a `uses_bootstrap` store backs a repository): `sqlalchemy[asyncio]`, `asyncpg`, `alembic`.
-- **Dev**: `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `testcontainers`, `httpx`, `cryptography` — the last because the `test-integration-authed-client` conftest mints RS256 tokens from a generated RSA keypair (sign with the private key, the app verifies with the public one), so it is a hard dependency of the integration test bootstrap whenever the app has authenticated endpoints.
+- **Dev** (always present): `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `testcontainers`, `httpx`.
+- **Auth test bootstrap** (added **only** when the app declares auth — any authenticated endpoint / a token-verifier capability, gated the same way as the relational bootstrap above): `cryptography` — the `test-integration-authed-client` conftest mints RS256 tokens from a generated RSA keypair (sign with the private key, the app verifies with the public one), so it is a hard dependency of the integration test bootstrap, but only when there is auth to test. An auth-less app (every endpoint anonymous) must **not** carry it — a `cryptography` dev dep that nothing imports is the stray-package bug.
 - **SDK packages are not listed here** — each rides on the infra node that needs it (`datastore` / `capability` `requires_packages`, e.g. `qdrant-client`, `openai`, `pyjwt`) and is unioned in from the graph.
 
 **No versions.** This list carries names only; `uv add <lib>` pins the latest compatible version at scaffold time, so nothing rots. A pinned `>=` here would reintroduce the generator's chief disease (baked-in `fastapi>=0.115` under eternal manual bump).
