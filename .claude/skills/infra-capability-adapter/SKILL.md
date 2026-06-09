@@ -222,4 +222,4 @@ The `infrastructure/<adapter>/__init__.py` re-exports the new module via `from .
 - Spec asks the adapter to retry, cache, or batch internally → stop, configure that on the SDK client (in `containers.py`) or extract a separate wrapper class.
 - Spec asks the adapter to construct its own SDK client (`boto3.client(...)`, `httpx.AsyncClient()`) → stop, both the client and the settings are injected from DI.
 - Spec asks the adapter to raise an SDK exception type or `Exception` → stop, every SDK exception must be translated into a `DomainError` subclass at the boundary.
-- Spec has no `exception_map` for a method that can fail → stop, request the mapping before writing the method body.
+- Spec / `behaviour` doesn't say which SDK errors a fallible method raises → derive the SDK→domain mapping from the SDK's documented exception family plus the node's `notes`, and apply the mandatory fallback (Rule 10: `UpstreamError` for network/third-party, `AuthError` for verifiers). The specific cases are judgment; only the broad-catch-and-translate fallback is non-negotiable — never leave a method that can `raise` an untranslated SDK exception.

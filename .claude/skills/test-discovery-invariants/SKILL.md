@@ -11,8 +11,8 @@ One-shot per project. Five test files. Each one iterates the running app and ass
 
 - First-time scaffold of the cross-cutting tests → this skill.
 - A per-endpoint integration test → `test-restapi-endpoint`.
-- The rollback fixture / containers / `real_app` → `test-integration-isolation` (one-shot, runs first).
-- The `authed_client` factory → `test-integration-authed-client` (one-shot, runs before this).
+- The rollback fixture / containers / `real_app` → `test-integration-isolation` (owns `real_app`, which every test here imports).
+- The `authed_client` factory → `test-integration-authed-client` (not consumed here — see Rule 8).
 - A grep-firewall static rule → `test-architecture-rule` (compile-time, not runtime).
 
 ## Template(s)
@@ -252,7 +252,7 @@ async def test_info_endpoint_is_public_and_returns_200(real_app):
 - Spec writes the 401 test against a hardcoded URL with literal placeholders (`/foos/{id}`) → stop, substitute UUID-shaped dummies so the route resolves before the auth dependency runs.
 - Spec uses string matching to identify "protected" routes (`if "auth" in route.name`) → stop, walk `route.dependant.dependencies` and compare callables by identity.
 - Spec compares the OpenAPI spec to a hardcoded `_EXPECTED` table → stop, derive expectations from `route.responses` so the source of truth is the decorator.
-- `test-integration-isolation` or `test-integration-authed-client` not yet installed → stop, install both first.
+- The `real_app` fixture is not defined up-tree (owned by `test-integration-isolation`) → stop, the suite cannot collect without it. (The `authed_client` factory is not consumed here — Rule 8 — so its absence does not block this skill.)
 - Spec hardcodes a CORS origin (e.g. `http://localhost:3000`) in `test_cors.py` → stop, read a configured origin off `real_app`'s `CORSMiddleware` and `pytest.skip` when none is configured; never freeze the source app's dev origin or assume `allow_credentials`.
 - Spec hardcodes the request-size limit (e.g. 10 MiB) in `test_request_size_limit.py`, or presumes the middleware is always present → stop, read the cap off the app's `MaxRequestSizeMiddleware` and compute `limit + 1`; `pytest.skip` when no size middleware is declared (it is a per-app `restapi.middlewares` entry, not universal).
 - Project has no `/info` (or `/health`) endpoint and the spec sets `info_endpoint = none` → produce four files, skip `test_info.py`.

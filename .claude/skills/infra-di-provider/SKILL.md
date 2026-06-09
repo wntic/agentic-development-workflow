@@ -13,7 +13,7 @@ This skill modifies `containers.py`. It does **not** produce settings classes (`
 
 - New handler, repository, domain service, tunable value object, settings class, or external adapter → this skill (for the wiring).
 - The class itself → its layer-specific skill.
-- The lifespan teardown of a connection pool in `restapi/main.py` → `restapi-router-endpoint` covers the entrypoint shape; lifespan resource cleanup happens there, not in the container.
+- The lifespan teardown of any long-lived connection (engine / client pool, when the graph wires one) → handled in `restapi/main.py` (`restapi-app-bootstrap`, alongside `restapi-endpoint`); lifespan resource cleanup happens there, not in the container.
 
 ## File touched
 
@@ -133,7 +133,7 @@ This skill edits `containers.py` directly and does **not** touch any subpackage 
 - **No imports from `restapi/` or other entrypoints.** The container is below the entrypoint layer.
 - **No mutable module-level state outside the `Container` class.**
 - **No instantiation of concrete domain types** (entities, value objects). The container builds services, not data.
-- **No `providers.Resource`** for things that already have a clear lifespan (the engine is disposed in the FastAPI `lifespan`).
+- **No `providers.Resource`** for things that already have a clear lifespan (a long-lived client/engine is disposed in the FastAPI `lifespan`, when one exists).
 
 ## Hard stops
 
