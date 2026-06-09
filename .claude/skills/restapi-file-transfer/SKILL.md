@@ -45,8 +45,8 @@ async def import_xlsx(
 Rules:
 
 - `file: UploadFile` for the file slot. Companion scalar/UUID fields use `= Form(...)` — they share the same multipart envelope.
-- `await file.read()` loads the body into memory. **Safe only because** `MaxRequestSizeMiddleware` caps the request before the route runs. Do not stream-and-validate-size in the route.
-- **Always advertise `413`** in `responses=error_responses(...)` for any route that accepts a body. 413 comes from the middleware, not from a domain exception, but its code is registered in `MIDDLEWARE_ERRORS`.
+- `await file.read()` loads the body into memory. This is bounded **only** when the app declares a request-size cap middleware (`restapi-middleware`'s `MaxRequestSizeMiddleware`), which rejects oversize requests before the route runs. A request-size cap is a per-app `restapi.middlewares` choice, not a given: if the app declares none, the body is unbounded and `file.read()` is **not** safe — the app must add a size cap (or the route must stream-and-bound the read) before relying on it. The templates here assume the app declares such a cap.
+- **Advertise `413`** in `responses=error_responses(...)` **only when the app declares a request-size cap middleware** — 413 is produced by that middleware (its code registered in `MIDDLEWARE_ERRORS`), not by a domain exception, so an app without one has no 413 to advertise, and the OpenAPI discovery check (`test-discovery-invariants`) would reject the orphan code. The `413` shown in the decorator templates is present because those templates assume a size-capped app; drop it for an app that declares no size middleware.
 - The route does not parse the file — pass bytes to the handler via the command DTO (`file_data: bytes`).
 
 ### Multiple optional uploads (`slot: optional-many`)
@@ -120,7 +120,7 @@ Rules:
 - **Return annotation: `-> StreamingResponse`.** No `response_model` — FastAPI does not serialize the body.
 - `StreamingResponse(iter([bytes]), media_type=..., headers={...})` is the canonical shape. `iter([data])` wraps already-materialized bytes in a single-chunk iterator. If the handler produces a true `AsyncIterator[bytes]`, pass it directly without `iter([...])`.
 - **`media_type` is the real content type** (xlsx / docx / pdf MIME). Don't use `application/octet-stream` for known formats — clients render based on this.
-- `Content-Disposition: attachment; filename="..."` triggers download instead of inline. Filename is double-quoted; if you need RFC 5987 encoding for non-ASCII, document it inline — the default convention is ASCII timestamps.
+- `Content-Disposition: attachment; filename="..."` triggers download instead of inline. Filename is double-quoted; a plain ASCII filename is the simplest default, and if you need RFC 5987 encoding for non-ASCII, document it inline.
 
 ### `_export_filename` helper
 
@@ -131,7 +131,7 @@ def _export_filename(ext: str) -> str:
 ```
 
 - Module-level helper named `_<purpose>_filename`. Underscore-prefixed because it's private to the router module.
-- UTC timestamp `YYYYMMDD-HHMMSS`, prefix `<project>-<resource>`, extension parameter. Reuse this exact shape across routers — clients' file managers sort and dedupe based on it.
+- The shape shown (UTC timestamp `YYYYMMDD-HHMMSS`, a `<project>-<resource>` prefix, an extension parameter) is a reasonable default, not a fixed canon. The exact filename format — timestamp style, prefix, ASCII vs RFC 5987 — is an app-level choice; keep it consistent within one app, but don't freeze this particular shape as mandatory across apps.
 - Filename construction lives in the route, not the handler. The handler returns content; the route names the artifact.
 
 ### CORS `expose_headers`

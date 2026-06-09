@@ -34,6 +34,7 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
+from myapp.domain.exceptions import UnauthorizedError
 from myapp.restapi.dependencies import get_current_user
 
 def _is_protected(route: APIRoute) -> bool:
@@ -75,8 +76,12 @@ async def test_protected_route_returns_401_without_token(method: str, path: str,
 
     assert response.status_code == 401
     body = response.json()
-    assert body["code"] == "UNAUTHORIZED"
-    assert response.headers.get("WWW-Authenticate", "").startswith('Bearer realm="myapp"')
+    # The code CONSTANT is the contract, not its literal string — assert against
+    # the domain exception's own `.code` (mirrors test-restapi-endpoint Rule 9).
+    assert body["code"] == UnauthorizedError.code
+    # Only the challenge SCHEME is load-bearing (RFC 7235). The realm is app-specific;
+    # assert the scheme is present, never freeze a `realm="<app>"` string.
+    assert response.headers.get("WWW-Authenticate", "").startswith("Bearer")
 
 def pytest_generate_tests(metafunc):
     """Discover protected routes at collection time by importing `create_app`
@@ -240,7 +245,7 @@ async def test_info_endpoint_is_public_and_returns_200(real_app):
 
 ## Inlined typing / import rules
 
-- `pytest`, `fastapi`, `fastapi.routing`, `httpx`, `myapp.containers`, `myapp.restapi.main`, `myapp.restapi.dependencies`.
+- `pytest`, `fastapi`, `fastapi.routing`, `httpx`, `myapp.containers`, `myapp.restapi.main`, `myapp.restapi.dependencies`, `myapp.domain.exceptions` (for the `UnauthorizedError.code` constant the 401 test asserts against).
 - Full annotations on every helper.
 - No `from __future__ import annotations`.
 
@@ -256,3 +261,5 @@ async def test_info_endpoint_is_public_and_returns_200(real_app):
 - Spec hardcodes a CORS origin (e.g. `http://localhost:3000`) in `test_cors.py` → stop, read a configured origin off `real_app`'s `CORSMiddleware` and `pytest.skip` when none is configured; never freeze the source app's dev origin or assume `allow_credentials`.
 - Spec hardcodes the request-size limit (e.g. 10 MiB) in `test_request_size_limit.py`, or presumes the middleware is always present → stop, read the cap off the app's `MaxRequestSizeMiddleware` and compute `limit + 1`; `pytest.skip` when no size middleware is declared (it is a per-app `restapi.middlewares` entry, not universal).
 - Project has no `/info` (or `/health`) endpoint and the spec sets `info_endpoint = none` → produce four files, skip `test_info.py`.
+- Spec freezes the `WWW-Authenticate` challenge to a specific realm (`Bearer realm="myapp"`) → stop, only the scheme is load-bearing (`.startswith("Bearer")`); the realm is app-specific.
+- Spec pins the 401 body code to a literal string (`"UNAUTHORIZED"`) → stop, assert against the domain exception's `.code` constant, not a frozen literal.

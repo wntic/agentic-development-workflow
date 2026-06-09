@@ -49,11 +49,22 @@ from myapp.domain.exceptions import (
 )
 # Never import IFooRepository — the adapter does NOT inherit the protocol (structural
 # subtyping at the DI site is the contract, Rule 2). Importing it leaves a dead F401.
-from myapp.domain.foos import Foo, FooListFilter
+from myapp.domain.foos import Foo, FooListFilter, FooSort
 
 from ..tables.foos import foos_table
 
 __all__ = ["FooRepository"]
+
+# Translate the filter's sort key (a domain enum) to an ordered column — this
+# mapping IS the "sort-key → column" translation domain-filter Rule 6 delegates
+# here. One entry per FooSort member; the member encodes both column and
+# direction. `created_at.desc()` is just this aggregate's default, not a baked-in
+# universal order.
+_SORT_COLUMNS = {
+    FooSort.CREATED_AT_DESC: foos_table.c.created_at.desc(),
+    FooSort.CREATED_AT_ASC: foos_table.c.created_at.asc(),
+    FooSort.NAME_ASC: foos_table.c.name.asc(),
+}
 
 # _FK_FIELD_MAP + the FK branch in _map_integrity_error exist ONLY because Foo carries a
 # foreign key (bar_id). An aggregate with NO foreign keys omits BOTH the map and the
@@ -108,7 +119,7 @@ class FooRepository:
         return self._row_to_entity(row) if row is not None else None
 
     async def list(self, *, filter: FooListFilter) -> Sequence[Foo]:
-        stmt = _apply_filter(select(foos_table), filter).order_by(foos_table.c.created_at.desc())
+        stmt = _apply_filter(select(foos_table), filter).order_by(_SORT_COLUMNS[filter.sort])
         stmt = stmt.limit(filter.limit).offset(filter.offset)
         async with self._sf() as session:
             rows = (await session.execute(stmt)).mappings().all()
@@ -208,7 +219,7 @@ class FooRepository:
 
 7. `get_by_id(id)` raises `NotFoundError` when absent (never returns `None`).
 8. `get_by_<other>(value)` returns `Entity | None` via `result.one_or_none()`.
-9. `list(*, filter)` returns `Sequence[Entity]`; always include `order_by`.
+9. `list(*, filter)` returns `Sequence[Entity]`; always include `order_by`, and derive it from `filter.sort` — a module-level `_SORT_COLUMNS` map from each sort-enum member to its ordered column (`.asc()` / `.desc()`). This is the sort-key→column translation `domain-filter` Rule 6 delegates to the adapter; never hardcode a single `created_at.desc()` that ignores the caller's chosen sort.
 10. `count(*, filter)` returns `int` from `select(func.count()).select_from(table)`.
 11. Multi-field filter logic extracts to a module-level `_apply_filter(stmt, filter)`.
 

@@ -76,7 +76,11 @@ def minio_container():
 
     from testcontainers.minio import MinioContainer
 
-    with MinioContainer("minio/minio:latest") as minio:
+    # Pin the image tag — never float on :latest (mirrors postgres:17-alpine above
+    # and the conventions "no floating versions" rule; :latest makes the suite
+    # non-reproducible). MinIO publishes RELEASE.<date> tags; the specific pin is a
+    # per-deployment choice, bumped deliberately, not a frozen constant.
+    with MinioContainer("minio/minio:RELEASE.2025-04-22T22-12-26Z") as minio:
         yield {
             "endpoint_url": f"http://{minio.get_container_host_ip()}:{minio.get_exposed_port(9000)}",
             "access_key": minio.access_key,

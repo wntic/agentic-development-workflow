@@ -26,7 +26,7 @@ Imports follow three rules: how far you reach with relative dots, how you collap
 from .create_foo_command import CreateFooCommand   # same dir — relative
 from ..bars.create_bar_command import CreateBarCommand            # one level up — relative
 from myapp.domain.foos import IFooRepository    # cross-package — absolute
-from myapp.domain.auth import CurrentUser                      # cross-package — absolute
+from myapp.domain.bars import Bar                             # cross-package — absolute
 
 # inside infrastructure/postgres/engine.py importing infrastructure/postgres/db_settings.py
 from .db_settings import DbSettings          # same package — one dot
@@ -115,7 +115,7 @@ Subpackages designed to be the public face of a subdomain (the typical `domain/<
 - All policies.
 - All commands, queries, results, handlers (in `application/<subdomain>/`).
 
-**Layer packages re-export their subdomains too.** The same contract applies one level up: `domain/__init__.py`, `application/__init__.py`, and `infrastructure/__init__.py` re-export their child subpackages (`from . import auth, support` + `from .auth import *` + … + `__all__ = auth.__all__ + support.__all__`), so `from <root>.domain import X` resolves and `__all__` aggregates to the layer root. An empty layer `__init__.py` that has children is a gap. The lone exception is the entrypoint package `restapi/__init__.py`, kept minimal because wildcarding `main.py` would trigger app construction at import (see `general-python-package`).
+**Layer packages re-export their subdomains too.** The same contract applies one level up: `domain/__init__.py`, `application/__init__.py`, and `infrastructure/__init__.py` re-export their child subpackages (`from . import bars, foos` + `from .bars import *` + … + `__all__ = bars.__all__ + foos.__all__`), so `from <root>.domain import X` resolves and `__all__` aggregates to the layer root. An empty layer `__init__.py` that has children is a gap. The lone exception is the entrypoint package `restapi/__init__.py`, kept minimal because wildcarding `main.py` would trigger app construction at import (see `general-python-package`).
 
 If a symbol isn't re-exported, the collapsed-import form breaks at the first call site — and any contributor who adds a new symbol later will hit confusing import errors. Adding a new module means: declare `__all__` in the module, then add it to the `from . import …` line, add `from .<module> import *` to the subpackage `__init__.py`, and append `<module>.__all__` to the package's own `__all__`.
 
