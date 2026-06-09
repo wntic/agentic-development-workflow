@@ -11,12 +11,14 @@
 #
 # No auth was described, so every endpoint is `anonymous`.
 #
-# >>> This probe drove the storage redesign + naming/streaming follow-ups. Most original
+# >>> This probe drove the storage redesign + naming/streaming follow-ups. The original
 #     BLOCKERs are now DISSOLVED: the two "hard" ones (pgvector column + similarity index)
 #     dissolved because Chunk persists in Qdrant (no SQLAlchemy table at all); the embedding-
-#     dimension and streaming "soft" ones were modelling/expressibility, now resolved. Still
-#     deferred (marked `# DEFERRED:` below): per-hit similarity score (nested read-model) and
-#     multipart file upload.
+#     dimension and streaming "soft" ones were modelling/expressibility, resolved; per-hit
+#     similarity score is now wired end-to-end (the `search` port returns (chunk, score)
+#     pairs feeding the SearchHit nested read-model); multipart upload is resolved (#4 below).
+#     The one genuinely-still-deferred item: returning source citations ALONGSIDE the /ask
+#     token stream (a streaming endpoint has no structured sidecar for them yet).
 
 meta:
   epic: 02-vector-rag
@@ -98,11 +100,15 @@ domain:
       methods:
         - "async def add_many(self, chunks: tuple[Chunk, ...]) -> None"
         - "async def delete_by_document(self, document_id: UUID) -> None"
-        - signature: "async def search(self, query_embedding: Embedding, k: int) -> tuple[Chunk, ...]"
-          notes: "Return the k nearest chunks to query_embedding by cosine distance, closest first."
+        - signature: "async def search(self, query_embedding: Embedding, k: int) -> tuple[tuple[Chunk, float], ...]"
+          notes: "Return the k nearest chunks to query_embedding by cosine distance, closest first, each paired with its similarity score (closest = highest score)."
           # (Former hard BLOCKER #2 — similarity index — DISSOLVED: the index lives in the
           # Qdrant collection (HNSW), not a SQLAlchemy table. The fake repo's `search` is now a
           # write-once SCAFFOLD the implementer fills, not a generator crash.)
+          # The port returns (chunk, score) PAIRS so the similarity score has a channel from the
+          # store up to the SearchHit read-model — without it the score field could never be
+          # populated (the nested-DTO container existed but had no source). Score is a retrieval
+          # artifact, kept as a bare float (not a domain VO) — it is not domain state.
       raises: []
       sources: []
 
@@ -213,7 +219,7 @@ application:
         - {name: k, type: int, default: "5"}
       output: SearchResult
       result_fields:
-        - {name: items, type: "tuple[SearchHit, ...]"}   # each hit carries its score (#3 resolved)
+        - {name: items, type: "tuple[SearchHit, ...]"}   # each hit carries its score (port returns (chunk, score) pairs)
       result_dtos:
         # Nested read-model DTO: a search hit = the chunk + its similarity score. Lives beside
         # SearchResult in application/corpus/; SearchResult references it as a sibling.
@@ -224,7 +230,8 @@ application:
       handler: {dependencies: [IChunkRepository, ICanEmbedText]}
       notes: |
         Embed the query (ICanEmbedText.embed -> first vector), then
-        IChunkRepository.search(query_embedding, k); wrap the hits in SearchResult.
+        IChunkRepository.search(query_embedding, k) -> (chunk, score) pairs; wrap each
+        pair in a SearchHit(chunk, score) and return them in SearchResult.
       behaviour:
         - given: "chunks exist in the corpus"
           when: execute
@@ -241,10 +248,11 @@ application:
       output: "AsyncIterator[str]"
       handler: {dependencies: [IChunkRepository, ICanEmbedText, ICanGenerateAnswer]}
       notes: |
-        Embed the question, retrieve the k nearest chunks, then stream
-        ICanGenerateAnswer.generate(question, [c.text for c in hits]) straight through.
-        (Returning the source chunks alongside the stream is the nested read-model gap,
-        deferred — see #3.)
+        Embed the question, retrieve the k nearest chunks (search returns (chunk, score)
+        pairs — take the chunks), then stream ICanGenerateAnswer.generate(question,
+        [c.text for c in chunks]) straight through.
+        (Returning the source chunks/citations ALONGSIDE the token stream is a separate,
+        still-deferred gap — a streaming endpoint has no structured sidecar for them yet.)
       behaviour:
         - given: "relevant chunks exist for the question"
           when: execute
@@ -348,9 +356,13 @@ infrastructure:
       store: vectors
       notes: |
         Qdrant adapter over the configured collection. add_many: upsert points (id,
-        vector=embedding.vector, payload={document_id, position, text}). search:
-        client.search(collection, query_vector, limit=k) → nearest Chunks, closest first.
-        delete_by_document: delete by a document_id payload filter. Map qdrant/SDK errors
+        vector=embedding.vector, payload={document_id, position, text}); map qdrant/SDK
+        errors → ProviderError. search: client.search(collection, query_vector, limit=k)
+        → (Chunk, score) pairs, closest first — take the similarity from each hit's
+        `.score` and pair it with the reconstructed Chunk; do NOT discard the score.
+        Request the stored vector (with_vectors=True) so each Chunk carries its OWN
+        embedding, never the query's. Map qdrant/SDK errors → ProviderError.
+        delete_by_document: delete by a document_id payload filter; map qdrant/SDK errors
         → ProviderError.
       sources: []
 
