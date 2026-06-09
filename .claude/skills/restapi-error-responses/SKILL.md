@@ -22,86 +22,12 @@ Domain exception classes themselves are registered automatically: `error_respons
 - Producing a multipart-or-streaming route that needs the sanctioned `try/except` → `restapi-file-transfer`.
 - First-time setup of `restapi/error_handler.py`, `restapi/schemas/errors.py`, etc. → `restapi-app-bootstrap`.
 
-## Reference — the three components (do not modify the translator or the bootstrap files)
+## Reference — `errors.py` and the translator are owned by `restapi-app-bootstrap`
 
-### 1. `restapi/schemas/errors.py` — wire shape + helper + middleware registry
+`restapi/schemas/errors.py` and `restapi/error_handler.py` are created **once** by `restapi-app-bootstrap`, which is their single source of truth — this skill never restates their content (that is what let the two copies drift). Bootstrap owns the `ErrorResponse` wire model, the `error_responses(...)` helper, the `_DESCR` status→label map, and the central `DomainError` translator (one handler over every subclass; `WWW-Authenticate` only for `UnauthorizedError`). This skill **uses** two symbols from `errors.py` and **writes** exactly one, on the rare middleware path:
 
-```python
-from typing import Any
-
-from pydantic import BaseModel, Field
-
-from myapp.domain import exceptions as _domain_exceptions
-from myapp.domain.exceptions import DomainError
-
-__all__ = ["ErrorResponse", "error_responses", "MIDDLEWARE_ERRORS"]
-
-class ErrorResponse(BaseModel):
-    code: str
-    message: str
-    context: dict[str, object] = Field(default_factory=dict)
-
-# Status codes emitted by middleware, with no DomainError class behind them.
-MIDDLEWARE_ERRORS: dict[str, int] = {
-    "PAYLOAD_TOO_LARGE": 413,
-}
-
-_DESCR: dict[int, str] = {
-    400: "Bad request",
-    401: "Unauthorized",
-    403: "Forbidden",
-    404: "Not found",
-    409: "Conflict",
-    413: "Payload too large",
-    422: "Unprocessable entity",
-}
-
-def _all_known_statuses() -> set[int]:
-    domain_statuses = {
-        getattr(cls, "http_status")
-        for name in _domain_exceptions.__all__
-        if isinstance(cls := getattr(_domain_exceptions, name), type)
-        and issubclass(cls, DomainError)
-    }
-    return domain_statuses | set(MIDDLEWARE_ERRORS.values())
-
-def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
-    known = _all_known_statuses()
-    unknown = [c for c in codes if c not in known]
-    if unknown:
-        raise ValueError(f"HTTP statuses not produced by any DomainError or middleware: {unknown}")
-    out: dict[int | str, dict[str, Any]] = {
-        c: {"model": ErrorResponse, "description": _DESCR.get(c, str(c))} for c in codes
-    }
-    return out
-```
-
-The domain-side registry is derived dynamically from `domain.exceptions.__all__` — no manual list to maintain. Adding a new `DomainError` subclass automatically widens the allowed statuses on the next import.
-
-### 2. `restapi/error_handler.py` — the translator (do not modify)
-
-```python
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-
-from myapp.domain.exceptions import DomainError, UnauthorizedError
-
-from .schemas.errors import ErrorResponse
-
-def register_error_handlers(app: FastAPI) -> None:
-    @app.exception_handler(DomainError)
-    async def _handle_domain_error(request: Request, exc: DomainError) -> JSONResponse:
-        headers = {}
-        if isinstance(exc, UnauthorizedError):
-            headers["WWW-Authenticate"] = 'Bearer realm="myapp"'
-        return JSONResponse(
-            status_code=exc.http_status,
-            content=ErrorResponse(code=exc.code, message=str(exc), context=exc.context).model_dump(),
-            headers=headers or None,
-        )
-```
-
-One handler covers every `DomainError` subclass. New exceptions plug in automatically.
+- **`error_responses(*codes: int) -> dict[int | str, dict[str, Any]]`** — the helper you put on a route decorator. It validates each code against the known set — `{cls.http_status for cls in domain.exceptions.__all__} ∪ set(MIDDLEWARE_ERRORS.values())` — and raises `ValueError` on an unknown one, so OpenAPI can never advertise a status nothing produces. The domain side is **derived dynamically**: a new `DomainError` subclass (via `domain-exception`) widens it automatically, with no append here.
+- **`MIDDLEWARE_ERRORS: dict[str, int]`** — the **only** manually-maintained entry in `errors.py`, and this skill's sole write target. Bootstrap creates it **empty** (`{}` — no middleware is presumed); the middleware-code path below adds one row when a declared middleware introduces a status with no `DomainError` behind it (e.g. a size-cap middleware → `{"PAYLOAD_TOO_LARGE": 413}`).
 
 ## Standard code sets per operation
 
@@ -128,8 +54,8 @@ That's it. The catalog is dynamic; no further registration needed.
 ## Procedure — middleware-code path
 
 1. Confirm the status truly has no `DomainError` behind it (the body comes from middleware before the exception handler runs). Otherwise the right answer is `domain-exception`, not this path.
-2. Append `("CODE_STRING", <http_status>)` to `MIDDLEWARE_ERRORS` in `restapi/schemas/errors.py`.
-3. If the status is not in `_DESCR`, add a short description.
+2. Append `("CODE_STRING", <http_status>)` to `MIDDLEWARE_ERRORS` in `restapi/schemas/errors.py` (the only hand-edit to that bootstrap-owned file).
+3. If the status is not already a key in the `_DESCR` map (in the same `errors.py`), add a short description there.
 4. Have the middleware emit an `ErrorResponse`-shaped JSON body with the same `code` string.
 
 ## Rules

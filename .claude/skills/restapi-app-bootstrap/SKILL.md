@@ -220,6 +220,8 @@ def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
 
 The domain-side registry is **derived dynamically** from `domain.exceptions.__all__`. Adding a new `DomainError` subclass automatically widens the allowed `error_responses(...)` codes — no manual append, no `domain/error_catalog.py` to maintain.
 
+This file is the **single source of truth** for the error wire-shape, the `error_responses(...)` helper, the `_DESCR` map, and `MIDDLEWARE_ERRORS`. `restapi-error-responses` only *references* it and appends to `MIDDLEWARE_ERRORS` on the rare middleware-code path — it never restates this template (the two copies once drifted; do not reintroduce a second copy).
+
 ### `restapi/schemas/__init__.py`
 
 ```python
