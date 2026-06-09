@@ -185,7 +185,7 @@ async def real_app(
     sf: async_sessionmaker[AsyncSession],
     db_settings: DbSettings,
     storage_settings: StorageSettings,
-    jwt_settings,  # produced by test-integration-authed-client at tests/integration/api/conftest.py
+    jwt_settings,  # AUTH-ONLY: present only when the app declares auth (from test-integration-authed-client). On an auth-less app drop this param AND the jwt_settings override/reset lines below — there is no jwt_settings provider to override.
 ):
     """FastAPI app whose container has its DB / storage / session-factory
     / JWT settings overridden to the per-test fixtures. Repositories
@@ -290,3 +290,4 @@ One `.reset()` line per such Singleton. Skip the entire fixture if none exist �
 - Spec asks the `sf` fixture to bind to the engine directly (skipping the outer connection) → stop, that bypasses rollback and reintroduces every old failure mode.
 - Spec asks to add a `truncate_all_tables` teardown alongside rollback → stop, rollback alone is sufficient; truncate is the fallback for DBs without nested transactions and is strictly slower.
 - Project does not use S3 / MinIO but spec includes the bucket fixtures → strip the storage block; no need to start MinIO every session.
+- Project declares no auth (every endpoint anonymous) but spec includes the JWT override → strip the `jwt_settings` parameter and the `container.jwt_settings.override(...)` / `reset_override()` lines from `real_app`. An auth-less app has no `jwt_settings` provider, so the override raises `AttributeError`; auth is a manifest-declared feature (see `restapi-auth-dependency`), not a universal.

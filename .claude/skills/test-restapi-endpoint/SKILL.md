@@ -25,6 +25,27 @@ tests/integration/api/<resource>/
 └── test_<verb>_<noun>.py                        # one file per endpoint
 ```
 
+**The templates below assume an authenticated, role-gated, multi-tenant app** — `authed_client`, `Role.<MEMBER>`, and the `org_id` / cross-org examples are that app's model, not universal. Auth is manifest-declared (`restapi-auth-dependency`). For a **public route, or an app that declares no auth**, there is no `authed_client`, no `Role`, no `domain.auth` import — drive the route with a plain ASGI client (template below). A tenancy claim is passed to `authed_client` as a keyword arg whose name matches the app's JWT claim (e.g. `organization_id=...`); there is no built-in `org_id` parameter.
+
+### `test_<verb>_<noun>.py` — public route (app declares no auth)
+
+```python
+from httpx import ASGITransport, AsyncClient
+
+from myapp.restapi.schemas import FooResponse
+
+
+async def test_create_foo_happy_path(real_app):
+    transport = ASGITransport(app=real_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post("/foos", json={"name": "alpha"})
+
+    assert response.status_code == 201
+    FooResponse.model_validate(response.json())
+```
+
+(No `authed_client`, no `Role`, no `domain.auth` — the plain `AsyncClient` over `real_app` is the sanctioned client when the app has no auth, the one case Rule 6 carves out.)
+
 ### `test_<verb>_<noun>.py` — JSON mutation, role-gated, tenant-scoped
 
 ```python
@@ -167,7 +188,7 @@ async def test_download_attachment_streams_bytes(authed_client, foo_id, attachme
 3. **No cross-cutting registries.** Adding a new endpoint touches exactly one new test file. The "every route returns 401 unauth" and "every route declares its error codes in OpenAPI" checks are owned by `test-discovery-invariants` and derive their inputs from `app.routes` / `app.openapi()` — no `_endpoints()` / `_EXPECTED` tables to extend.
 4. **Self-contained tests.** Each test builds its own state via per-resource factory fixtures (`make_foo`) or by POSTing through the API. Since the rollback contract guarantees an empty DB at test start, fixed natural keys (`name="alpha"`) are safe — no `uuid4().hex[:8]` suffix required.
 5. **Exact counts and orderings are now correct.** `assert len(items) == N`, `assert items[0].id == ...`, `assert response.json()["total"] == 3` — the empty-DB-at-start contract makes these reliable. Defensive `any(...)` filters belong to the pre-rollback world; remove them.
-6. **`authed_client` is the only sanctioned client.** `async with authed_client(role=Role.ADMIN, org_id=...) as client:` — the `async with` form is non-negotiable; bare assignment leaks the ASGI transport. Raw `AsyncClient(transport=ASGITransport(...))` is for unauth probes only and lives in `test-discovery-invariants`, not here.
+6. **In an app that declares auth, `authed_client` is the only sanctioned client.** `async with authed_client(role=Role.<MEMBER>, ...) as client:` — the `async with` form is non-negotiable; bare assignment leaks the ASGI transport. Raw `AsyncClient(transport=ASGITransport(...))` is otherwise reserved for `test-discovery-invariants` unauth probes. **Exception — an auth-less app** (no auth declared): there is no `authed_client`; drive the route with a plain `AsyncClient` over `real_app` (the public template above), still via `async with`.
 7. **Cross-org reads return 404, not 403.** Tenant-scoped resources prevent enumeration: "this resource exists but you can't see it" leaks existence. Test the 404 path explicitly when `cross_org_visibility = tenant-scoped`.
 8. **Per-resource fixtures live in the sibling `conftest.py`.** Factory fixtures (`make_foo`) return one fresh row per call. Single-row fixtures (`foo_id`) wrap a factory call. Both are function-scoped; no session-scoped row fixtures, ever.
 9. **Error responses are asserted by `code`, not by message.** `assert response.json()["code"] == ConflictError.code` — message text drifts, the `code` constant is the contract. The actual HTTP status is asserted separately.

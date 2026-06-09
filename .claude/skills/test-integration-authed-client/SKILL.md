@@ -1,11 +1,13 @@
 ---
 name: test-integration-authed-client
-description: Apply once per project to install the authenticated HTTP client factory the integration suite uses. Produces `tests/integration/api/conftest.py` with the `authed_client` fixture (an async-context-manager factory minting fresh JWTs and wrapping `httpx.AsyncClient` over `ASGITransport(real_app)`), the supporting `rsa_keypair` + `jwt_settings` session fixtures, and the `tests/helpers/jwt.py` `sign_token(...)` helper. After this skill lands, every integration test that needs an authenticated HTTP call uses `async with authed_client(role=..., org_id=...) as client:` — no raw `AsyncClient` construction, no token minting at the test site, no per-resource JWT helpers. Does not produce the rollback fixture (use `test-integration-isolation`), per-resource row fixtures (those live in the sibling `<resource>/conftest.py`), or any test file (use `test-restapi-endpoint`).
+description: Apply once per project to install the authenticated HTTP client factory the integration suite uses. Produces `tests/integration/api/conftest.py` with the `authed_client` fixture (an async-context-manager factory minting fresh JWTs and wrapping `httpx.AsyncClient` over `ASGITransport(real_app)`), the supporting `rsa_keypair` + `jwt_settings` session fixtures, and the `tests/helpers/jwt.py` `sign_token(...)` helper. After this skill lands, every integration test that needs an authenticated HTTP call uses `async with authed_client(role=...) as client:` (app-specific claims passed as keyword args) — no raw `AsyncClient` construction, no token minting at the test site, no per-resource JWT helpers. Does not produce the rollback fixture (use `test-integration-isolation`), per-resource row fixtures (those live in the sibling `<resource>/conftest.py`), or any test file (use `test-restapi-endpoint`).
 ---
 
 # Test — Integration Authed Client
 
 One-shot per project. Owns the JWT-minting `authed_client` factory and the keys it depends on. Every integration test that needs an authenticated HTTP call consumes this fixture; no other place in the test tree may construct `AsyncClient(transport=ASGITransport(...))` directly for an authenticated request.
+
+**Applies only to an app that declares auth.** This is the auth test-bootstrap — the same trigger that pulls `cryptography` into the dependency manifest (`conventions` block D). An auth-less app (every endpoint anonymous) has no authenticated client to mint and skips this skill, `tests/integration/api/conftest.py`, and the `rsa_keypair`/`jwt_settings` fixtures entirely.
 
 ## When to use vs. neighbours
 
@@ -61,7 +63,7 @@ def sign_token(
 
 ```python
 from collections.abc import Callable
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -111,16 +113,14 @@ def authed_client(
 
     def _factory(
         role: Role,
-        org_id: UUID | None = None,
         **extra_claims,
     ) -> AsyncClient:
-        org = org_id or uuid4()
+        # Mint only the universal claims every verifier needs (sub + role). Any
+        # app-specific claim (tenant/org id, display names, …) is the caller's to
+        # pass via **extra_claims — never bake one app's identity model in here.
         claims = {
             "sub": str(uuid4()),
             "role": role.value,
-            "organization_id": str(org),
-            "organization_name": "Test Org",
-            "full_name": "Test User",
             **extra_claims,
         }
         token = sign_token(
@@ -155,7 +155,7 @@ The coupling has a cost: `real_app` cannot be used from tests outside `tests/int
 1. **`authed_client` is the single sanctioned authenticated client.** Direct `AsyncClient(transport=ASGITransport(app=real_app))` with a hand-rolled `Authorization` header is forbidden in any test file. Raw `AsyncClient` with no Authorization header is allowed only for `test-discovery-invariants` unauth probes.
 2. **Always `async with authed_client(...) as client:`.** Bare assignment (`client = authed_client(role=...)`) leaks the ASGI transport and produces "Cannot reuse a consumed `AsyncClient`" or resource-warning noise in CI. The async-context-manager form is non-negotiable.
 3. **Each call mints a fresh JWT.** Tokens are not reused across tests, calls, or roles. A test that needs two roles in one body calls `authed_client(...)` twice.
-4. **`org_id` defaults to a fresh `uuid4()`.** Pin it only when the caller must share an org with a fixture row (typical for COLLABORATOR tests against tenant-scoped resources). Don't reuse `org_id` across unrelated tests.
+4. **Mint only the universal claims; pass app-specific ones via `extra_claims`.** The factory bakes in just `sub` and `role` — the claims every verifier needs. Any app-specific claim (tenant/org id, display name, …) is the caller's to pass via `extra_claims`, pinned only when a test must share it with a fixture row (don't reuse such a value across unrelated tests). Never hardcode one app's identity model into the factory.
 5. **`rsa_keypair` and `jwt_settings` are session-scoped.** Generating an RSA key is expensive (~100ms); generating per test would dominate suite wall time.
 6. **Algorithm matches production.** If production verifies `RS256`, the fixture signs `RS256` — never substitute `HS256` "for speed". The verifier in `real_app` uses `jwt_settings.algorithm`, so the test and prod paths must agree.
 7. **No `localhost` / `127.0.0.1` base URL.** `http://testserver` is the convention; the ASGI transport short-circuits the network anyway, but `testserver` makes route logs distinguishable from real traffic in CI logs.

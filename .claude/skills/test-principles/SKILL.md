@@ -33,7 +33,7 @@ The shape is the goal: **fast layers run on every save; slow layers run on every
 tests/
 ├── conftest.py                                  # empty; pytest-asyncio mode lives in pyproject.toml
 ├── helpers/
-│   └── jwt.py                                   # sign_token(...)
+│   └── jwt.py                                   # sign_token(...) — auth apps only
 ├── unit/
 │   ├── fakes/
 │   │   └── fake_<aggregate>_repository.py       # no __init__.py, no conftest, direct import
@@ -47,16 +47,16 @@ tests/
     │                                            #   - _migrated_db, _guard_against_real_db (session, autouse)
     │                                            #   - _engine (session)
     │                                            #   - _outer_connection, sf (function)
-    │                                            #   - real_app (function; consumes jwt_settings from down-tree)
+    │                                            #   - real_app (function; consumes jwt_settings from down-tree WHEN the app has auth)
     │                                            #   - s3_prefix (function)
     │                                            #   - _cleanup_bucket_at_session_end
     ├── db/                                      # repository contract tests; uses `sf` only
     │   └── test_<aggregate>_repository.py
     └── api/
-        ├── conftest.py                          # OWNED BY test-integration-authed-client
-        │                                        #   - rsa_keypair (session)
-        │                                        #   - jwt_settings (session) — consumed by real_app
-        │                                        #   - authed_client (function; consumes real_app)
+        ├── conftest.py                          # OWNED BY test-integration-authed-client (auth apps only)
+        │                                        #   - rsa_keypair (session) — auth apps only
+        │                                        #   - jwt_settings (session) — consumed by real_app; auth apps only
+        │                                        #   - authed_client (function; consumes real_app) — auth apps only
         ├── test_unauth_returns_401.py           # OWNED BY test-discovery-invariants
         ├── test_openapi_advertises_error_codes.py
         ├── test_cors.py
@@ -71,7 +71,7 @@ tests/
 
 Two coupling points are deliberate and load-bearing:
 
-1. **`real_app` in `tests/integration/conftest.py` consumes `jwt_settings`** from down-tree `tests/integration/api/conftest.py`. Pytest's fixture resolution walks the conftest hierarchy from the *consuming test* outward, so a test under `tests/integration/api/` resolves `jwt_settings` from the down-tree conftest before pytest finds it for `real_app`. This means **`real_app` is only usable from tests under `tests/integration/api/`** — repository contract tests don't need it, and discovery tests run from `tests/integration/api/`.
+1. **A fixture may consume a setting defined down-tree** — the canonical case being `real_app` (in `tests/integration/conftest.py`) consuming `jwt_settings` from down-tree `tests/integration/api/conftest.py`, **when the app declares auth**. Pytest's fixture resolution walks the conftest hierarchy from the *consuming test* outward, so a test under `tests/integration/api/` resolves the down-tree `jwt_settings` before pytest binds it into `real_app`. The down-tree-resolution mechanism is the universal, load-bearing point; the `jwt_settings` instance is **conditional** — an auth-less app has no such fixture and `real_app` does not consume or override it (see `test-integration-isolation`). Either way **`real_app` is only usable from tests under `tests/integration/api/`** — repository contract tests don't need it.
 2. **No `tests/unit/fakes/__init__.py` and no `__all__`** — handler tests import fakes via the full path (`from tests.unit.fakes.fake_foo_repository import FakeFooRepository`). This is deliberate: fakes never leak into the production import graph.
 
 ## Fixture vs. builder

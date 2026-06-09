@@ -7,14 +7,14 @@ description: Apply when a route accepts a multipart upload (`UploadFile`) or ret
 
 File transfer breaks the otherwise-uniform CRUD shape: routes accept multipart bodies or return raw bytes. The conventions below must be repeated verbatim in any new file-transfer route — they encode several non-obvious rules and the single route-body `try/except` exemption.
 
-The non-file-specific rules — parameter order, handler resolution via `request.app.state.container`, route ordering vs `/{id}`, the "no `try/except`, no logging, no business logic in routes" prohibitions — are owned by `restapi-endpoint`. Read that skill first; this one only adds the upload/download specializations on top.
+The non-file-specific rules — parameter order, handler resolution via `request.app.state.container`, route ordering vs `/{id}`, the "no `try/except`, no logging, no business logic in routes" prohibitions — are owned by `restapi-endpoint`. Read that skill first; this one only adds the upload/download specializations on top. **Auth follows `restapi-endpoint`'s authed/public idiom:** the templates below show the authenticated form; a public route (`auth: anonymous`) — or any route in an app that declares no auth — drops the auth dependency, its `domain.auth`/`..dependencies` imports, the `401`/`403`, and the `caller_id`. The auth dependency is never a frozen role; it is the slot `restapi-auth-dependency` fills.
 
 ## When to use vs. neighbours
 
 - Multipart upload route or streaming-binary download route → this skill.
 - A regular JSON CRUD route → `restapi-endpoint` (this skill does not apply).
 - The handler that consumes the bytes (upload) or produces them (download) → `application-command` / `application-query`. The handler's capability protocol for storage lives in `domain-capability-protocol`.
-- Wiring `MaxRequestSizeMiddleware`, CORS `expose_headers`, and the JWT verifier → already done in `restapi/main.py`; this skill only extends `expose_headers` if a new response header is added.
+- The route's auth dependency (or none) → `restapi-auth-dependency`; it is not pre-wired here. Wiring `MaxRequestSizeMiddleware` and CORS `expose_headers` lives in `restapi/main.py`; this skill only extends `expose_headers` if a new response header is added.
 
 ## Upload templates
 
@@ -30,7 +30,7 @@ async def import_xlsx(
     request: Request,
     file: UploadFile,
     bar_id: UUID = Form(...),
-    user: CurrentUser = Depends(require_role(Role.ADMIN)),
+    user: CurrentUser = Depends(require_role(Role.<MIN_RANK>)),
 ) -> ImportFoosResponse:
     data = await file.read()
     handler: ImportFoosXlsxHandler = (
@@ -76,7 +76,7 @@ async def create_foo(
     request: Request,
     data: Annotated[str, Form()],
     attachments: list[UploadFile] | None = None,
-    user: CurrentUser = Depends(require_role(Role.ADMIN)),
+    user: CurrentUser = Depends(require_role(Role.<MIN_RANK>)),
 ) -> FooResponse:
     try:
         payload = CreateFooPayload.model_validate_json(data)
