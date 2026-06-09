@@ -54,7 +54,8 @@ The `pattern-` prefix marks a skill that **spans layers** (a domain port + an in
 ### Infrastructure
 
 - `infra-sqlalchemy-table` — the write-once SQLAlchemy Core `Table` scaffold (the Alembic revision is authored separately via `alembic revision`, not generated); constraint-naming convention.
-- `infra-sqlalchemy-repository` — repository adapter satisfying a domain protocol; `IntegrityError`-to-domain-exception translator.
+- `infra-sqlalchemy-repository` — repository adapter satisfying a domain protocol on a **relational** store; `IntegrityError`-to-domain-exception translator.
+- `infra-store-repository` — repository adapter for an aggregate on a **client-style** store (vector/cache/document: qdrant, redis, chroma, …); one vendor-agnostic skill, dispatched by store profile (`uses_bootstrap: no`). SDK-error-to-domain-exception translator at the boundary.
 - `infra-capability-adapter` — adapter satisfying a domain `ICan<Verb>` capability protocol (object storage, HTTP gateway, token verifier, renderer); SDK-exception-to-domain-exception translator at the boundary.
 - `infra-settings` — one `pydantic-settings.BaseSettings` per integration.
 - `infra-di-provider` — wires a class into `containers.py` with the right `Singleton`/`Factory` choice and declaration order.

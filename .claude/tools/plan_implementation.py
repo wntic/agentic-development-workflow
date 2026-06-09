@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from validate_manifest import KIND_TO_SKILL, _section_list, load_yaml
+from validate_manifest import BOOTSTRAP_STORE_KINDS, KIND_TO_SKILL, _section_list, load_yaml, repository_skill
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Name derivation — the thin slice of `conventions` block A the runner needs to
@@ -146,27 +146,32 @@ def build_registry(m: dict) -> dict[str, dict]:
             test_base=f"test_{s}_handler",
         )
 
-    # infrastructure — repository body + its write-once table; capability adapter body
+    # infrastructure — repository body + (relational only) its write-once table; capability adapter body
+    store_kind_by_name = {d["name"]: d.get("kind") for d in _section_list(m, "infrastructure.datastores")}
     for r in _section_list(m, "infrastructure.repositories"):
         agg = r.get("backs", "")
         s = snake(agg)
+        store_name = r.get("store")
+        store_kind = store_kind_by_name.get(store_name) if store_name else None  # None ⇒ implicit postgres
         put(
             f"{s}_repository",
             kind="infrastructure.repositories",
-            skill=KIND_TO_SKILL["infrastructure.repositories"],
+            skill=repository_skill(store_kind),  # store-aware: SQLAlchemy vs store skill (block B/C)
             label=f"{r.get('implements', s)} impl",
             test_base=None,
             dir_hint="repositories",
         )
-        # the relational table is body-bearing too (write-once skeleton), detected separately
-        put(
-            pluralize(s),
-            kind="infrastructure.tables",
-            skill="infra-sqlalchemy-table",
-            label=f"{agg} table",
-            test_base=None,
-            dir_hint="tables",
-        )
+        # the relational table is body-bearing too (write-once skeleton) — only for a bootstrap
+        # (relational) store; a client-style store (qdrant/redis/…) persists with no SQLAlchemy table.
+        if store_kind is None or store_kind in BOOTSTRAP_STORE_KINDS:
+            put(
+                pluralize(s),
+                kind="infrastructure.tables",
+                skill="infra-sqlalchemy-table",
+                label=f"{agg} table",
+                test_base=None,
+                dir_hint="tables",
+            )
     for cap in _section_list(m, "infrastructure.capabilities"):
         adapter = str(cap.get("adapter", ""))
         role = cap.get("role")

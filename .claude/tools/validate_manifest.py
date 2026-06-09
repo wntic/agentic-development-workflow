@@ -387,7 +387,7 @@ KIND_TO_SKILL: dict[str, str] = {
     "domain.exceptions": "domain-exception",
     "application.commands": "application-command",
     "application.queries": "application-query",
-    "infrastructure.repositories": "infra-sqlalchemy-repository",
+    "infrastructure.repositories": "infra-sqlalchemy-repository",  # relational default — see repository_skill()
     "infrastructure.settings": "infra-settings",
     "infrastructure.capabilities": "infra-capability-adapter",
     "restapi.schemas": "restapi-schema",
@@ -400,6 +400,27 @@ KIND_TO_SKILL: dict[str, str] = {
 # `kind` degrades gracefully to a generic client (§3), so an unmapped datastore is never a
 # presence-gap. Excluded from the gate AND from the meta-coverage assertion.
 _PROFILE_DRIVEN_KINDS: frozenset[str] = frozenset({"infrastructure.datastores"})
+
+# Repositories are the one kind whose producer skill depends on a graph EDGE
+# (`repository.store → datastore.kind`), not the kind alone: a relational (bootstrap) store maps to
+# the SQLAlchemy skill, any client-style store (vector/cache/document) to the vendor-agnostic store
+# skill. KIND_TO_SKILL carries only the relational default — all the §16 presence gate needs ("does
+# this kind have *a* producer"); `repository_skill()` makes the finer store-aware choice the runner
+# and scaffolder dispatch on (conventions block B/C). A new client-style backend (chroma, pinecone,
+# mongo) is a block-C profile row + the node's `requires_packages` — never a new skill, the same
+# way one `infra-capability-adapter` serves boto3/httpx/PyJWT/openai.
+STORE_REPOSITORY_SKILL = "infra-store-repository"  # client-style stores (vector / cache / document)
+BOOTSTRAP_STORE_KINDS: frozenset[str] = frozenset({"postgres"})  # relational; mirrors block C `uses_bootstrap`
+
+
+def repository_skill(store_kind: str | None) -> str:
+    """The producer skill for a repository node, chosen by its backing store's profile (block B/C).
+    Bootstrap (relational) store → the SQLAlchemy skill; any client-style store → the store skill.
+    `store_kind is None` ⇒ the implicit single postgres store (relational)."""
+    if store_kind is None or store_kind in BOOTSTRAP_STORE_KINDS:
+        return KIND_TO_SKILL["infrastructure.repositories"]
+    return STORE_REPOSITORY_SKILL
+
 
 # The manifest sections whose list-fields ARE artifact kinds (meta is not a producer container).
 _CONTAINER_SCHEMAS: dict[str, str] = {

@@ -316,7 +316,9 @@ def test_every_skill_is_classified() -> None:
     `domain-exception` is both a producer (domain.exceptions) and a bootstrap skill; it is listed
     once, under producers — coverage needs each dir in at least one bucket, not exactly one."""
     dirs = {p.name for p in _SKILLS_DIR.iterdir() if p.is_dir()}
-    producers = set(vm.KIND_TO_SKILL.values())
+    # repositories dispatch to one of two producer skills by store profile (vm.repository_skill);
+    # KIND_TO_SKILL carries only the relational default, so union the client-store one explicitly.
+    producers = set(vm.KIND_TO_SKILL.values()) | {vm.STORE_REPOSITORY_SKILL}
     classified = producers | _COMPANION_SKILLS | _TEST_SKILLS | _BOOTSTRAP_SKILLS | _REFERENCE_SKILLS | _META_SKILLS
     orphans = dirs - classified
     stale = classified - dirs

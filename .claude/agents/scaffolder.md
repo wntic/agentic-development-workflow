@@ -119,7 +119,7 @@ Fixed rules, no latitude: ASCII `->` (never the unicode `→`); the line order i
 
    **domain** → exceptions catalog → enums → value objects → entities → repository protocols → capability protocols → services → `__init__`
    **application** → per command: DTO + handler scaffold; per query: DTO + (result DTO) + handler scaffold → `__init__`
-   **infrastructure** → metadata/engine bootstrap (only if a `uses_bootstrap` store backs a repo) → repositories + table scaffolds → settings → capability adapters → connection factories (non-bootstrap stores) → `__init__`
+   **infrastructure** → metadata/engine bootstrap (only if a `uses_bootstrap` store backs a repo) → repositories (skill is store-profile-dispatched per `conventions` block B/C — `infra-sqlalchemy-repository` for a relational store, `infra-store-repository` for any client-style store) + table scaffolds (relational stores **only** — a client-style store has no SQLAlchemy table) → settings → capability adapters → connection factories (non-bootstrap stores) → `__init__`
    **DI** → `containers.py`
    **restapi** → per-resource schemas → middleware body scaffolds (`restapi/middleware/<snake>.py`, per `restapi-middleware`) → routers (endpoint scaffolds) → register routes + wire middlewares in `main.py`
    **dependency manifest** → `pyproject.toml`
@@ -202,7 +202,7 @@ Fixed rules, no latitude: ASCII `->` (never the unicode `→`); the line order i
 - **A scaffold can only compile/type-check by writing a body** → stop; that is contract drift or a manifest gap, not something you paper over with logic.
 - **Ambiguous derivation** — `conventions` does not determine a path/name/skill for a node (genuinely, not because you didn't read it) → stop and report the gap in `conventions`, do not guess.
 
-(An **unknown store `kind`** is **not** a stop — degrade per the block C profile to a generic client + a loud contract-comment, and note it in the report. Fail loud, not crash.)
+(A store `kind` **with** a block-C profile row is **never** a gap — it routes to its producer skill (`infra-sqlalchemy-repository` for a relational store, `infra-store-repository` for any client-style store: qdrant/redis/chroma/…), so a vector/cache/document repository is normal work, not a coverage-gap and not a degrade. Only a store `kind` **absent from block C entirely** degrades: a generic untyped client + a loud contract-comment, noted in the report. Fail loud, not crash.)
 
 ## Out of scope
 
