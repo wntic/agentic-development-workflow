@@ -7,6 +7,8 @@ description: Apply once per project to install per-test database isolation for t
 
 One-shot per project. Produces `tests/integration/conftest.py` with the transaction-rollback fixture every other integration skill depends on. The contract this skill enforces: every integration test starts with an empty database; rows the test (and its handler) commit are rolled back at teardown.
 
+**This is the relational-store isolation strategy.** The engine, the Alembic migration run, and the savepoint-rollback `sf` all assume a relational (`uses_bootstrap`) store — the per-test transaction that ROLLBACKs is a SQL-database mechanism. An app whose only datastore is client-style (qdrant / redis / …) has no engine, no migration chain, and cannot use savepoint rollback; it isolates by **per-test namespace + best-effort cleanup** instead (the `s3_prefix` block below is exactly that pattern). Emit the Postgres machinery only when the graph carries a relational store.
+
 ## When to use vs. neighbours
 
 - First-time scaffold of `tests/integration/conftest.py` → this skill.
@@ -290,4 +292,5 @@ One `.reset()` line per such Singleton. Skip the entire fixture if none exist �
 - Spec asks the `sf` fixture to bind to the engine directly (skipping the outer connection) → stop, that bypasses rollback and reintroduces every old failure mode.
 - Spec asks to add a `truncate_all_tables` teardown alongside rollback → stop, rollback alone is sufficient; truncate is the fallback for DBs without nested transactions and is strictly slower.
 - Project does not use S3 / MinIO but spec includes the bucket fixtures → strip the storage block; no need to start MinIO every session.
+- App has no relational (`uses_bootstrap`) store — e.g. a qdrant/redis-only manifest → stop emitting the Postgres engine / Alembic / savepoint-`sf` machinery; there is no SQL transaction to roll back. Isolate the client stores by per-test namespace + session-end cleanup (the `s3_prefix` pattern), not by this fixture.
 - Project declares no auth (every endpoint anonymous) but spec includes the JWT override → strip the `jwt_settings` parameter and the `container.jwt_settings.override(...)` / `reset_override()` lines from `real_app`. An auth-less app has no `jwt_settings` provider, so the override raises `AttributeError`; auth is a manifest-declared feature (see `restapi-auth-dependency`), not a universal.

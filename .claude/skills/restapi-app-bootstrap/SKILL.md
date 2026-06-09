@@ -50,6 +50,11 @@ __all__ = ["create_app"]
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     container: Container = app.state.container
     yield
+    # Dispose the long-lived resources the container actually owns. The
+    # SQLAlchemy engine exists ONLY when a relational (uses_bootstrap) store
+    # backs a repository; an app with no relational store has no engine()
+    # provider — dispose the clients its datastores opened (or nothing at all),
+    # never a hardcoded engine().dispose().
     await container.engine().dispose()
 
 def create_app(container: Container | None = None) -> FastAPI:
@@ -83,7 +88,7 @@ def create_app(container: Container | None = None) -> FastAPI:
 
 Notes:
 
-- **`lifespan` is the engine teardown hook.** Connection-pool disposal happens here, not via `providers.Resource` in the container.
+- **`lifespan` is the resource-teardown hook.** Disposal of long-lived clients happens here, not via `providers.Resource` in the container. The `engine().dispose()` shown is the **relational-store** case (the SQLAlchemy connection pool); an app whose datastores are client-style (qdrant/redis/…) disposes those clients instead, and an app that opens no disposable client has an empty teardown. Dispose what the container actually owns — derived from the graph's datastores — not a fixed engine.
 - **DI container attached to `app.state.container`** — routes resolve handlers via `request.app.state.container.<name>_handler()` (see `restapi-endpoint`).
 - **The router-include block is a placeholder.** Subsequent `restapi-endpoint` invocations add their own `app.include_router(...)` line.
 

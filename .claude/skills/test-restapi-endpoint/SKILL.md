@@ -122,6 +122,8 @@ async def test_get_foo_in_other_org_returns_404(authed_client, foo_in_org):
 
 ### Per-resource `conftest.py`
 
+The `make_foo` factory below seeds via a raw SQL `INSERT` through `sf` — that is the **relational-store** variant, valid when the resource is backed by a relational (`uses_bootstrap`) store. A resource backed by a client-style store (qdrant / redis / …) has no `sf` and no SQL table: seed it either by **POSTing through the API** (drive the create endpoint, then test against the result) or via the **store's own client** in the fixture. Pick the path from the resource's datastore kind; don't reach for `INSERT INTO` when there is no SQL table.
+
 ```python
 import uuid
 from collections.abc import Awaitable, Callable

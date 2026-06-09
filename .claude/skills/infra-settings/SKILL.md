@@ -19,7 +19,9 @@ Produces one settings class per external integration. The class is the **only** 
 - Class: `<Concept>Settings`. Not `Config`, not `Options`.
 - Env prefix: `MYAPP_<DOMAIN>_` (uppercase, short noun 3–8 chars, terminal underscore). Never reuse a prefix across two classes.
 
-## Template
+## Template — relational database (one integration kind among many)
+
+The class below is a **relational-engine** example. Its connection-pool fields (`port = 5432`, `pool_size`, `max_overflow`, `pool_pre_ping`, `echo`) and the `dsn` are **relational-only** — they mean nothing for an API key, a blob store, a vector store, or an observability backend. For those, use the generic template below; never copy pool/port/echo/dsn into a non-engine settings class.
 
 ```python
 from pydantic import SecretStr, computed_field
@@ -54,6 +56,28 @@ class DbSettings(BaseSettings):
         )
 ```
 
+## Template — generic integration (API key / blob store / vector store / observability)
+
+Most integrations need a credential plus an endpoint or model name and maybe one or two knobs — no pool, no port, no DSN. This is the shape for everything that is not a relational engine:
+
+```python
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+__all__ = ["FooApiSettings"]
+
+class FooApiSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="MYAPP_FOO_",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    api_key: SecretStr
+    base_url: str = "https://api.foo.example"
+    timeout_seconds: int = 30
+```
+
 ## Rules
 
 ### Required `model_config`
@@ -71,6 +95,8 @@ All three keys are mandatory:
 3. **Booleans use Python types**, not strings. Pydantic parses env-string forms (`"true"`, `"1"`, `"yes"`) correctly.
 4. **Numerics use real types** — `port: int`, never `str`.
 5. **Optional is `T | None = None`**, never `T = ""`.
+
+**Engine-pool fields are relational-only.** `port: int = 5432`, `pool_size`, `max_overflow`, `pool_pre_ping`, `echo`, and a `dsn` computed field belong to a relational-database settings class (the first template). A non-engine integration — API key, blob store, vector store, observability — omits them entirely; carrying them is dead config copied from the source app's database.
 
 ### Secrets
 

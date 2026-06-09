@@ -35,7 +35,13 @@ class Container(containers.DeclarativeContainer):
     db_settings: providers.Provider[DbSettings] = providers.Singleton(DbSettings)
     storage_settings: providers.Provider[StorageSettings] = providers.Singleton(StorageSettings)
 
-    # 2. Long-lived infrastructure clients (Singleton)
+    # 2. Long-lived infrastructure clients (Singleton).
+    #    The engine + session_factory pair exists ONLY when a relational
+    #    (uses_bootstrap) store backs a repository. A client-style store
+    #    (qdrant / redis / …) has no engine — it wires a connection-factory
+    #    Singleton instead, e.g.:
+    #        vectors_client = providers.Singleton(create_vectors_client, settings=qdrant_settings)
+    #    Wire the long-lived clients the graph's datastores actually need, not a fixed Postgres pair.
     engine: providers.Provider[AsyncEngine] = providers.Singleton(create_engine, settings=db_settings)
     session_factory: providers.Provider[async_sessionmaker[AsyncSession]] = providers.Singleton(
         create_session_factory, engine=engine
