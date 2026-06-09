@@ -1,6 +1,6 @@
 ---
 name: restapi-app-bootstrap
-description: Apply once per project to bootstrap the FastAPI entrypoint. Produces four always-on files — `restapi/main.py`, `restapi/error_handler.py`, `restapi/schemas/errors.py`, `restapi/schemas/__init__.py` — plus `restapi/dependencies.py` when the app declares auth — that file is FastAPI's home for shared route dependencies, and today the auth pair (`get_current_user`/`require_role`) is its only content, so an auth-less app has none for now (auth-presence is derived from the graph: any endpoint with `auth != anonymous` / a token-verifier capability), and the error handler's auth branch is likewise dropped. Registers the DI container, lifespan hooks, the central `DomainError` handler, and CORS. Application middleware (request-size caps, request-id logging, …) is NOT bootstrapped here — it is declared per app (the `restapi.middlewares` manifest section) and produced by `restapi-middleware`. Does not produce any router or per-resource schema — those come from `restapi-endpoint` and `restapi-schema`. Run this skill first, then per-resource skills can land their endpoints in `app.include_router(...)`.
+description: Apply once per project to bootstrap the FastAPI entrypoint. Produces four always-on files — `restapi/main.py`, `restapi/error_handler.py`, `restapi/schemas/errors.py`, `restapi/schemas/__init__.py` — plus `restapi/dependencies.py` when the app declares auth — that file is FastAPI's home for shared route dependencies, and today the auth pair (`get_current_user`/`require_role`) is its only content, so an auth-less app has none for now (auth-presence is derived from the graph: any endpoint with `auth != anonymous` / a token-verifier capability), and the error handler's auth branch is likewise dropped. Registers the DI container, lifespan hooks, the central `DomainError` handler, and CORS. Application middleware (request-size caps, request-id logging, …) is NOT bootstrapped here — it is declared per app (the `restapi.middlewares` manifest section) and produced by `restapi-middleware`. Does not produce any router or per-resource schema — those come from `restapi-endpoint` and `restapi-schema`, which land their work inside the shell this skill creates (an `app.include_router(...)` into its `main.py`) — so the shell is their structural precondition.
 ---
 
 # REST API App Bootstrap
@@ -50,12 +50,11 @@ __all__ = ["create_app"]
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     container: Container = app.state.container
     yield
-    # Dispose the long-lived resources the container actually owns. The
-    # SQLAlchemy engine exists ONLY when a relational (uses_bootstrap) store
-    # backs a repository; an app with no relational store has no engine()
-    # provider — dispose the clients its datastores opened (or nothing at all),
-    # never a hardcoded engine().dispose().
-    await container.engine().dispose()
+    # Teardown disposes the long-lived resources the container actually owns,
+    # derived from the graph's datastores. An app whose datastores open no
+    # disposable client (or none at all) has an empty teardown — there is no
+    # provider to call here. The relational variant below disposes the
+    # SQLAlchemy engine; a client-store app disposes its store clients instead.
 
 def create_app(container: Container | None = None) -> FastAPI:
     container = container or Container()
@@ -92,9 +91,20 @@ def create_app(container: Container | None = None) -> FastAPI:
     return app
 ```
 
+#### `restapi/main.py` — relational teardown variant (app has a `uses_bootstrap` store)
+
+When a relational (`uses_bootstrap`) store backs a repository, the container exposes an `engine()` provider whose connection pool must be disposed. The `_lifespan` teardown then disposes it (and any client-store clients the graph also wired); the body after `yield` becomes:
+
+```python
+    yield
+    await container.engine().dispose()
+```
+
+This line is emitted **only** for an app whose graph carries a relational store — an app with no `engine()` provider (qdrant/redis-only) would `AttributeError` on it, so its teardown stays empty (or disposes only the clients its datastores opened).
+
 Notes:
 
-- **`lifespan` is the resource-teardown hook.** Disposal of long-lived clients happens here, not via `providers.Resource` in the container. The `engine().dispose()` shown is the **relational-store** case (the SQLAlchemy connection pool); an app whose datastores are client-style (qdrant/redis/…) disposes those clients instead, and an app that opens no disposable client has an empty teardown. Dispose what the container actually owns — derived from the graph's datastores — not a fixed engine.
+- **`lifespan` is the resource-teardown hook.** Disposal of long-lived clients happens here, not via `providers.Resource` in the container. Dispose what the container actually owns — derived from the graph's datastores — not a fixed engine: the relational variant above disposes the SQLAlchemy connection pool, a client-style app (qdrant/redis/…) disposes those clients, and an app that opens no disposable client has an empty teardown.
 - **DI container attached to `app.state.container`** — routes resolve handlers via `request.app.state.container.<name>_handler()` (see `restapi-endpoint`).
 - **The router-include block is a placeholder.** Subsequent `restapi-endpoint` invocations add their own `app.include_router(...)` line.
 
@@ -287,13 +297,13 @@ Empty file — `restapi/` is the entrypoint package and does not re-export anyth
 1. **One-shot.** This skill runs once per project. After bootstrap, this file set is stable; updates to `main.py` go through whichever skill needs them (typically `restapi-endpoint` appending an `include_router(...)` line).
 2. **The catalog is dynamic.** Never reintroduce `domain/error_catalog.py`. The registry derives from `domain.exceptions.__all__` at import time.
 3. **The translator stays minimal.** `restapi/error_handler.py` has exactly one `isinstance` branch (`UnauthorizedError` → `WWW-Authenticate`). All other behavior comes from the `DomainError` subclass's `code` / `http_status`.
-4. **Engine teardown lives in `lifespan`**, not in the container. The container builds the engine; `main.py`'s lifespan disposes it.
+4. **Resource teardown lives in `lifespan`**, not in the container. The container builds the long-lived resources; `main.py`'s lifespan disposes whatever the graph's datastores actually opened — the relational engine when one exists, store clients otherwise, nothing when none are disposable. Never a hardcoded `engine().dispose()` in an app that has no engine provider.
 5. **DI access is uniform:** `request.app.state.container.<name>()`. Never module-level resolution, never `@inject` decorators on routes.
 
 ## Hard stops
 
 - The spec asks to add `domain/error_catalog.py` → stop, the catalog is dynamic; reject as obsolete.
-- The spec asks to attach business logic to lifespan → stop, lifespan handles infrastructure teardown only (engine dispose).
+- The spec asks to attach business logic to lifespan → stop, lifespan handles infrastructure teardown only (disposing the resources the graph's datastores opened).
 - The spec asks the translator to branch on more than `UnauthorizedError` → stop, encode new behavior via subclass `code`/`http_status` instead.
 - `domain/exceptions.py` does not exist yet → stop, run `domain-exception` bootstrap first.
 - `<root>/containers.py` does not exist yet → stop, run `infra-di-provider` first.

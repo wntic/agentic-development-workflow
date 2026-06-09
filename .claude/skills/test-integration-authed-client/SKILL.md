@@ -7,7 +7,7 @@ description: Apply once per project to install the authenticated HTTP client fac
 
 One-shot per project. Owns the JWT-minting `authed_client` factory and the keys it depends on. Every integration test that needs an authenticated HTTP call consumes this fixture; no other place in the test tree may construct `AsyncClient(transport=ASGITransport(...))` directly for an authenticated request.
 
-**Applies only to an app that declares auth.** This is the auth test-bootstrap — the same trigger that pulls `cryptography` into the dependency manifest (`conventions` block D). An auth-less app (every endpoint anonymous) has no authenticated client to mint and skips this skill, `tests/integration/api/conftest.py`, and the `rsa_keypair`/`jwt_settings` fixtures entirely.
+**Applies only to an app that declares auth.** This is the auth test-bootstrap — the same trigger that pulls `cryptography` into the dependency manifest (`conventions` block D). An auth-less app (every endpoint anonymous) has no authenticated client to mint, so it skips this skill and the auth fixtures it owns — `authed_client`, `rsa_keypair`, `jwt_settings`. It does **not** skip `tests/integration/api/conftest.py` as a file: that module is the api-integration suite's shared-fixture container (the standard pytest convention for fixtures visible to every test under `tests/integration/api/`), and auth is merely its current sole occupant. An auth-less app simply has none of these auth fixtures in that conftest (and, until something else populates it, no reason to create the file at all) — the skip is of the auth fixtures, not of the shared container per se.
 
 ## When to use vs. neighbours
 
