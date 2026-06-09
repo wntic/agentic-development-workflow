@@ -1,0 +1,319 @@
+═══════════════════════════════════════════════════════════════════════════════
+NOTES 8 — АУДИТ СКИЛЛОВ НА «НЕВЕРНУЮ ВЫСОТУ» / APP-SPECIFIC ЛИФТ (2026-06-09)
+═══════════════════════════════════════════════════════════════════════════════
+
+ПОВОД. Наблюдение: restapi-скиллы местами описывают не конвенции, а целиком куски
+кода, лифтнутые из ОДНОГО исходного приложения, которые имплементер копирует вслепую
+(прецедент: вшитая MaxRequestSizeMiddleware в restapi-app-bootstrap до появления
+restapi-middleware → имплементер копировал её всем подряд). Вопрос: сколько ещё таких.
+
+МЕТОД. Multi-agent workflow (skill-altitude-audit, run wf_8a0b9dd0-0d3): по агенту на
+каждый из 47 скиллов судит против 4-пунктовой рубрики → состязательная верификация
+findings по каждому скиллу (отсеять плейсхолдеры/намеренные литералы, default-refute при
+сомнении) → сборка. 66 агентов, ~3.0M токенов.
+
+РУБРИКА (4 запаха):
+  1. app_specific_literal     — конкретное значение исходного приложения вшито как канон
+                                (URL/порт, title, realm, имя заголовка, magic-строка),
+                                которое должно дериваться/конфигурироваться/отсутствовать.
+  2. optional_as_mandatory    — код, корректный лишь при наличии фичи X (auth, downloads,
+                                реляционный engine, конкретный middleware/стор), подан как
+                                обязательный без сигнала условности.
+  3. wrong_altitude           — тело конкретного экземпляра там, где должно быть правило +
+                                параметризованная форма («куски кода, не конвенция»).
+  4. cross_feature_coupling   — фундаментный/bootstrap-скилл презюмирует наличие ДРУГОЙ фичи.
+
+НЕ дефект (отсеяно верификацией): плейсхолдеры Foo/Bar/myapp/<root>; намеренные literal
+full-file Template'ы (meta-skill-author rule 3) если их КОНТЕНТ универсален; универсальные
+конвенции/типизация/импорты.
+
+РЕЗУЛЬТАТ. 47 проверено · 48 поднято · 38 ПОДТВЕРЖДЕНО (10 отсеяно) · в 16 скиллах.
+  По запахам: optional_as_mandatory 19 · app_specific_literal 11 · cross_feature_coupling 8.
+  ~13 high-severity.
+
+ПЕРВОПРИЧИНА (единая). Корпус выдаёт набор фич ОДНОГО исходного приложения как
+универсальный: JWT-auth, multi-tenant org-claims, реляционный Postgres-стор, file/xlsx-
+загрузки, React-фронт на localhost:3000, 10 MiB size-cap. Манифест давно умеет объявлять
+эти фичи условно (auth — manifest-declared; сторы — polyglot; middleware — per-app), но
+скиллы отстали: показывают фичу обязательной, без сигнала условности. Дефекты
+сконцентрированы в слоях entrypoint / composition / integration-tests — там, где живёт
+app-wiring. Чистые 31 — домен, application-query, infra-репозитории, general-*/meta-*,
+большинство domain-тестов (нет wiring → нет гнили).
+
+ФИЛОСОФИЯ ПОЧИНКИ. Скиллам не хватает ФИЧЕ-УСЛОВНЫХ вариантов шаблона: «универсальное
+ядро + блок, появляющийся только когда манифест объявил фичу». Идиома в каталоге УЖЕ есть —
+conventions block C/D гейтит реляционный bootstrap («added only when a uses_bootstrap store
+backs a repo»). Распространить тот же приём на auth / CORS / download / middleware. Это НЕ
+ослабление literal-шаблонов (они by-design) — это проставление сигналов условности +
+параметризация лифтнутых литералов.
+
+ЧИСТЫЕ СКИЛЛЫ (31): application-query, domain-capability-protocol, domain-entity,
+domain-enum, domain-exception, domain-filter, domain-repository-protocol, domain-service,
+domain-value-object, general-imports-conventions, general-layered-architecture,
+general-logging, general-python-package, general-typing-conventions, infra-capability-adapter,
+infra-sqlalchemy-repository, infra-sqlalchemy-table, infra-store-repository, meta-skill-author,
+meta-uc-author, pattern-compensating-tx, pattern-unit-of-work, restapi-middleware,
+test-application-handler, test-architecture-rule, test-domain-enum, test-domain-service,
+test-domain-value-object, test-fake-repository, test-infra-capability-adapter,
+test-repository-contract.
+
+═══════════════════════════════════════════════════════════════════════════════
+ТЕМА 1 — AUTH ПРЕЗЮМИРУЕТСЯ УНИВЕРСАЛЬНЫМ  (~17 findings, 12 скиллов) — ДОМИНИРУЕТ
+═══════════════════════════════════════════════════════════════════════════════
+Auth — manifest-declared (CLAUDE.md), у vector_rag его нет вовсе (все эндпоинты anonymous).
+Любой из перечисленных кусков, скопированный в auth-free приложение → ImportError / dead
+поле / ValueError / advertised код, который никто не производит.
+
+T1.1 restapi-app-bootstrap · cross_feature_coupling · HIGH
+  Весь dependencies.py презюмирует JWT: импортит CurrentUser/Role из domain.auth,
+  container.jwt_verifier(), определяет get_current_user/require_role. Без auth — нет
+  domain/auth, нет провайдера, ImportError на старте.
+  FIX: dependencies.py условен по наличию auth — либо производится только когда манифест
+  несёт auth/верификатор токенов, либо bootstrap эмитит его пустым и auth-скилл дополняет.
+
+T1.2 restapi-app-bootstrap · optional_as_mandatory · MEDIUM
+  error_handler.py: ветка `if isinstance(exc, UnauthorizedError): WWW-Authenticate`.
+  UnauthorizedError — manifest-declared exception; без auth класса нет → импорт падает.
+  (realm="myapp" — это интенд-плейсхолдер, НЕ дефект; дефект — безусловный auth-coupling.)
+  FIX: гейтить импорт+ветку на наличие auth; иначе translator — голый DomainError-handler.
+
+T1.3 restapi-endpoint · optional_as_mandatory · HIGH
+  Каждый шаблон несёт auth-dependency (`_: CurrentUser = Depends(get_current_user)` /
+  `require_role(...)`) + импорты domain.auth и ..dependencies, безусловно. Auth-скилл сам
+  имеет строку «Public → none». Без auth — неоткуда импортить, dead code.
+  FIX: гейтить auth-dependency по auth_mode маршрута; показать unauthenticated-вариант
+  шаблона (без auth-dep, без импортов, без 401); ссылаться на restapi-auth-dependency.
+
+T1.4 restapi-endpoint · optional_as_mandatory · MEDIUM
+  `responses=error_responses(401[,403]...)` вшиты в каждый декоратор. 401 — только для
+  authenticated, 403 — только для role-gated. На auth-free приложении advertise кодов,
+  которые route не может произвести (+ discovery-тесты это ловят).
+  FIX: привязать 401/403 к auth_mode маршрута; коды дерайвятся из выбранной auth-dependency.
+
+T1.5 application-command · optional_as_mandatory · HIGH
+  Rule 2: «caller_id: UUID — первое поле. Every command carries the actor» + caller_id в
+  Template. Поля command-DTO = манифестный `input`; у vector_rag команд (IngestText/
+  DeleteDocument) caller_id НЕТ. Без auth — обязательное поле без источника.
+  FIX: гейтить actor-поле на наличие authenticated-caller; auth-free приложения опускают.
+
+T1.6 application-command · optional_as_mandatory · MEDIUM (наследник T1.5)
+  Handler Rule 6 + лог-строки: `caller_id=str(cmd.caller_id)` в каждом success-логе →
+  ссылается на несуществующий атрибут на auth-free приложении (AttributeError/mypy-red).
+  FIX: универсальная часть — «логируй id затронутого ресурса»; actor-kwarg добавляется
+  только когда команда несёт caller_id.
+
+T1.7 restapi-error-responses · optional_as_mandatory · MEDIUM
+  Таблица «Standard code sets per operation»: 401 в КАЖДОЙ строке. error_responses()
+  валидирует коды против известного набора → 401 без UnauthorizedError кинет ValueError.
+  Guard (line 45) предупреждает про 403-on-public и 409-on-read, но НЕ про 401.
+  FIX: гейтить 401 на auth-фичу; расширить guard («не указывай 401 на unauthenticated route»).
+
+T1.8 restapi-file-transfer · cross_feature_coupling · HIGH
+  Оба upload-шаблона хардкодят `require_role(Role.ADMIN)` без сигнала условности auth.
+  FIX: показать auth-dependency как слот, который заполняет restapi-auth-dependency (вкл.
+  «нет auth-dep»), не фиксировать ADMIN.
+
+T1.9 restapi-file-transfer · cross_feature_coupling · MEDIUM
+  Line 17: «JWT verifier … already done in restapi/main.py» — презюмирует pre-wired JWT.
+  FIX: убрать презумпцию JWT-verifier (owned by restapi-auth-dependency, может отсутствовать).
+
+T1.10 restapi-auth-dependency · app_specific_literal · MEDIUM
+  «Role rank (reference)»: вшиты конкретные члены COLLABORATOR<ADMIN<SUPER_ADMIN (Helpdesk).
+  Роли — manifest `domain.enums`. Decision-table (line 27) уже параметризует как Role.<MIN_RANK>,
+  но этот reference-абзац фиксирует трёхуровневую лестницу.
+  FIX: учить SHAPE (rank-ordered StrEnum, какие члены объявит манифест) с плейсхолдерами,
+  либо явно пометить эти члены как «пример Helpdesk-фикстуры».
+
+T1.11 restapi-auth-dependency · app_specific_literal · MEDIUM
+  Пример binding-конвенции хардкодит `require_role(Role.SUPER_ADMIN)`, где table даёт
+  Role.<MIN_RANK>. Приглашает копировать super-admin как дефолт мутации (а правило line 30
+  — «lowest privilege»).
+  FIX: заменить на Role.<MIN_RANK> / нейтральный Role.HIGH.
+
+T1.12 restapi-endpoint · app_specific_literal · MEDIUM
+  `require_role(Role.SUPER_ADMIN)` в create/update/delete/reorder. SUPER_ADMIN — член
+  manifest-enum; представляет каждую мутацию super-admin-gated (app-specific политика).
+  FIX: плейсхолдер Role.X / Role.<MIN_RANK>; ранг — из объявленного auth-требования маршрута.
+
+T1.13 conventions · optional_as_mandatory · MEDIUM
+  cryptography в БЕЗУСЛОВНОМ Dev-списке рядом с pytest/ruff/mypy/httpx, хотя его же clause
+  признаёт «whenever the app has authenticated endpoints». Scaffolder дерайвит pyproject из
+  этого списка → stray dev-dep на auth-free приложении. ЭТО зафиксированный stray из
+  helpdesk4 (память scaffolder-followups #1).
+  FIX: вынести cryptography из безусловного Dev и гейтить как Relational-bootstrap deps
+  («added only when … authenticated endpoint»). Универсальные dev (pytest/.../httpx) остаются.
+  NB: пересекается с памятью #1 — её «RESOLVED» было про «добавить в block D»; аудит
+  показывает, что добавление БЕЗУСЛОВНО и есть остаточный баг. Переоткрыть на условный гейт.
+
+T1.14 test-integration-authed-client · app_specific_literal · HIGH
+  claims = {sub, role, organization_id, organization_name:"Test Org", full_name:"Test User",
+  **extra}. org_id/org_name/full_name — модель identity исходного multi-tenant приложения,
+  НЕ плейсхолдеры. Authed-приложение с иной identity-моделью получает токены с чужими claims.
+  FIX: свести вшитый claim-dict к универсальному минимуму (sub, role), всё app-specific —
+  через уже существующий **extra_claims.
+
+T1.15 test-integration-authed-client · app_specific_literal · MEDIUM
+  org_id поднят в first-class параметр factory; Rule 4 хардкодит tenant/org-модель и член
+  COLLABORATOR как канон.
+  FIX: убрать выделенный org_id (это просто один ключ extra_claims); обобщить Rule 4.
+
+T1.16 test-integration-isolation · cross_feature_coupling · HIGH
+  real_app безусловно `container.jwt_settings.override(jwt_settings)` → AttributeError на
+  приложении без auth-провайдера.
+  FIX: гейтить jwt-override на auth-фичу, либо унести в test-integration-authed-client
+  (который и так владеет jwt_settings).
+
+T1.17 test-principles · cross_feature_coupling · MEDIUM
+  Coupling point 1: «real_app consumes jwt_settings» — презюмирует JWT в каждом приложении.
+  FIX: описать как общий паттерн (real_app может потреблять feature-settings down-tree,
+  напр. jwt_settings КОГДА есть auth), механизм conftest-резолюции — универсальное правило,
+  auth — один экземпляр.
+
+T1.18 test-restapi-endpoint · optional_as_mandatory · HIGH
+  Rule 6 «authed_client — единственный санкционированный клиент» + Role.ADMIN в каждом
+  шаблоне. Без auth — нет Role/domain.auth/authed_client.
+  FIX: гейтить authed/role-gated шаблоны на наличие auth; sub-шаблон для no-auth (plain
+  ASGI client); Rule 6 квалифицировать «когда auth есть».
+
+═══════════════════════════════════════════════════════════════════════════════
+ТЕМА 2 — РЕЛЯЦИОННЫЙ POSTGRES-СТОР ПРЕЗЮМИРУЕТСЯ УНИВЕРСАЛЬНЫМ  (~6 findings)
+═══════════════════════════════════════════════════════════════════════════════
+Polyglot добавляли позже; скиллы отстали. uses_bootstrap (block C) — postgres-only; у
+qdrant/redis-only приложения нет engine/session_factory/Alembic/SQL-таблиц.
+
+T2.1 infra-di-provider · optional_as_mandatory · MEDIUM
+  Skeleton блок «# 2. Long-lived infrastructure clients» показывает engine + session_factory
+  как обязательный слой композиции, без сигнала, что это только при uses_bootstrap-сторе.
+  Client-style-only приложение вместо этого вяжет create_<name>_client(settings) Singleton.
+  FIX: пометить engine/session_factory условными; показать client-style альтернативу (block C).
+
+T2.2 infra-settings · optional_as_mandatory · MEDIUM
+  Template DbSettings: port=5432, pool_size, max_overflow, pool_pre_ping, echo — поля
+  реляционного engine. Скилл сам себя скоупит на «database, blob store, API, observability».
+  OpenaiSettings/S3Settings копируют мёртвые pool/echo-поля.
+  FIX: минимальный integration-agnostic Template + Rule, что engine-pool-поля только для
+  реляционного engine; либо явно пометить показанный класс как relational-пример.
+
+T2.3 restapi-app-bootstrap · cross_feature_coupling · HIGH
+  lifespan: `await container.engine().dispose()` презюмирует реляционный engine()-провайдер.
+  qdrant/redis-only → AttributeError на shutdown.
+  FIX: гейтить teardown на наличие bootstrap-стора; учить shape lifespan-хука, не вшивать
+  engine().dispose().
+
+T2.4 test-integration-isolation · cross_feature_coupling · MEDIUM
+  Весь conftest презюмирует Postgres: импорт infrastructure.postgres.engine, `alembic upgrade
+  head`, savepoint-rollback sf/_outer_connection. Non-relational приложение их не имеет.
+  FIX: явно заскоупить скилл на bootstrap-стор + Hard stop, отсылающий non-relational на
+  client-store isolation-стратегию (namespace/cleanup, как уже моделирует s3_prefix-блок).
+
+T2.5 test-restapi-endpoint · cross_feature_coupling · HIGH
+  Per-resource conftest сидит ТОЛЬКО через сырой INSERT INTO foos + sf/AsyncSession + DB-
+  managed created_at/updated_at. Polyglot/client-store (vector_rag на qdrant) не имеет sf и
+  таблицы.
+  FIX: пометить SQL-INSERT-factory как relational-вариант (дерайв из store-профиля); учить
+  правило + альтернативу (сидинг через клиент стора или POST через API).
+
+(Связано: см. также T2-аспект infra-settings/DI — общий приём гейтинга по uses_bootstrap.)
+
+═══════════════════════════════════════════════════════════════════════════════
+ТЕМА 3 — ЛИФТ КОНКРЕТНЫХ ФИЧ/ЛИТЕРАЛОВ ИСХОДНОГО ПРИЛОЖЕНИЯ  (~9 findings)
+═══════════════════════════════════════════════════════════════════════════════
+
+T3.1 restapi-app-bootstrap · app_specific_literal · HIGH
+  main.py: `allow_origins=["http://localhost:3000"]` — dev-фронт исходного приложения как канон.
+  FIX: читать origins из settings (AppSettings.cors_allow_origins) / плейсхолдер из манифеста.
+
+T3.2 restapi-app-bootstrap · app_specific_literal · HIGH  ← ИСХОДНЫЙ ПРИМЕР ПОЛЬЗОВАТЕЛЯ
+  main.py: `expose_headers=["Content-Disposition"]` — нужно только при file-download.
+  FIX: по умолчанию пусто; гейтить на file-transfer-фичу (дерайв из маршрутов).
+
+T3.3 test-discovery-invariants · app_specific_literal · HIGH
+  test_cors.py: Origin и assert allow-origin захардкожены "http://localhost:3000".
+  FIX: дискаверить сконфигурированный origin из running app (CORSMiddleware options/settings),
+  не литерал; вход теста дерайвить из real_app (Rule 1), как остальные файлы скилла.
+
+T3.4 test-discovery-invariants · optional_as_mandatory · HIGH
+  test_cors.py эмитится безусловно как один из 5 always-файлов, БЕЗ cors=none-условия
+  (контраст: test_info.py gated через Hard stop info_endpoint=none). assert credentials=="true"
+  тоже app-level.
+  FIX: гейтить файл на наличие CORS (Hard stop «нет CORS → опусти test_cors.py»); дерайвить
+  asserted поведение из реальной CORS-конфигурации.
+
+T3.5 test-discovery-invariants · optional_as_mandatory · HIGH
+  test_request_size_limit.py презюмирует MaxRequestSizeMiddleware И ровно 10 MiB. Middleware —
+  per-app (restapi.middlewares), не универсален.
+  FIX: гейтить файл на объявленный size-middleware (Hard stop); дерайвить границу из лимита.
+
+T3.6 test-discovery-invariants · app_specific_literal · MEDIUM
+  test_request_size_limit.py: `10 * 1024 * 1024 + 1` — точный cap исходного middleware.
+  FIX: читать лимит из middleware/settings на real_app, считать limit+1.
+
+T3.7 restapi-file-transfer · app_specific_literal · MEDIUM
+  Streaming-download шаблон вшивает xlsx-фичу: MIME "...spreadsheetml.sheet", /import/xlsx,
+  /export/xlsx, ImportFoosXlsxHandler, ExportFoosXlsxQuery. Вариативность только в прозе (line 122).
+  FIX: плейсхолдер media-type + нейтральные имена (export_foos/ExportFoosHandler) — учить
+  StreamingResponse-shape, не spreadsheet-фичу.
+
+T3.8 restapi-file-transfer · cross_feature_coupling · MEDIUM
+  CORS expose_headers-секция (lines 137-145, 175) презюмирует CORS в main.py с Content-
+  Disposition и велит расширять список. Связано с T3.2.
+  FIX: условно «если CORS включён, убедись что заголовок в expose_headers»; ссылаться на
+  владельца CORS, не утверждать что main.py уже его перечисляет.
+
+T3.9 restapi-schema · optional_as_mandatory · MEDIUM
+  «neighbours»-строка: ReorderRequest / auth.py schemas «already provided — reuse». Оба
+  feature-conditional: auth.py-схемы есть только при auth-resource; ReorderRequest — только
+  при optional reorder-эндпоинте. На приложении без них — отсылка к несуществующим схемам.
+  FIX: переформулировать условно — «кросс-секущая схема, что уже существует (напр. auth login
+  в schemas/auth.py, или shared reorder-body), переиспользуется — КОГДА у приложения есть фича».
+
+T3.10 test-domain-entity · app_specific_literal · HIGH  ← САМЫЙ ОСТРЫЙ (само-противоречие)
+  Builder по умолчанию: `created_at=datetime.now(UTC)` в _make_foo + импорт datetime/UTC ради
+  него. CLAUDE.md: audit-таймстемпы created_at/updated_at — НИКОГДА не поля сущности,
+  валидатор ЗАПРЕЩАЕТ их как reserved на entity. Канонический тест учит конструировать
+  сущность с полем, которого по house-rule не бывает → падает на каждой сущности по правилу.
+  FIX: убрать created_at из дефолтов builder + импорт datetime/UTC; datetime входит в шаблон
+  только если КОНКРЕТНАЯ сущность реально имеет datetime-поле.
+
+T3.11 test-domain-entity · optional_as_mandatory · MEDIUM
+  Standard template: test_archived_foo_is_not_active с archived_at/is_active — archive-
+  lifecycle (per-aggregate фича; CLAUDE.md убрал archive_flag/lifecycle за earn-its-place).
+  FIX: заменить на параметризованное правило (Rule 7 — computed property → свой test_*);
+  archive-пример вынести в явно-опциональный подзаголовок.
+
+T3.12 test-principles · optional_as_mandatory · MEDIUM
+  Canonical conftest-дерево вшивает auth (helpers/jwt.py, rsa_keypair, jwt_settings) И blob-
+  storage (minio_container, storage_settings, s3_prefix, _cleanup_bucket) как универсальные.
+  FIX: пометить auth-only и blob-only фикстуры условными; универсальное ядро (postgres_container,
+  _engine, sf, real_app) — always-present, остальное feature-gated.
+
+T3.13 test-restapi-endpoint · optional_as_mandatory · MEDIUM
+  Description + Rule 12 перечисляют s3_prefix (и sf) среди всегда-потребляемых фикстур.
+  s3_prefix — только при blob-storage, sf — только при реляционном.
+  FIX: квалифицировать список фикстур и Rule 12 условными по фичам ресурса.
+
+T3.14 test-integration-isolation · optional_as_mandatory · HIGH
+  Весь S3/MinIO-субстрат (MinioContainer, StorageSettings-импорт, storage_settings-override,
+  s3_prefix, autouse _cleanup_bucket_at_session_end) вшит в тело шаблона; только последний
+  Hard stop (line 292) велит его стрипнуть, а autouse session-cleanup бежит даже «стрипнутым».
+  FIX: вынести storage-блок в явный опциональный sub-template, гейтнутый на blob-capability;
+  базовый шаблон — Postgres-only.
+
+═══════════════════════════════════════════════════════════════════════════════
+ПОРЯДОК ПОЧИНКИ (предложение)
+═══════════════════════════════════════════════════════════════════════════════
+1. ТЕМА 1 (auth-optional) — самая широкая, известный прецедент. Начинаем с неё.
+2. ТЕМА 2 (relational-optional) — приём гейтинга uses_bootstrap уже есть в block C/D.
+3. ТЕМА 3 — точечные литералы/фичи (часть пересекается с Т1/Т2: CORS, size-middleware).
+
+ОТКРЫТЫЕ ВОПРОСЫ К АРХИТЕКТОРУ (нужен инпут — обсудить перед правкой Темы 1):
+  Q1. Как скилл выражает «фиче-условный вариант»? Опции: (a) два под-Template'а под
+      ### подзаголовками (authed / anonymous); (b) один Template + Rule «эти строки только
+      когда auth»; (c) маркер-комментарий-плейсхолдер. Нужна ОДНА идиома на весь каталог.
+  Q2. Кто детектит «у приложения есть auth»? Деривация из манифеста (есть ли authed-
+      эндпоинты / jwt-capability) — на чьей стороне сигнал: scaffolder читает граф, или это
+      явная нода? (Похоже на uses_bootstrap-прецедент — свойство графа, не поле манифеста.)
+  Q3. caller_id (T1.5): поле DTO или derived-из-auth-контекста? Сейчас в манифесте его нет
+      в `input` — значит сигнал «команда за authed-роутом» нужно откуда-то взять.
+  Q4. Память scaffolder-followups #1 (cryptography) была «RESOLVED» как «добавить в block D».
+      Аудит (T1.13) показывает: добавление БЕЗУСЛОВНО и есть остаточный баг. Переоткрыть?
