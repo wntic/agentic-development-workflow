@@ -1,13 +1,13 @@
 ---
 name: restapi-app-bootstrap
-description: Apply once per project to bootstrap the FastAPI entrypoint. Produces four always-on files — `restapi/main.py`, `restapi/error_handler.py`, `restapi/schemas/errors.py`, `restapi/schemas/__init__.py` — plus `restapi/dependencies.py` ONLY when the app declares auth (derived from the graph: any endpoint with `auth != anonymous` / a token-verifier capability); an auth-less app omits that file and the error handler's auth branch entirely. Registers the DI container, lifespan hooks, the central `DomainError` handler, and CORS. Application middleware (request-size caps, request-id logging, …) is NOT bootstrapped here — it is declared per app (the `restapi.middlewares` manifest section) and produced by `restapi-middleware`. Does not produce any router or per-resource schema — those come from `restapi-endpoint` and `restapi-schema`. Run this skill first, then per-resource skills can land their endpoints in `app.include_router(...)`.
+description: Apply once per project to bootstrap the FastAPI entrypoint. Produces four always-on files — `restapi/main.py`, `restapi/error_handler.py`, `restapi/schemas/errors.py`, `restapi/schemas/__init__.py` — plus `restapi/dependencies.py` when the app declares auth — that file is FastAPI's home for shared route dependencies, and today the auth pair (`get_current_user`/`require_role`) is its only content, so an auth-less app has none for now (auth-presence is derived from the graph: any endpoint with `auth != anonymous` / a token-verifier capability), and the error handler's auth branch is likewise dropped. Registers the DI container, lifespan hooks, the central `DomainError` handler, and CORS. Application middleware (request-size caps, request-id logging, …) is NOT bootstrapped here — it is declared per app (the `restapi.middlewares` manifest section) and produced by `restapi-middleware`. Does not produce any router or per-resource schema — those come from `restapi-endpoint` and `restapi-schema`. Run this skill first, then per-resource skills can land their endpoints in `app.include_router(...)`.
 ---
 
 # REST API App Bootstrap
 
 One-shot per project. Creates the FastAPI app skeleton so subsequent skills (`restapi-endpoint`, `restapi-schema`, `restapi-error-responses`, etc.) have somewhere to land their work. After bootstrap, the only file this skill ever touches again is `restapi/main.py` (when a router needs to be registered or a CORS-exposed header added), and that's normally folded into the consuming skill.
 
-**Auth is conditional, not presumed.** Authentication is a manifest-declared feature (derived from the graph: an app has auth when some endpoint declares `auth != anonymous`, or a token-verifier capability is wired). The auth machinery this skill can emit — `restapi/dependencies.py` (`get_current_user` / `require_role`) and the `UnauthorizedError` branch of `error_handler.py` — is produced **only** for an app that declares auth. An auth-less app (e.g. an all-anonymous API) gets **no** `dependencies.py` and a bare `DomainError` translator with no auth import or branch. Each affected file below shows the authed form and, where they differ, the public (auth-less) variant.
+**Auth is conditional, not presumed.** Authentication is a manifest-declared feature (derived from the graph: an app has auth when some endpoint declares `auth != anonymous`, or a token-verifier capability is wired). The auth machinery this skill can emit — the auth dependencies in `restapi/dependencies.py` (`get_current_user` / `require_role`) and the `UnauthorizedError` branch of `error_handler.py` — is produced **only** for an app that declares auth. `dependencies.py` is FastAPI's home for shared route dependencies, but the auth pair is its only current occupant, so an auth-less app (e.g. an all-anonymous API) has **no** `dependencies.py` today and a bare `DomainError` translator with no auth import or branch. (A non-auth shared route dependency, if one is ever introduced, lives in the same file independent of auth.) Each affected file below shows the authed form and, where they differ, the public (auth-less) variant.
 
 ## When to use vs. neighbours
 
@@ -25,7 +25,7 @@ src/<root>/restapi/
 ├── __init__.py
 ├── main.py
 ├── error_handler.py
-├── dependencies.py          # ONLY when the app declares auth (omitted on an auth-less app)
+├── dependencies.py          # shared route deps; today only the auth pair → emitted only when the app has auth
 └── schemas/
     ├── __init__.py
     └── errors.py
@@ -145,9 +145,9 @@ def register_error_handlers(app: FastAPI) -> None:
         )
 ```
 
-### `restapi/dependencies.py` (only when the app declares auth)
+### `restapi/dependencies.py` (the auth dependencies — when the app declares auth)
 
-This file exists **only** for an app that declares auth. An auth-less app (every endpoint `anonymous`, no token-verifier capability) does **not** get this file at all — there is no `get_current_user`/`require_role`, no `CurrentUser`/`Role` import, and routes attach no auth dependency (see `restapi-auth-dependency`). Emit the file below when, and only when, the graph carries auth:
+`dependencies.py` is FastAPI's home for shared route dependencies; in this catalog its only current content is the auth pair, so today the file is emitted **only** for an app that declares auth. An auth-less app (every endpoint `anonymous`, no token-verifier capability) has no `get_current_user`/`require_role`, no `CurrentUser`/`Role` import, and routes attach no auth dependency (see `restapi-auth-dependency`) — hence no `dependencies.py`. Emit the file below when the graph carries auth (a non-auth shared route dependency, if ever added, would belong here too, independent of auth):
 
 ```python
 from collections.abc import Callable
