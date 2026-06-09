@@ -272,6 +272,7 @@ _TEST_SKILLS = frozenset(
         "test-fake-repository",
         "test-infra-capability-adapter",
         "test-repository-contract",
+        "test-store-repository-contract",
         "test-restapi-endpoint",
     }
 )

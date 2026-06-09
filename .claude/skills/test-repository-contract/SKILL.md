@@ -9,7 +9,8 @@ Produces one integration-test file per repository. Catches what unit-level cover
 
 ## When to use vs. neighbours
 
-- A new or modified repository adapter under `infrastructure/postgres/repositories/` → this skill.
+- A new or modified repository adapter under `infrastructure/postgres/repositories/` (a relational `uses_bootstrap` store) → this skill.
+- A repository on a client-style store (qdrant/redis/…, `infra-store-repository`) → `test-store-repository-contract` (namespace isolation, not `sf`/rollback).
 - Schema-only checks (an index exists, a migration carries data correctly) → separate flat files under `tests/integration/postgres/` (`test_indexes.py`, `test_<NNNN>_migration.py`) that use `db_settings` and `run_alembic`, not `sf`.
 - HTTP-layer integration (route, auth, OpenAPI) → `test-restapi-endpoint`.
 - The rollback `conftest.py` itself → `test-integration-isolation` (one-shot).

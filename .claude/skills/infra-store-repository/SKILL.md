@@ -14,7 +14,8 @@ Produces one repository class that adapts a domain repository protocol to a clie
 - A single-action `ICan<Verb>` port (not an aggregate's collection) → `infra-capability-adapter`.
 - The settings class the store's connection factory consumes → `infra-settings`.
 - The DI provider that constructs this repository → `infra-di-provider`.
-- An in-memory test stand-in → `test-fake-repository`.
+- An in-memory test stand-in for handler unit tests → `test-fake-repository`.
+- The integration contract test that drives this adapter against the real store → `test-store-repository-contract`.
 
 ## File layout
 
