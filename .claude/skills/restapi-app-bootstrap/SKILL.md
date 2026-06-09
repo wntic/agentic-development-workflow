@@ -65,11 +65,17 @@ def create_app(container: Container | None = None) -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],
+        # Allowed origins are deployment config, not a code constant — set them from
+        # the app's settings/env. Empty default = no cross-origin until configured;
+        # never bake a dev origin like "http://localhost:3000".
+        allow_origins=[],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["Content-Disposition"],
+        # Empty by default. A route that needs the browser to read a non-default
+        # response header adds it here — e.g. a file-download route adds
+        # "Content-Disposition" (see restapi-file-transfer). Don't pre-list it.
+        expose_headers=[],
     )
 
     # Application middlewares (from the manifest) are added here, in manifest order,

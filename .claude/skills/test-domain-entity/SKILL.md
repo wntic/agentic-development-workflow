@@ -26,7 +26,6 @@ tests/unit/domain/<subdomain>/
 
 ```python
 import uuid
-from datetime import UTC, datetime
 
 import pytest
 
@@ -37,7 +36,6 @@ def _make_foo(**overrides) -> Foo:
     defaults: dict[str, object] = dict(
         id=uuid.uuid4(),
         name="Test",
-        created_at=datetime.now(UTC),
     )
     defaults.update(overrides)
     return Foo(**defaults)
@@ -57,11 +55,9 @@ def test_name_must_be_non_empty() -> None:
     with pytest.raises(ValidationError) as exc:
         _make_foo(name="")
     assert exc.value.context["field"] == "name"
-
-def test_archived_foo_is_not_active() -> None:
-    foo = _make_foo(archived_at=datetime.now(UTC))
-    assert foo.is_active is False
 ```
+
+The builder spreads **only the entity's real declared fields** (`id` + its domain fields). Two things it must NOT carry: `created_at`/`updated_at` (audit timestamps are a DB-managed table convention, never entity fields — the validator forbids them as reserved names, so constructing `Foo(created_at=...)` fails), and any `import datetime` that exists only to feed them. `datetime` enters this file **only** if a specific entity genuinely declares a datetime domain field. If the entity has a computed property/method, add one `test_*` per Rule 7 (an entity without one needs no such test).
 
 ### Few-field entity (skip the builder)
 
@@ -91,7 +87,7 @@ def test_name_must_be_non_empty() -> None:
 4. **One `test_*` per `__post_init__` invariant.** Pattern: `with pytest.raises(ValidationError) as exc:` then `assert exc.value.context["field"] == "<field>"`.
 5. **Group multiple failure modes of the same invariant in one test.** Several `with pytest.raises(...)` blocks under one `test_*` named after the invariant.
 6. **Don't test what `@dataclass` gives for free.** No tests for field equality on frozen dataclasses, hashability, immutability — those are guaranteed by Python's data model. Test only `__post_init__`, computed properties, and methods.
-7. **Computed properties / methods get their own `test_*`** named after the rule (`test_archived_foo_is_not_active`).
+7. **Computed properties / methods get their own `test_*`** named after the rule — but only when the entity actually declares one (e.g. an entity with a computed `is_active` → `test_<entity>_is_active_when_...`). Don't add a lifecycle/archive test to an entity that has no such property; that is a per-aggregate feature, not a default.
 8. **Assert against literal expected values.** Never re-implement the entity's logic to compute the expected value — that hides bugs where both sides have the same mistake.
 
 ## Inlined typing / import rules
@@ -108,3 +104,4 @@ def test_name_must_be_non_empty() -> None:
 - Spec asks to test `dataclass`-given equality / hash / immutability → stop, Python's data model already guarantees it; assert on `__post_init__` and methods only.
 - Spec re-implements the invariant in the test ("compute expected slug from name, then assert") → stop, assert literal values.
 - Spec asserts on log output / `caplog` → stop, entities don't log.
+- Spec puts `created_at` / `updated_at` in the builder or treats them as entity fields → stop, audit timestamps are a DB-managed table convention the validator forbids on an entity; the builder spreads only the entity's real domain fields.

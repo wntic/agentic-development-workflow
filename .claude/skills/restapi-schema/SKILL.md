@@ -11,7 +11,7 @@ Produces one resource's schema module — the Pydantic models that define the HT
 
 - Per-resource Pydantic schemas (request/response) → this skill.
 - Cross-cutting `ErrorResponse` / `error_responses()` → `restapi-error-responses`.
-- Cross-cutting `ReorderRequest` / `auth.py` schemas → already provided; reuse them, do not duplicate per resource.
+- A cross-cutting request schema that **already exists** elsewhere (e.g. an auth login schema in `restapi/schemas/auth.py` when the app has auth, or a shared collection-reorder body when some resource has a reorder endpoint) → reuse it, don't re-declare it per resource. These are **feature-conditional**, not always present: an app with no auth has no `auth.py`, and an app with no reorderable resource has no `ReorderRequest` — don't assume either exists.
 - The route that consumes these schemas → `restapi-endpoint`.
 
 ## File location

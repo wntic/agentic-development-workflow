@@ -97,20 +97,20 @@ This pattern is reserved for the multipart+JSON case. **Do not generalize it.** 
 ## Download template — streaming binary response
 
 ```python
-@router.post("/export/xlsx", responses=error_responses(401, 422))
-async def export_xlsx(
+@router.post("/export", responses=error_responses(401, 422))
+async def export_foos(
     body: ExportFoosFilterRequest,
     request: Request,
     _: CurrentUser = Depends(get_current_user),
 ) -> StreamingResponse:
-    handler: ExportFoosXlsxHandler = (
-        request.app.state.container.export_foos_xlsx_handler()
-    )
-    data = await handler.execute(ExportFoosXlsxQuery(filter=_to_filter(body)))
-    filename = _export_filename("xlsx")
+    handler: ExportFoosHandler = request.app.state.container.export_foos_handler()
+    data = await handler.execute(ExportFoosQuery(filter=_to_filter(body)))
+    filename = _export_filename("csv")  # the extension this export actually produces
     return StreamingResponse(
         iter([data]),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        # The real content type the handler produces — csv / pdf / xlsx / … — not a
+        # fixed format frozen from one app. Don't fall back to octet-stream for a known type.
+        media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 ```
@@ -136,13 +136,13 @@ def _export_filename(ext: str) -> str:
 
 ### CORS `expose_headers`
 
-`Content-Disposition` is not in the default CORS-exposed headers, so browsers strip it from the response visible to JS. The CORS middleware in `restapi/main.py` already lists it:
+`Content-Disposition` is not a default CORS-exposed header, so a browser strips it from the response visible to JS. **If the app has CORS configured** (`restapi-app-bootstrap`), a download route must ensure its response header is in the CORS middleware's `expose_headers` list — the bootstrap leaves that list **empty** by default, so a download route adds `"Content-Disposition"` (and any other non-default header it sets, e.g. `X-Total-Count`) there:
 
 ```python
 expose_headers=["Content-Disposition"],
 ```
 
-If a new download route exposes a different non-default header (e.g. `X-Total-Count`), append it to `expose_headers`. **Verify this list whenever you add a new headered response.**
+An app with no CORS configured has no such list to extend. **Verify `expose_headers` whenever you add a headered download response** (when CORS is enabled).
 
 ## Handler contract for downloads
 
@@ -172,4 +172,4 @@ If a new download route exposes a different non-default header (e.g. `X-Total-Co
 - Spec asks for a `try/except` other than the mixed-multipart-json one → stop, no other `try/except` belongs in a route body.
 - Spec wants the route to compute file size limits → stop, that's the middleware's job.
 - Spec wants the route to parse the file content → stop, that's the handler's job; the route passes bytes.
-- Spec adds a download response header beyond `Content-Disposition` without updating CORS `expose_headers` → stop, update both in the same change.
+- Spec adds a download response header beyond `Content-Disposition` without updating CORS `expose_headers` (when CORS is configured) → stop, update both in the same change.

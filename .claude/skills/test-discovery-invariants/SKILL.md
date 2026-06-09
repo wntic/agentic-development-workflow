@@ -142,32 +142,61 @@ async def test_every_route_advertises_what_its_decorator_declared(real_app):
 ### `test_cors.py`
 
 ```python
+import pytest
+from fastapi.middleware.cors import CORSMiddleware
 from httpx import ASGITransport, AsyncClient
 
-async def test_cors_preflight_allows_configured_origin(real_app):
+
+def _configured_origin(app) -> str | None:
+    """Read a real allowed origin off the app's CORS middleware, instead of
+    hardcoding one. Returns None when the app configures no CORS."""
+    for mw in app.user_middleware:
+        if mw.cls is CORSMiddleware:
+            origins = mw.kwargs.get("allow_origins", [])
+            return origins[0] if origins else None
+    return None
+
+
+async def test_cors_preflight_echoes_a_configured_origin(real_app):
+    origin = _configured_origin(real_app)
+    if origin is None:
+        pytest.skip("app configures no CORS allow_origins")
+
     async with AsyncClient(
         transport=ASGITransport(app=real_app),
         base_url="http://testserver",
     ) as client:
         response = await client.options(
             "/",
-            headers={
-                "Origin": "http://localhost:3000",
-                "Access-Control-Request-Method": "GET",
-            },
+            headers={"Origin": origin, "Access-Control-Request-Method": "GET"},
         )
 
-    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
-    assert response.headers.get("access-control-allow-credentials") == "true"
+    assert response.headers.get("access-control-allow-origin") == origin
 ```
 
 ### `test_request_size_limit.py`
 
 ```python
+import pytest
 from httpx import ASGITransport, AsyncClient
 
+
+def _max_request_bytes(app) -> int | None:
+    """The configured cap of the request-size middleware, read off the app.
+    Returns None when the app declares no such middleware (the kwarg name
+    matches the middleware's config field — see restapi-middleware)."""
+    for mw in app.user_middleware:
+        if mw.cls.__name__ == "MaxRequestSizeMiddleware":
+            return mw.kwargs.get("max_bytes")
+    return None
+
+
 async def test_oversize_payload_returns_413(real_app):
-    payload = b"x" * (10 * 1024 * 1024 + 1)
+    limit = _max_request_bytes(real_app)
+    if limit is None:
+        pytest.skip("app declares no request-size middleware")
+
+    payload = b"x" * (limit + 1)
     async with AsyncClient(
         transport=ASGITransport(app=real_app),
         base_url="http://testserver",
@@ -224,4 +253,6 @@ async def test_info_endpoint_is_public_and_returns_200(real_app):
 - Spec uses string matching to identify "protected" routes (`if "auth" in route.name`) → stop, walk `route.dependant.dependencies` and compare callables by identity.
 - Spec compares the OpenAPI spec to a hardcoded `_EXPECTED` table → stop, derive expectations from `route.responses` so the source of truth is the decorator.
 - `test-integration-isolation` or `test-integration-authed-client` not yet installed → stop, install both first.
+- Spec hardcodes a CORS origin (e.g. `http://localhost:3000`) in `test_cors.py` → stop, read a configured origin off `real_app`'s `CORSMiddleware` and `pytest.skip` when none is configured; never freeze the source app's dev origin or assume `allow_credentials`.
+- Spec hardcodes the request-size limit (e.g. 10 MiB) in `test_request_size_limit.py`, or presumes the middleware is always present → stop, read the cap off the app's `MaxRequestSizeMiddleware` and compute `limit + 1`; `pytest.skip` when no size middleware is declared (it is a per-app `restapi.middlewares` entry, not universal).
 - Project has no `/info` (or `/health`) endpoint and the spec sets `info_endpoint = none` → produce four files, skip `test_info.py`.

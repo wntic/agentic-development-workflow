@@ -42,14 +42,13 @@ tests/
 │   └── test_architecture.py                     # grep firewalls
 └── integration/
     ├── conftest.py                              # OWNED BY test-integration-isolation
-    │                                            #   - postgres_container, minio_container (session)
-    │                                            #   - db_settings, storage_settings (session)
-    │                                            #   - _migrated_db, _guard_against_real_db (session, autouse)
-    │                                            #   - _engine (session)
-    │                                            #   - _outer_connection, sf (function)
-    │                                            #   - real_app (function; consumes jwt_settings from down-tree WHEN the app has auth)
-    │                                            #   - s3_prefix (function)
-    │                                            #   - _cleanup_bucket_at_session_end
+    │                                            #   - postgres_container (session) — relational apps
+    │                                            #   - db_settings (session) — relational apps
+    │                                            #   - _migrated_db, _guard_against_real_db, _engine (session) — relational apps
+    │                                            #   - _outer_connection, sf (function) — relational apps
+    │                                            #   - real_app (function) — consumes jwt_settings from down-tree WHEN the app has auth
+    │                                            #   - minio_container, storage_settings (session) — blob-store apps only
+    │                                            #   - s3_prefix (function), _cleanup_bucket_at_session_end — blob-store apps only
     ├── db/                                      # repository contract tests; uses `sf` only
     │   └── test_<aggregate>_repository.py
     └── api/
@@ -87,7 +86,7 @@ Two coupling points are deliberate and load-bearing:
 
 ## Fixture scope rules
 
-- **Session-scoped fixtures** — exactly: postgres/minio containers, the engine, the RSA keypair, the JWT settings, the test-DB guard, the migration autouse. Anything that's expensive to construct and stateless across tests.
+- **Session-scoped fixtures** — the expensive, stateless-across-tests ones the app's features require: the postgres container + engine + test-DB guard + migration autouse (relational apps), the minio container (blob-store apps), the RSA keypair + JWT settings (auth apps). Anything expensive to construct and stateless across tests; a feature the app doesn't have contributes none of these.
 - **Function-scoped fixtures** — everything else. `sf`, `real_app`, `authed_client`, all row factories (`make_foo`, `make_org`, …), `s3_prefix`. Per-test rows are non-negotiable: rollback isolation requires them.
 - **No `module`-scoped or `class`-scoped fixtures** in this project. The two scopes that exist (session, function) are sufficient and easier to reason about.
 - **No autouse fixtures except**: the session-scoped DB guard, the session-scoped migration runner, the session-end bucket cleanup, and (optionally) a per-test `_reset_captured_singletons` if `containers.py` snapshots settings at construction time. Each autouse is documented; no one ever adds a "convenience" autouse.

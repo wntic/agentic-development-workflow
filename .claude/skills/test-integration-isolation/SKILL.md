@@ -186,7 +186,7 @@ def sf(_outer_connection: AsyncConnection) -> async_sessionmaker[AsyncSession]:
 async def real_app(
     sf: async_sessionmaker[AsyncSession],
     db_settings: DbSettings,
-    storage_settings: StorageSettings,
+    storage_settings: StorageSettings,  # BLOB-ONLY: present only when the app has a blob store. Drop this param + the storage_settings override/reset below on an app with no S3/MinIO (see the storage-strip Hard stop).
     jwt_settings,  # AUTH-ONLY: present only when the app declares auth (from test-integration-authed-client). On an auth-less app drop this param AND the jwt_settings override/reset lines below — there is no jwt_settings provider to override.
 ):
     """FastAPI app whose container has its DB / storage / session-factory
