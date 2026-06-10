@@ -32,7 +32,7 @@ All paths below are relative to the target package root `src/<package>/` (e.g. `
 | `application.commands[*]` | `name: CreateTicket` (subdomain derived, see below) | `CreateTicketCommand` + `CreateTicketHandler` | `application/support/create_ticket_command.py` + `application/support/create_ticket_handler.py` |
 | `application.queries[*]` | `name: ListTickets` | `ListTicketsQuery` + `ListTicketsHandler` + `ListTicketsResult` | `application/support/list_tickets_query.py` + `_handler.py` + `_result.py` |
 | `infrastructure.datastores[*]` | `name: vectors`, `kind: qdrant` | — (a configured resource, no class) | `infrastructure/qdrant/connection.py` (scaffolded `create_vectors_client`) |
-| `infrastructure.settings[*]` | `name: OpenaiSettings` | `OpenaiSettings` | `infrastructure/openai/openai_settings.py` — subpackage = the consuming tech (see below); one class per module |
+| `infrastructure.settings[*]` | `name: OpenaiSettings` | `OpenaiSettings` | `infrastructure/openai/settings.py` — subpackage = the consuming tech (see below); the module is always `settings.py` (one settings class per subpackage, as `infra-settings` and every importer expect) |
 | `infrastructure.repositories[*]` | `implements: IUserRepository`, `backs: User`, `store: main` | `UserRepository` | `infrastructure/<store-kind>/repositories/user_repository.py` (+ a write-once Table SCAFFOLD at `infrastructure/<store-kind>/tables/users.py` for a relational store) |
 | `infrastructure.capabilities[*]` | `implements: ICanEmbedText`, `adapter: openai`, `role: TextEmbedder` | `OpenaiTextEmbedder` | `infrastructure/openai/openai_text_embedder.py` |
 | `restapi.schemas[*]` | `name: LoginRequest`, `resource: auth` | `LoginRequest` | grouped into `restapi/schemas/auth.py` |

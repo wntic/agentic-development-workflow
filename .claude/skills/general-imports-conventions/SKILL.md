@@ -28,9 +28,9 @@ from ..bars.create_bar_command import CreateBarCommand            # one level up
 from myapp.domain.foos import IFooRepository    # cross-package — absolute
 from myapp.domain.bars import Bar                             # cross-package — absolute
 
-# inside infrastructure/postgres/engine.py importing infrastructure/postgres/db_settings.py
-from .db_settings import DbSettings          # same package — one dot
-# NOT: from ..postgres.db_settings import DbSettings   # up-and-back-down into the same package
+# inside infrastructure/postgres/engine.py importing infrastructure/postgres/settings.py
+from .settings import DbSettings             # same package — one dot
+# NOT: from ..postgres.settings import DbSettings   # up-and-back-down into the same package
 ```
 
 The two-dot ceiling exists to keep relative imports readable; once you'd be writing `...` or more, the absolute path is shorter and clearer.

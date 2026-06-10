@@ -235,7 +235,7 @@ class FooRepository:
 15. **Every `IntegrityError` is translated** before escaping the repository. Use `raise _map_integrity_error(exc) from exc` (or an inline mapping for 1–2 cases).
 16. **Mandatory mapper fallback.** The mapper must end by raising a domain exception (`ConflictError("integrity violation", {"constraint": constraint or "unknown", "pgcode": pgcode or "unknown"})`) when no specific case matches. **Never `return exc`** — letting `IntegrityError` leak out of the repository breaks the no-framework-exceptions-cross-layer rule and produces a 500 instead of a 409 at the entrypoint.
 17. **Pick the most specific exception.** Domain subclass beats `ConflictError`. `InUseError` beats `ConflictError` for FK-on-delete.
-18. **Populate `context` with the offending field and the constraint name.** Always include `"constraint": constraint` (the full conventional name) so the entrypoint and tests can assert on it. Field/value keys are added on top per the spec's `expected_context_keys` (see `domain-exception`).
+18. **Populate `context` with the offending field and the constraint name.** Always include `"constraint": constraint` (the full conventional name) so the entrypoint and tests can assert on it. Field/value keys are added on top; the raise site and its handler test simply agree on them (see `domain-exception`).
 19. **The constraint full names are load-bearing.** They must match what `infra-sqlalchemy-table` declared. A constraint rename is a breaking change — update this file in the same commit.
 20. **Driver assumption:** the mapper reads `exc.orig.__cause__.constraint_name` (asyncpg) and `exc.orig.pgcode` (Postgres SQLSTATE). The project is locked to asyncpg + Postgres; changing the driver requires updating the access path here.
 

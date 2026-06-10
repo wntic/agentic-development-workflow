@@ -21,7 +21,7 @@ Every other `test-*` skill consults this one. The rules here are the **catalog-l
 | Domain unit | `test-domain-entity`, `test-domain-value-object`, `test-domain-enum`, `test-domain-service` | No | < 10 ms | Identity equality, `__post_init__` invariants, enum values, pure-logic services, single-rule policies |
 | Application handler unit | `test-application-handler` (+ `test-fake-repository`) | No (in-memory fakes) | < 50 ms | Handler orchestration, PATCH semantics, normalization, domain-exception propagation, compensating-tx undo |
 | Repository contract | `test-repository-contract` | Real Postgres via testcontainers, transaction-rollback isolation | < 500 ms | `IntegrityError` translation, constraint-name map, cascades, `onupdate=`, `get_by_*` semantics |
-| REST endpoint | `test-restapi-endpoint` | Real app + real Postgres via ASGI | < 1 s | Routing, DI wiring, auth, request/response validation, cross-org semantics |
+| REST endpoint | `test-restapi-endpoint` | Real app + real Postgres via ASGI | < 1 s | Routing, DI wiring, auth (when declared), request/response validation, tenancy/authorization scoping (when the app declares multi-tenancy) |
 | Discovery invariants | `test-discovery-invariants` | Real app, no DB calls | < 500 ms | Global properties (every protected route 401s; every code in OpenAPI matches `error_responses(...)`; CORS; 413) |
 | Architecture | `test-architecture-rule` | None (greps the source tree) | < 100 ms | Static "no X in layer Y" invariants |
 
@@ -49,7 +49,7 @@ tests/
     │                                            #   - real_app (function) — consumes jwt_settings from down-tree WHEN the app has auth
     │                                            #   - minio_container, storage_settings (session) — blob-store apps only
     │                                            #   - s3_prefix (function), _cleanup_bucket_at_session_end — blob-store apps only
-    ├── db/                                      # repository contract tests; uses `sf` only
+    ├── postgres/                                # repository contract tests; uses `sf` only
     │   └── test_<aggregate>_repository.py
     └── api/
         ├── conftest.py                          # OWNED BY test-integration-authed-client (auth apps only)

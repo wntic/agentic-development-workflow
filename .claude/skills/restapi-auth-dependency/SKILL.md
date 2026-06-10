@@ -11,7 +11,7 @@ A reference rule for choosing the right auth dependency on each route. Both depe
 
 ## When to use vs. neighbours
 
-- Picking the dependency for a specific endpoint → this skill (the choice is then encoded as `auth_mode` input to `restapi-endpoint` / `restapi-file-transfer`).
+- Picking the dependency for a specific endpoint → this skill (`restapi-endpoint` / `restapi-file-transfer` consume the decision; the route's own `auth` declaration is what carries it).
 - Writing the endpoint function body and signature → `restapi-endpoint` (which consumes this decision).
 - Advertising the matching error codes (401, optionally 403) on the route decorator → `restapi-error-responses`.
 - Adding a new auth-related error class → `domain-exception` then `restapi-error-responses`.
@@ -59,7 +59,7 @@ async def create_foo(
 
 ### Role rank (reference)
 
-`Role` is a rank-ordered `StrEnum` whose members the manifest's `domain.enums` declares (the Helpdesk fixture's are `COLLABORATOR < ADMIN < SUPER_ADMIN`, illustrative only — another app may have a two-tier or differently-named ladder). `user.role.satisfies(required)` returns `true` when the caller's rank meets or exceeds the requirement, and `require_role(Role.<MIN_RANK>)` admits that rank and every higher one. Use the placeholder `Role.<MIN_RANK>` in templates — the concrete member comes from the route's declared auth requirement against the app's own `Role`, never a fixed `SUPER_ADMIN`.
+`Role` is a rank-ordered `StrEnum` whose members the manifest's `domain.enums` declares (the Helpdesk fixture's are `MEMBER < AGENT < ADMIN`, illustrative only — another app may have a two-tier or differently-named ladder). `user.role.satisfies(required)` returns `true` when the caller's rank meets or exceeds the requirement, and `require_role(Role.<MIN_RANK>)` admits that rank and every higher one. Use the placeholder `Role.<MIN_RANK>` in templates — the concrete member comes from the route's declared auth requirement against the app's own `Role`, never a fixed `SUPER_ADMIN`.
 
 ### Constraints on every route that uses an auth dependency
 
@@ -78,7 +78,7 @@ Every route that uses an auth dependency must list the matching status codes whe
 - `Depends(get_current_user)` → include `401`.
 - `Depends(require_role(...))` → include `401` **and** `403`.
 
-The auth choice from this skill drives the `error_codes` input to `restapi-error-responses` — if a route uses `require_role(...)` but the spec omits `403` from `error_codes`, that's a spec bug.
+A role-gated route must therefore advertise both 401 and 403 (a `get_current_user`-only route just 401). Advertising the codes is `restapi-error-responses`' job, derived from the chosen dependency — not a manifest field this skill writes.
 
 ## Hard stops
 
@@ -87,4 +87,4 @@ The auth choice from this skill drives the `error_codes` input to `restapi-error
 - Spec asks the route to read the `Authorization` header directly → stop, that's what the bearer scheme is for.
 - Spec asks to omit auth on a non-public route of an app that **does** declare auth → stop, default is authenticated; only health/info endpoints are public. (Distinct from an app that declares no auth at all — there every route is auth-free by construction; that is the absence of the feature, not "omitting auth".)
 - Spec proposes a third auth dependency type → stop, the two declared by `restapi-app-bootstrap` are exhaustive; introduce a finer-grained authorization rule in the application handler instead.
-- Role-gated route's `error_codes` (for `restapi-error-responses`) omits `403` → stop, the advertised codes must match the chosen dependency.
+- A role-gated route advertises `401` but not `403` (via `restapi-error-responses`) → stop, the advertised codes must match the chosen dependency (`require_role` → 401 **and** 403).

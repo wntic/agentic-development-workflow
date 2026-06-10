@@ -38,7 +38,7 @@ the entity does not (and should not) carry, return a read-model rather than the 
 src/<root>/application/<subdomain>/
 ├── list_foos_query.py    # ListFoosQuery
 ├── list_foos_handler.py  # ListFoosHandler
-└── list_foos_result.py   # ListFoosResult   (only when return_kind == result)
+└── list_foos_result.py   # ListFoosResult   (only when the return shape is more than a single entity)
 ```
 
 ## Template — query DTO (non-auth-scoped list)
@@ -147,10 +147,10 @@ class ListFoosResult:
 
 1. **One class per module, one public method.** `async def execute(self, query: <QueryClass>) -> <ReturnType>`.
 2. **Constructor takes only domain protocols / policies.** Never a session, never an HTTP client.
-3. **Return type by `return_kind`:**
-   - `entity` → the domain entity. Repository must raise `NotFoundError` for missing.
-   - `entity-or-none` → `Entity | None`. Repository returns `None` when missing.
-   - `result` → the `*Result` DTO.
+3. **Return type follows the read shape** (derived from the query's `output` plus whether the response needs more than one entity):
+   - a single domain entity → the entity; the repository raises `NotFoundError` when missing.
+   - an optional single entity → `Entity | None`; the repository returns `None` when missing (e.g. `get_by_name`).
+   - more than one entity (or entity + pagination metadata) → the `*Result` DTO.
 4. **No business logic in the handler.** Reads pass parameters to the repository, optionally consult a domain service for "can this caller see this?" semantics, and return.
 5. **No logging.** Reads are not business events. If audit logging is genuinely required, do it at the entrypoint, not here.
 6. **No `try/except`.** Exceptions propagate to the central error handler.
