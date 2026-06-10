@@ -38,8 +38,8 @@ A project is split into four layers. Three are core (`domain/`, `application/`, 
                      │ implements protocols
                      │
         ┌────────────┴───────────────────────────┐
-        │           infrastructure/              │   adapters, ORM models,
-        │   (third-party SDKs, IO)               │   external clients
+        │           infrastructure/              │   adapters, repositories,
+        │   (third-party SDKs, IO)               │   tables (SQLAlchemy Core), clients
         └────────────────────────────────────────┘
 ```
 
@@ -85,7 +85,7 @@ src/myapp/
 └── restapi/             # HTTP entrypoint
 ```
 
-Each core layer mirrors the same subdomain partition: `domain/foos/`, `application/foos/`, `infrastructure/foos/`. New subdomains get a new folder in each layer they touch.
+`domain/` and `application/` mirror the same subdomain partition: `domain/foos/`, `application/foos/`. **`infrastructure/` groups by external tech, not by subdomain** — `infrastructure/postgres/`, `infrastructure/qdrant/`, `infrastructure/openai/`, `infrastructure/jwt/` (the derivation lives in `conventions` block A). A new subdomain adds a folder under `domain/` and `application/`; a new external technology adds one under `infrastructure/`.
 
 ## Rules
 
@@ -125,7 +125,7 @@ If you're tempted to import `application` from `infrastructure`, you have an ada
 1. When adding a feature, decide the entry path: HTTP route → `restapi/...`, scheduled job → `worker/...`, etc.
 2. Sketch the use case as a CQRS handler in `application/<subdomain>/` (see `cqrs`).
 3. List what the handler needs from the outside world. Each of those is a protocol in `domain/<subdomain>/` (see `domain-protocols`).
-4. Implement each protocol as an adapter in `infrastructure/<subdomain>/`. Adapters import domain types, translate raw payloads, raise domain exceptions (see `domain-exceptions`).
+4. Implement each protocol as an adapter under `infrastructure/<tech>/` — grouped by the external technology (`postgres/`, `qdrant/`, `jwt/`), never by subdomain (see `conventions` block A). Adapters import domain types, translate raw payloads, raise domain exceptions (see `domain-exceptions`).
 5. Wire the adapters in `containers.py` and resolve the handler in the entrypoint.
 6. Verify the dependency direction by scanning the new files' imports — `domain/` files must import only stdlib + domain; `application/` files must not import `infrastructure/`; `infrastructure/` must not import `application/`.
 

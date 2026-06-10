@@ -98,7 +98,7 @@ A datastore's `kind` is a free token (not a closed enum — a fixed list is the 
 | `kind` | resource param / attr | resource type | resource import | method contract | `uses_bootstrap` |
 |---|---|---|---|---|---|
 | `postgres` | `session_factory` / `sf` | `async_sessionmaker[AsyncSession]` | `from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker` | `sql` | **yes** |
-| `qdrant` | `client` / `client` | `QdrantClient` | `from qdrant_client import QdrantClient` | `collection` | no |
+| `qdrant` | `client` / `client` | `AsyncQdrantClient` | `from qdrant_client import AsyncQdrantClient` | `collection` | no |
 | `redis` | `client` / `client` | `Redis` | `from redis.asyncio import Redis` | `generic` | no |
 | *(unknown)* | `client` / `client` | `object` | — | `generic` | no |
 
@@ -114,7 +114,7 @@ The dependency manifest (`pyproject.toml`) is regenerated glue: the framework su
 - **Framework substrate** (the FastAPI-hexagon stack, always present): `fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`, `dependency-injector`, `structlog`.
 - **Relational bootstrap** (added only when a `uses_bootstrap` store backs a repository): `sqlalchemy[asyncio]`, `asyncpg`, `alembic`.
 - **Dev** (always present): `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `testcontainers`, `httpx`.
-- **Auth test bootstrap** (added **only** when the app declares auth — any authenticated endpoint / a token-verifier capability, gated the same way as the relational bootstrap above): `cryptography` — the `test-integration-authed-client` conftest mints RS256 tokens from a generated RSA keypair (sign with the private key, the app verifies with the public one), so it is a hard dependency of the integration test bootstrap, but only when there is auth to test. An auth-less app (every endpoint anonymous) must **not** carry it — a `cryptography` dev dep that nothing imports is the stray-package bug.
+- **Auth test bootstrap** (added **only** when the app declares auth *and* its token scheme is asymmetric — an RSA/EC keypair, e.g. RS256, which is the scheme `test-integration-authed-client` uses today): `cryptography` — that conftest mints RS256 tokens from a generated RSA keypair (sign with the private key, the app verifies with the public one), so building/serializing the keypair needs `cryptography`. The trigger is graph-derived auth-presence (any authenticated endpoint / a token-verifier capability), but the package itself is needed only for the asymmetric path: an app that declares auth yet verifies symmetric (HS256) or opaque tokens generates no keypair and must **not** carry it — a `cryptography` dev dep that nothing imports is the stray-package bug. (RS256/RSA is the catalog's current auth-test scheme, not the only conceivable one.)
 - **SDK packages are not listed here** — each rides on the infra node that needs it (`datastore` / `capability` `requires_packages`, e.g. `qdrant-client`, `openai`, `pyjwt`) and is unioned in from the graph.
 
 **No versions.** This list carries names only; `uv add <lib>` pins the latest compatible version at scaffold time, so nothing rots. A pinned `>=` here would reintroduce the generator's chief disease (baked-in `fastapi>=0.115` under eternal manual bump).

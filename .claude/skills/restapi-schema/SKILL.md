@@ -45,6 +45,9 @@ class FooResponse(BaseModel):
     sort_order: int
     usage_count: int = 0
 
+# This shows the OFFSET pagination shape. A resource whose domain-filter chose
+# cursor paging (domain-filter Rule 5) instead carries `items`, `next_cursor:
+# str | None`, `limit` — match whichever shape the filter declared (Rule 7).
 class FooListResponse(BaseModel):
     items: Sequence[FooResponse]
     total: int
@@ -65,7 +68,7 @@ class FooUpdateRequest(BaseModel):
 | Schema | Purpose |
 |--------|---------|
 | `<Resource>Response` | Single-entity GET / POST / PATCH response |
-| `<Resource>ListResponse` | List GET response — `items`, `total`, `limit`, `offset` (in this order) |
+| `<Resource>ListResponse` | List GET response — `items` + the resource's pagination fields (offset: `total`/`limit`/`offset`; cursor: `next_cursor`/`limit`), matching `domain-filter` |
 | `<Resource>CreateRequest` | POST body |
 | `<Resource>UpdateRequest` | PATCH body — every field `T \| None = None` |
 | `<Resource>WithXResponse` | Single-entity response that embeds a sub-resource collection |
@@ -91,7 +94,10 @@ Do **not** introduce alternates (`Dto`, `Schema`, `In`, `Out`). The five names a
 
 ### `*ListResponse`
 
-7. **Always four fields, in this order:** `items: Sequence[<Resource>Response]`, `total: int`, `limit: int`, `offset: int`. Do not paginate any other way.
+7. **`*ListResponse` carries the resource's pagination shape — whichever one its `domain-filter` declared** (`domain-filter` Rule 5 picks exactly one), never a third:
+   - **offset paging** → `items: Sequence[<Resource>Response]`, `total: int`, `limit: int`, `offset: int`.
+   - **cursor paging** → `items: Sequence[<Resource>Response]`, `next_cursor: str | None`, `limit: int`.
+   The route `restapi-endpoint` builds constructs whichever shape the filter uses, so the schema must match it (see `restapi-endpoint`'s cursor-list note). Don't mix the two.
 
 ### `__all__`
 

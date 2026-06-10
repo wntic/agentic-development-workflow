@@ -1,11 +1,11 @@
 ---
 name: test-discovery-invariants
-description: Apply once per project to install the cross-cutting integration tests that derive their inputs from the running FastAPI app instead of from hand-maintained registries. Produces five test files under `tests/integration/api/` — `test_unauth_returns_401.py` (every authenticated route, discovered via `app.routes`, returns 401 with the documented `code` and `WWW-Authenticate` header when called with no token), `test_openapi_advertises_error_codes.py` (every operation in `app.openapi()` declares all the error codes the route can produce, derived from the `error_responses(...)` decorator), `test_cors.py`, `test_request_size_limit.py` (`413` when exceeding `MaxRequestSizeMiddleware`), and `test_info.py` (or `test_health.py`). Adding a new endpoint never requires editing any of these files — discovery handles it. Does not produce per-endpoint tests (use `test-restapi-endpoint`), the rollback fixture (use `test-integration-isolation`), the `authed_client` factory (use `test-integration-authed-client`), or any registry-style table.
+description: Apply once per project to install the cross-cutting integration tests that derive their inputs from the running FastAPI app instead of from hand-maintained registries. Produces four or five test files under `tests/integration/api/` — `test_unauth_returns_401.py` (emitted **only when the app declares auth**: every authenticated route, discovered via `app.routes`, returns 401 with the documented `code` and `WWW-Authenticate` header when called with no token), `test_openapi_advertises_error_codes.py` (every operation in `app.openapi()` declares all the error codes the route can produce, derived from the `error_responses(...)` decorator), `test_cors.py`, `test_request_size_limit.py` (`413` when exceeding `MaxRequestSizeMiddleware`), and `test_info.py` (or `test_health.py`). Adding a new endpoint never requires editing any of these files — discovery handles it. Does not produce per-endpoint tests (use `test-restapi-endpoint`), the rollback fixture (use `test-integration-isolation`), the `authed_client` factory (use `test-integration-authed-client`), or any registry-style table.
 ---
 
 # Test — Discovery Invariants
 
-One-shot per project. Five test files. Each one iterates the running app and asserts a single global property; none of them needs to be edited when an endpoint is added or removed.
+One-shot per project. Four or five test files (the `test_unauth_returns_401.py` probe is emitted only when the app declares auth — see Rules). Each one iterates the running app and asserts a single global property; none of them needs to be edited when an endpoint is added or removed.
 
 ## When to use vs. neighbours
 
@@ -242,6 +242,7 @@ async def test_info_endpoint_is_public_and_returns_200(real_app):
 8. **No `authed_client` here.** All discovery tests are either unauth probes or read OpenAPI / route metadata. If a discovery test needs auth, it's a per-endpoint concern that belongs in `test-restapi-endpoint`.
 9. **No `@pytest.mark.integration` and no `@pytest.mark.asyncio`** — path-based collection and auto mode handle both.
 10. **`pytest_generate_tests` for parametrized discovery.** Using `pytest.fixture` + parametrize at function scope can't both reference the same dynamically-discovered list cleanly; `pytest_generate_tests` is the standard hook.
+11. **`test_unauth_returns_401.py` is auth-gated, like `test_info.py` is `/info`-gated.** Its module-level `from myapp.restapi.dependencies import get_current_user` + `from myapp.domain.exceptions import UnauthorizedError` exist **only** when the app declares auth (auth-presence is graph-derived — any endpoint `auth != anonymous` / a token-verifier capability). In an all-anonymous app there is no `dependencies.py`, no `UnauthorizedError`, and no protected route to probe, so the file would fail to import at collection time and take down the whole `tests/integration/api/` package. Emit five files when the app declares auth, four (drop the 401 file) when it does not.
 
 ## Inlined typing / import rules
 
@@ -261,5 +262,6 @@ async def test_info_endpoint_is_public_and_returns_200(real_app):
 - Spec hardcodes a CORS origin (e.g. `http://localhost:3000`) in `test_cors.py` → stop, read a configured origin off `real_app`'s `CORSMiddleware` and `pytest.skip` when none is configured; never freeze the source app's dev origin or assume `allow_credentials`.
 - Spec hardcodes the request-size limit (e.g. 10 MiB) in `test_request_size_limit.py`, or presumes the middleware is always present → stop, read the cap off the app's `MaxRequestSizeMiddleware` and compute `limit + 1`; `pytest.skip` when no size middleware is declared (it is a per-app `restapi.middlewares` entry, not universal).
 - Project has no `/info` (or `/health`) endpoint and the spec sets `info_endpoint = none` → produce four files, skip `test_info.py`.
+- Project declares no auth (every endpoint anonymous) → do not produce `test_unauth_returns_401.py`; its `get_current_user` / `UnauthorizedError` imports do not exist in an auth-less app, and there are no protected routes to probe (Rule 11).
 - Spec freezes the `WWW-Authenticate` challenge to a specific realm (`Bearer realm="myapp"`) → stop, only the scheme is load-bearing (`.startswith("Bearer")`); the realm is app-specific.
 - Spec pins the 401 body code to a literal string (`"UNAUTHORIZED"`) → stop, assert against the domain exception's `.code` constant, not a frozen literal.

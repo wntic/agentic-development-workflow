@@ -70,7 +70,7 @@ class FakeFooRepository:
         if any(f.name == foo.name for f in self._store.values()):
             raise ConflictError(
                 "foo name already exists",
-                {"constraint": "uq_foos_name", "name": foo.name},
+                {"constraint": "uq_foos_name"},
             )
         self._store[foo.id] = foo
 
@@ -80,7 +80,7 @@ class FakeFooRepository:
         if any(f.name == foo.name and f.id != foo.id for f in self._store.values()):
             raise ConflictError(
                 "foo name already exists",
-                {"constraint": "uq_foos_name", "name": foo.name},
+                {"constraint": "uq_foos_name"},
             )
         self._store[foo.id] = foo
 
@@ -130,9 +130,9 @@ class FakeExportFoosXlsx:
 
 Behavioral fakes expose a call-record list (`self.exported`) so handler tests can assert what was invoked. Prefer asserting on resulting domain state when possible; reach for call records only when call shape is the thing under test.
 
-### Storage gateway with explicit failure-injection API
+### Storage gateway with a call-record observation surface
 
-The one place per-call failure injection is acceptable — compensating-transaction tests need to provoke a specific `*_best_effort` delete:
+A storage fake records what it was asked to do (puts / deletes) so compensating-transaction tests can assert the `*_best_effort` cleanup ran — no failure-injection flags, just observable call records:
 
 ```python
 class FakeBlobStorage:
@@ -157,7 +157,7 @@ The `puts` and `deletes` lists are the test-side observation surface. **No `fail
 3. **Constructor takes `items: list[<Entity>] | None = None`** with `or []` fallback so the empty-fake call site is terse: `FakeFooRepository()`.
 4. **Every method is `async def`**, even when there's nothing to await — the protocol says async; the fake matches.
 5. **`list(*, filter: <FilterRecord>)` is keyword-only** and applies a deterministic sort matching the real repository's `ORDER BY`. Handler tests assert exact order — sort, don't return insertion order.
-6. **The exception contract is copied verbatim from the real adapter.** Same class, same message, same `context` keys including the `constraint` key from `_map_integrity_error`. If the real repo raises `ConflictError("foo name already exists", {"constraint": "uq_foos_name", "name": ...})`, the fake raises the same shape.
+6. **The exception contract is copied verbatim from the real adapter.** Same class, same message, same `context` keys — exactly what `_map_integrity_error` populates and no more. The relational adapter raises `ConflictError("foo name already exists", {"constraint": "uq_foos_name"})` — context carries **only** `constraint`, so the fake matches it exactly. Adding a key the real adapter never sets (e.g. `"name"`) is the silent drift this rule exists to prevent: a handler test asserting that key passes against the fake and fails against the real adapter.
 7. **Cascades match the schema.** When the real schema has `ON DELETE CASCADE`, the fake removes the dependent rows. Skipping the cascade in the fake produces a green unit test that a failing integration test then catches — defeats the point.
 8. **Default-happy-path only.** No `fail_next_create=True` flags or `_should_raise` knobs. Tests needing one-off failures declare a private subclass at the **handler test module scope** (the pattern is owned by `test-application-handler`):
 
@@ -167,7 +167,7 @@ The `puts` and `deletes` lists are the test-side observation surface. **No `fail
            raise InUseError("foo is used", {"reference_type": "foo", "id": str(id)})
    ```
 
-   The storage-gateway exception (`puts` / `deletes` call records, narrow `fail_delete(key, exc)` if genuinely needed for compensation tests) is the only place per-call observation is acceptable.
+   The storage-gateway `puts` / `deletes` call records are the only sanctioned per-call observation surface — and they observe, they do not inject failure. A test that needs an injected failure uses the inline-subclass pattern above, not a flag or a hook on the fake.
 
 ## What a fake must not do
 
