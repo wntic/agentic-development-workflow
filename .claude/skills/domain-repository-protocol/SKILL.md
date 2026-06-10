@@ -1,6 +1,6 @@
 ---
 name: domain-repository-protocol
-description: Apply when a spec needs a repository interface for an aggregate root. Produces one `typing.Protocol` module named `i_<noun>_repository.py` with `I<Noun>Repository` containing async CRUD-shaped methods. Does not implement the protocol — infrastructure does that via `infra-sqlalchemy-repository`. Defers package mechanics to `general-python-package`.
+description: Apply when a spec needs a repository interface for an aggregate root. Produces one `typing.Protocol` module named `i_<noun>_repository.py` with `I<Noun>Repository` containing async CRUD-shaped methods. Does not implement the protocol — infrastructure does that via `infra-sqlalchemy-repository` (relational store) or `infra-store-repository` (client-style store). Defers package mechanics to `general-python-package`.
 ---
 
 # Domain Repository Protocol
@@ -11,7 +11,7 @@ Produces one protocol module: the collection-style data-access interface for a s
 
 - Aggregate-root data access (CRUD + aggregate-specific reads) → this skill.
 - A single-action capability that doesn't fit "collection of an aggregate" (file rendering, token verification, blob storage) → `domain-capability-protocol`.
-- The concrete implementation in `infrastructure/postgres/repositories/` → `infra-sqlalchemy-repository`.
+- The concrete implementation → `infra-sqlalchemy-repository` (relational store, `infrastructure/postgres/repositories/`) or `infra-store-repository` (client-style store — qdrant/redis/…, `infrastructure/<store-kind>/repositories/`); the protocol itself is store-agnostic, the choice is the infra decision dispatched by store profile (`conventions` block C).
 
 ## File location and naming
 

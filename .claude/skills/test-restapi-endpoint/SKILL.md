@@ -104,7 +104,9 @@ from myapp.restapi.schemas import FooResponse
 
 async def test_get_foo_returns_payload(authed_client, foo_in_org):
     foo_id, org_id = foo_in_org
-    async with authed_client(role=Role.COLLABORATOR, org_id=org_id) as client:
+    # The tenancy keyword is the app's JWT claim name, forwarded via authed_client's
+    # **extra_claims (there is no built-in org_id parameter — see the note above).
+    async with authed_client(role=Role.COLLABORATOR, organization_id=org_id) as client:
         response = await client.get(f"/foos/{foo_id}")
 
     assert response.status_code == 200
@@ -114,7 +116,7 @@ async def test_get_foo_in_other_org_returns_404(authed_client, foo_in_org):
     foo_id, _ = foo_in_org
     other_org = uuid.uuid4()
 
-    async with authed_client(role=Role.COLLABORATOR, org_id=other_org) as client:
+    async with authed_client(role=Role.COLLABORATOR, organization_id=other_org) as client:
         response = await client.get(f"/foos/{foo_id}")
 
     assert response.status_code == 404  # NOT 403 — prevents enumeration

@@ -47,7 +47,10 @@ def qdrant_url() -> Iterator[str]:
         return
     from testcontainers.qdrant import QdrantContainer
 
-    with QdrantContainer("qdrant/qdrant:latest") as q:
+    # Pin the image tag — never float on :latest (mirrors test-integration-isolation's
+    # postgres/MinIO pins; :latest makes the suite non-reproducible). The specific pin
+    # is a per-deployment choice, bumped deliberately, not a frozen constant.
+    with QdrantContainer("qdrant/qdrant:v1.12.4") as q:
         yield f"http://{q.get_container_host_ip()}:{q.get_exposed_port(6333)}"
 
 @pytest.fixture

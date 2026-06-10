@@ -125,6 +125,9 @@ def register_error_handlers(app: FastAPI) -> None:
     async def _handle_domain_error(request: Request, exc: DomainError) -> JSONResponse:
         headers: dict[str, str] = {}
         if isinstance(exc, UnauthorizedError):
+            # The `Bearer` scheme is the load-bearing part (RFC 7235); the realm is
+            # app-specific — drive it from settings/env or omit it, never freeze a
+            # literal realm (see test-discovery-invariants, which asserts only the scheme).
             headers["WWW-Authenticate"] = 'Bearer realm="myapp"'
         return JSONResponse(
             status_code=exc.http_status,

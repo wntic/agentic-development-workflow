@@ -31,6 +31,8 @@ async def execute(self, cmd: UpsertFooCommand) -> uuid.UUID:
         await self._storage.delete_many_best_effort([storage_key])
         raise
 
+    # caller_id is logged only when the command carries it (authenticated form);
+    # an auth-less command has no caller_id field — drop it (see application-command DTO rule 2).
     logger.info("foo_created", foo_id=str(foo.id), caller_id=str(cmd.caller_id))
     return foo.id
 ```
