@@ -1,0 +1,200 @@
+═══════════════════════════════════════════════════════════════════════════════
+NOTES 10 — АУДИТ СКИЛЛОВ v3 (2026-06-10) — двухлинзовый пост-v2 прогон
+═══════════════════════════════════════════════════════════════════════════════
+
+ПОВОД. Третий прогон ПОСЛЕ закрытия v2 (notes/9, 20 находок). Цель: (а) подтвердить,
+что v2-фиксы держатся и не внесли регрессий; (б) более глубоким методом вычистить хвост.
+
+МЕТОД. Workflow skill-altitude-audit-v3 (run wf_d8259a73-42d): на КАЖДЫЙ скилл ДВЕ независимые
+линзы — A (fresh-eyes, полная 6-запаховая рубрика) + B (regression hunter: для 12 v2-правленых
+скиллов — сводка что менялось + проверка полноты; для остальных — рассогласование от чужих правок).
+Находки мёрджатся → адверсарная верификация (default refuted). 123 агента, ~5.8M токенов.
+Та же 6-запаховая рубрика, что v2 (app_specific_literal · optional_as_mandatory · wrong_altitude ·
+cross_feature_coupling · scope_overclaim · layer_leak); guardrails расширены (pinned-tag-as-per-deployment
+и illustrative-default-framed-as-non-universal — НЕ дефект).
+
+РЕЗУЛЬТАТ. 48 проверено · 46 raised · 27 confirmed · ~20 distinct (минус дубликаты двух линз) · в 17 скиллах.
+v2-ФИКСЫ ПОДТВЕРЖДЕНЫ: ни одна из 20 v2-находок не всплыла; 6/12 v2-правленых скиллов теперь ПОЛНОСТЬЮ чистые
+(general-imports-conventions, infra-capability-adapter, infra-di-provider, restapi-file-transfer,
+test-integration-authed-client, test-integration-isolation). Регрессий, внесённых МОИМИ v2-правками, нет.
+
+ГЛАВНЫЙ ВЫВОД. Deeper 2-линзовый sweep поймал реальные CROSS-SKILL контрактные баги, которых узкая
+v2-рубрика не искала (qdrant sync↔async, ConflictError context-drift, pagination-shape). Плюс 4
+«missed-consistency»: v2-фикс верный, но не дотянут до родственного скилла/эмиттера.
+
+═══════════════════════════════════════════════════════════════════════════════
+🔴 HIGH — ломает/вводит в заблуждение сгенерированный код
+═══════════════════════════════════════════════════════════════════════════════
+
+V3-1  restapi-schema · optional_as_mandatory · HIGH
+  Rule 7 «Always four fields … `items/total/limit/offset` … Do not paginate any other way» запрещает
+  cursor-форму, которую сиблинги ПОДДЕРЖИВАЮТ: domain-filter Rule 5 (`cursor: str | None` вместо limit/offset,
+  «Pick one»), restapi-endpoint (cursor-template строит `FooListResponse(items, next_cursor, limit)` + стр.156:
+  «FooListResponse must match the chosen pagination shape — total/limit/offset OR next_cursor/limit»).
+  → cursor-app по этому скиллу получает схему БЕЗ next_cursor и с лишними total/offset, ломающую свой роут.
+  FIX: учить ОБЕ формы feature-conditionally; offset = items/total/limit/offset, cursor = items/next_cursor/limit;
+       `*ListResponse` матчит pagination из domain-filter. Снять абсолют «Do not paginate any other way».
+       Поправить и naming-table row.
+
+V3-2  test-fake-repository · app_specific_literal · HIGH
+  Rule 6 + CRUD-template: fake бросает `ConflictError("foo name already exists", {"constraint":"uq_foos_name","name":foo.name})`
+  — ключ `name` в context, которого РЕАЛЬНЫЙ адаптер не ставит. infra-sqlalchemy-repository._map_integrity_error (стр.82)
+  = `{"constraint": constraint}` ТОЛЬКО. Rule 6 сам требует копировать контракт «verbatim … same context keys» → само-
+  противоречие. Тест на `exc.value.context["name"]` зелёный против fake, красный против реального адаптера (тот самый
+  green-unit/red-integration trap, что fake призван предотвратить).
+  FIX: убрать `name` из обоих ConflictError-вызовов (create+update) и из Rule-6 цитаты → `{"constraint":"uq_foos_name"}`;
+       либо добавить `name` в _map_integrity_error первым (тогда обе стороны согласны).
+
+V3-3  general-layered-architecture · wrong_altitude + app_specific_literal · HIGH
+  (a) «Each core layer mirrors the same subdomain partition: domain/foos/, application/foos/, infrastructure/foos/»
+  + step 4 «Implement each protocol as an adapter in infrastructure/<subdomain>/» — ИНФРА ГРУППИРУЕТСЯ ПО САБДОМЕНУ.
+  Противоречит конвенции (conventions block A + CLAUDE.md): инфра группируется по ВНЕШНЕЙ ТЕХ (postgres/qdrant/openai/jwt),
+  НЕ по сабдомену. Сгенерится неверное дерево, конфликт с infra-sqlalchemy-repository / infra-store-repository.
+  (b) Диаграмма слоёв: «infrastructure/ … ORM models» — house-style = SQLAlchemy Core, НИКОГДА ORM.
+  FIX: domain/application зеркалят сабдомен, infrastructure — по тех (`infrastructure/<kind|adapter>/`), указать на
+       conventions block A; «ORM models» → «repositories/tables (SQLAlchemy Core)».
+
+V3-4  test-discovery-invariants · optional_as_mandatory · HIGH
+  test_unauth_returns_401.py эмитится БЕЗУСЛОВНО (one of «five files») с module-top импортами
+  `from myapp.restapi.dependencies import get_current_user` + `from myapp.domain.exceptions import UnauthorizedError`.
+  В auth-less app НЕТ ни dependencies.py (auth — единственный обитатель), ни UnauthorizedError → collection-time
+  ImportError ломает ВЕСЬ tests/integration/api/ пакет. Скилл гейтит КАЖДУЮ другую опц-фичу (CORS/size/info — skip/drop),
+  но не самый auth-зависимый файл. (Мой V2-11 добавил второй auth-only импорт, углубив уже бывшую негейченность.)
+  FIX: гейтить весь файл на graph-derived auth-presence (как /info): auth есть → 5 файлов, нет → 4 (без 401-файла).
+       Hard stop + смягчить «Produces five test files» → «four or five».
+
+V3-5  conventions · app_specific_literal · MEDIUM(→correctness) — qdrant SYNC vs ASYNC
+  Block C store-profiles qdrant-row: тип `QdrantClient` / `from qdrant_client import QdrantClient` (СИНХРОННЫЙ).
+  Но единственный потребитель — infra-store-repository — пишет АСИНХРОННЫЙ репозиторий: `AsyncQdrantClient`
+  (стр.101/119) + `await self._client.upsert/query_points`. Sync-клиент нельзя await → scaffolder зашьёт DI Singleton,
+  который тело репо не может использовать. (redis консистентен: оба `from redis.asyncio import Redis`.)
+  FIX: qdrant-row → `AsyncQdrantClient` / `from qdrant_client import AsyncQdrantClient`.
+
+═══════════════════════════════════════════════════════════════════════════════
+🟠 ФАНТОМНЫЕ ПОЛЯ / layer_leak / cross-skill рассогласование
+═══════════════════════════════════════════════════════════════════════════════
+
+V3-6  application-query · layer_leak · MEDIUM — фантомное поле `return_kind`
+  Handler Rule 3 «Return type by `return_kind`:» со значениями entity/entity-or-none/result + layout-коммент
+  «only when return_kind == result». Поля `return_kind` НЕТ в SCHEMAS (Query несёт name/input/output/result_fields/
+  result_dtos/handler/raises/behaviour/sources/notes). Грепом — только в этом файле. Сиблинг application-command
+  деривит return type без выдуманного поля. Сам скилл деривит верно в др. местах (стр.12/93).
+  FIX: убрать имя `return_kind`; формулировать как деривацию из `output` + наличия result_fields/result_dtos.
+
+V3-7  infra-sqlalchemy-repository · layer_leak · LOW — фантомное `expected_context_keys`
+  Rule 18 «Field/value keys … per the spec's `expected_context_keys` (see domain-exception)». Поля нет нигде; цитируемый
+  domain-exception говорит ОБРАТНОЕ (стр.100: «The skill does not enforce the keys — the raise site and its test agree»).
+  FIX: «keys добавляются сверху; raise-site и его тест просто согласуют их (see domain-exception)»; убрать `expected_context_keys`.
+
+V3-8  restapi-auth-dependency · layer_leak · MEDIUM — фантомный input `auth_mode`
+  «the choice is then encoded as `auth_mode` input to restapi-endpoint / restapi-file-transfer». Поля `auth_mode` нет
+  (Endpoint несёт `auth`). Выдуманный data-channel + inter-skill input-handoff = оркестрация.
+  FIX: описывать через реальное `auth:` объявление роута; снять «encoded as … input to».
+
+V3-9  restapi-auth-dependency · layer_leak · MEDIUM — фантомное `error_codes`
+  «drives the `error_codes` input to restapi-error-responses … omits 403 → spec bug» + Hard stop повторяет. Поля нет нигде;
+  restapi-error-responses деривит коды из auth-dep + error_responses(...) декоратора, не из манифест-поля.
+  FIX: «role-gated route must advertise 401 и 403 (advertisement — забота restapi-error-responses, дерайв из dependency)»,
+       без выдуманного `error_codes`-поля.
+
+V3-10 infra-settings · app_specific_literal · MEDIUM — `settings.py` vs деривация
+  «Path: infrastructure/<subpackage>/settings.py — always named settings.py». Каноничная деривация (conventions block A,
+  CLAUDE.md = источник правды путей/имён) даёт `OpenaiSettings → infrastructure/openai/openai_settings.py` (<snake-class>.py).
+  Два источника правды: scaffolder пишет openai_settings.py, читатель этого скилла — settings.py.
+  FIX: согласовать — деривить `<snake(class)>.py` (openai_settings.py) per conventions block A, указать на неё как источник;
+       НЕ оставлять расхождение.
+
+V3-11 test-principles · layer_leak · MEDIUM — `db/` вместо `postgres/`
+  conftest-диаграмма: `├── db/   # repository contract tests; uses sf only`. Все сиблинги (test-integration-isolation стр.207,
+  test-repository-contract, test-integration-authed-client стр.151, CONVENTIONS.md стр.84) = `tests/integration/postgres/`.
+  conventions стр.44 ЯВНО банит catch-all `db/`. test-principles — источник правды иерархии → копирует pre-redesign имя.
+  FIX: `db/` → `postgres/` в диаграмме.
+
+═══════════════════════════════════════════════════════════════════════════════
+🟡 optional_as_mandatory / литералы / missed-consistency / чистота
+═══════════════════════════════════════════════════════════════════════════════
+
+V3-12 domain-repository-protocol · optional_as_mandatory · MEDIUM — relational-only имплементер
+  When-to-use + frontmatter: «concrete implementation in infrastructure/postgres/repositories/ → infra-sqlalchemy-repository»
+  как ЕДИНСТВЕННЫЙ. Это чистый домен-скилл, протокол store-agnostic; client-store (qdrant/redis) → infra-store-repository под
+  infrastructure/<store-kind>/repositories/ (conventions block B/C). Polyglot-читатель указан на неверного соседа + postgres-путь.
+  FIX: соседа условно по store-профилю: «→ infra-sqlalchemy-repository (relational, postgres/) ИЛИ infra-store-repository
+       (client-style, <store-kind>/); протокол сам store-agnostic». Зеркалить во frontmatter.
+
+V3-13 test-application-handler · optional_as_mandatory · MEDIUM — `caller_id=_CALLER` не условно
+  `_CALLER = uuid.uuid4()` (rule 2) + `caller_id=_CALLER` во ВСЕХ command-template (create/update/delete/comp-tx), без сигнала
+  условности. Сиблинг application-command сделал caller_id auth-conditional (DTO rule 2: auth-free command «omits caller_id»).
+  auth-less app: caller_id-поля в DTO нет → копипаст ломается.
+  FIX: добавить тот же сигнал — templates показывают authenticated-форму; в auth-free app `caller_id=_CALLER` + сам `_CALLER`
+       убираются (зеркалить application-command DTO rule 2). _CALLER оставить как authenticated-convention.
+
+V3-14 pattern-compensating-tx · optional_as_mandatory · MEDIUM — success-log `caller_id` не условно
+  Template success-log: `logger.info("foo_created", foo_id=..., caller_id=str(cmd.caller_id))` без условности. Этот скилл шейпит
+  ТОТ ЖЕ handler-body, что application-command (уже починен). auth-less → cmd.caller_id не существует.
+  FIX: убрать caller_id из примера ИЛИ аннотировать «caller_id only when the command carries it (authenticated) — see
+       application-command DTO rule 2».
+
+V3-15 conventions · optional_as_mandatory · MEDIUM — cryptography гейтится на auth-presence, а не на RS256/asymmetric
+  Block D тянет `cryptography` «whenever the app declares auth», обосновывая RS256/RSA-keypair как канон. Но cryptography нужен
+  ТОЛЬКО для асимметричного (RS256) генерирования/сериализации keypair. auth-app на HS256 (симметрик) имеет auth, но cryptography
+  не импортит → reintroduce «stray dev-dep nothing imports» (то, что параграф сам предупреждает). Сиблинг
+  test-integration-authed-client (rule 6) трактует RS256 vs HS256 как per-app prod-выбор.
+  FIX: гейтить на asymmetric/keypair-схему (RS256/RSA), не на auth-presence; ИЛИ переформулировать RS256/RSA как «this app's
+       scheme, not universal», отметив что HS256-auth-app не несёт cryptography. [ПРИМЕЧАНИЕ: каталог сейчас моделирует только
+       RS256-auth → различие пока moot; правка — про снятие заморозки RS256-как-универсального, лёгкая.]
+
+V3-16 test-principles · app_specific_literal · MEDIUM — «cross-org semantics» как универсальное
+  Пирамида, REST-endpoint row, «What it catches»: «… cross-org semantics» без условности. Multi-tenancy — модель source-app
+  (Helpdesk), не универсальное свойство. Сиблинг test-restapi-endpoint стр.28 уже framed как non-universal. Здесь, в
+  конституции тестов (откуда др. скиллы пересказывают) — заморожено как канон.
+  FIX: «tenancy/authorization scoping (when the app declares it)» ИЛИ убрать; оставить универсальное (routing/DI/auth/validation).
+
+V3-17 restapi-auth-dependency · app_specific_literal · MEDIUM — ложная role-ladder
+  «the Helpdesk fixture's are COLLABORATOR < ADMIN < SUPER_ADMIN, illustrative only». Реальная фикстура
+  (helpdesk_manifest.yaml domain.enums Role) = MEMBER < AGENT < ADMIN. COLLABORATOR/SUPER_ADMIN нет нигде. «illustrative only»
+  не оправдывает ЛОЖНОЕ утверждение про ИМЕНОВАННЫЙ артефакт, который читатель сверит.
+  FIX: либо реальная ladder (MEMBER < AGENT < ADMIN), либо снять привязку к фикстуре («e.g. трёхтир member<agent<admin»).
+
+V3-18 restapi-app-bootstrap · app_specific_literal · LOW — заморожен realm="myapp" (missed-consistency с V2-10)
+  Always-emitted authed error_handler: `headers["WWW-Authenticate"] = 'Bearer realm="myapp"'`, без framing. Сиблинг
+  test-discovery-invariants (мой V2-10 Hard stop) ЯВНО запрещает заморозку realm: «only the scheme is load-bearing». Соседние
+  CORS-литералы в ТОМ ЖЕ файле аннотированы (allow_origins=[] «never bake localhost:3000»), realm — нет.
+  FIX: оставить Bearer, аннотировать realm как app-specific (из settings/env или опустить); «only Bearer load-bearing (see
+       test-discovery-invariants)».
+
+V3-19 test-store-repository-contract · app_specific_literal · MEDIUM — qdrant:latest плавает (missed-consistency с V2-19)
+  `with QdrantContainer("qdrant/qdrant:latest")`. Сиблинг test-integration-isolation (мой V2-19) пинит postgres:17-alpine +
+  MinIO RELEASE-тег с комментом «never float on :latest». Здесь — плавающий, без аннотации.
+  FIX: запинить (напр. `qdrant/qdrant:v1.12.4`) + комментарий «per-deployment pin, never :latest», как в сиблинге.
+
+V3-20 test-restapi-endpoint · app_specific_literal · MEDIUM — `org_id=` keyword противоречит v2-прозе
+  GET-template: `authed_client(role=Role.COLLABORATOR, org_id=org_id)` / `org_id=other_org`. Но v2-проза в ТОМ ЖЕ файле (стр.28):
+  «tenancy claim passed as keyword matching app's JWT claim (e.g. organization_id=…); НЕТ built-in org_id parameter». Фабрика
+  test-integration-authed-client = `_factory(role, **extra_claims)`, без org_id → `org_id=` минтит claim буквально «org_id».
+  Мой V2-7 починил прозу, пример оставил. (Также Role.COLLABORATOR — несуществующая роль, см. V3-17.)
+  FIX: согласовать с прозой — `organization_id=...` (claim-named), пометить что это extra_claims pass-through, не built-in;
+       роль → Role.<MIN_RANK>/реальная.
+
+V3-21 restapi-middleware · wrong_altitude · LOW — дублированный `import uuid`
+  Pass-through Template: `import uuid` дважды (стр.27 и 29) — FU1-коммит (def6a26) должен был удалить мёртвый `import structlog`,
+  но заменил его вторым `import uuid`. ruff F811. Шаблон не toolchain-clean.
+  FIX: удалить дубль (стр.29 + пустую строку); `import uuid` ровно один раз.
+
+V3-22 test-fake-repository · wrong_altitude · LOW — фантомный `fail_delete(key, exc)`
+  Заголовок «### Storage gateway with explicit failure-injection API» + Rule 8 «narrow fail_delete(key, exc) if genuinely needed»,
+  но FakeBlobStorage-template НЕ определяет такого метода (только puts/deletes), а текст рядом говорит «No fail_next_call=... flags».
+  Названный API не показан → unresolved instance, противоречит own default-happy-path.
+  FIX: либо заголовок → «call-record observation surface» + убрать упоминание fail_delete; либо показать узкий hook конкретно
+       один раз с async-сигнатурой (тогда конвенция, не фантом).
+
+═══════════════════════════════════════════════════════════════════════════════
+ПОРЯДОК ПОЧИНКИ (предложение)
+═══════════════════════════════════════════════════════════════════════════════
+1. 🔴 V3-1..V3-5 — correctness (ломает/вводит в заблуждение сген. код, incl. cross-skill контракты).
+2. 🟠 V3-6..V3-11 — фантомные поля / layer_leak / два-источника-правды.
+3. 🟡 V3-12..V3-22 — optional_as_mandatory / литералы / missed-consistency / чистота.
+
+ЧИСТЫХ 31 (см. clean_skills в выводе воркфлоу). Идиомы те же: feature-conditional / safe-default+comment /
+derive-not-declare / artifact-level / pin-with-per-deployment-note. ПРОВЕРКА после правок:
+`uv run pytest .claude/tools/test_validate_manifest.py -q` (должно остаться 38 — мета-тест прозу не парсит).
+Скрипт воркфлоу (reusable): .claude/.../workflows/scripts/skill-altitude-audit-v3-wf_d8259a73-42d.js.
