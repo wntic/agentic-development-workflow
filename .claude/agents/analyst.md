@@ -135,20 +135,76 @@ product owner can resolve. `/refine-usecases` turns these into `questions_for_ba
 
 ---
 
-## Phase 1 — Refinement (`/refine-usecases`) — *command forthcoming; contract fixed here*
+## Phase 1 — Refinement (`/refine-usecases`)
 
-Per epic, distil the product TBDs into a batched question file for the BA, and once answered produce
-TBD-free refined UCs. Both artifacts live in the **epic folder**, leaving the verbatim source untouched.
+Per epic, turn the product TBDs into a batched question file for the BA, and — once the BA has answered
+— fold those answers into TBD-free refined use cases. The output of phase 1 is **UCs without TBD**
+(spec §1). Both artifacts live in the **epic folder**; the verbatim source under `specs/use-cases/` is
+never touched.
+
+Unlike ingestion, refinement is **not interactive** — its channel is a file the BA fills
+asynchronously (spec §1). `/refine-usecases` therefore dispatches you as a **subagent**: you do the file
+work and report, with no chat round-trip. The BA (or whoever stands in) answers offline, then a second
+run folds the answers.
+
+### Two artifacts
 
 - **`specs/epics/<NN>-slug/questions_for_ba.md`** — numbered PRODUCT questions, batched (not drip-fed),
-  each citing its UC + the line it came from, with a blank answer slot the BA fills. Architecture
-  questions do **not** go here — they are noted for the architect.
-- **`specs/epics/<NN>-slug/UC-NNN.refined.md`** — a copy of the UC with the BA's answers folded in and
-  the TBDs resolved. The original `specs/use-cases/UC-NNN.md` is **never edited** (it mirrors the
-  extractor's verbatim output). The architect reads the `.refined.md` when present, else the original.
+  each citing its UC and quoting the line it came from, with a blank answer slot. PRODUCT only —
+  architecture questions never go here; they stay in `epic.md`'s "Raised as question → architect" notes.
 
-The output of phase 1 is **UCs without TBD** (spec §1). The full procedure is added when
-`/refine-usecases` is built.
+  ````markdown
+  # Questions for the BA — Epic <NN> <Title>
+
+  Product questions only — decisions for the product owner / BA. Architecture questions are not here.
+  Answer inline under each question; leave everything else as-is. When every answer is filled, re-run
+  `/refine-usecases <epic>` to fold them into the refined use cases.
+
+  ## Q1 · <short topic> — UC-<NN>
+  - **From**: "<the UC line / TBD this came from, quoted verbatim>"
+  - **Question**: <the product question, phrased for a non-technical BA>
+  - **Answer**: _(pending)_
+  ````
+
+- **`specs/epics/<NN>-slug/UC-NNN.refined.md`** — a copy of the UC with the BA's answers folded in and
+  the product TBDs resolved inline. The original is **never edited**; the architect reads the
+  `.refined.md` when present, else the original.
+
+  ````markdown
+  # UC-<NN> (refined) — <Title>
+
+  > Refined from `specs/use-cases/UC-<NN>-<slug>.md` (verbatim, unchanged). Folds in the BA's answers
+  > from `questions_for_ba.md` and resolves the product TBDs. Architecture questions stay open in `epic.md`.
+
+  <the UC body copied, each resolved TBD replaced inline by the decided outcome>
+
+  ## Refinement log
+  - Q1 (<topic>): <the BA's answer> → applied to <where in the UC>.
+  ````
+
+### Procedure (state-detected: generate, then — once answered — fold)
+
+You handle exactly one epic per run (the command names it in your invocation prompt; it dispatches one
+of you per epic in scope). Read that epic's `questions_for_ba.md` first if it exists, then pick the stage:
+
+**Stage A — Generate** (no `questions_for_ba.md`, or it still has `_(pending)_` slots):
+1. Collect product questions from the epic's "Open product questions" seeds **and** a re-scan of the
+   member UCs for product TBDs (`discuss with …`, `flag for a future UC`, `TBD`, deferred-scope
+   confirmations) not already captured.
+2. Write `questions_for_ba.md` per the template — batched, numbered, each citing its UC and quoting the
+   source line. If the scan surfaces an *architecture* question not already in `epic.md`, add it to
+   `epic.md`'s architect notes — never to this file.
+3. Report: questions written, the epic is waiting on the BA. **Stop — never invent answers.**
+
+**Stage B — Fold** (every answer slot is filled, no `_(pending)_` left):
+1. For each member UC, write `UC-NNN.refined.md`: copy the source, resolve each product TBD inline per
+   the BA's answer, append the refinement log. Never edit `specs/use-cases/`.
+2. Set the epic's `Status` to `refined`.
+3. Report: refined UCs written, any answers still pending (left for a later fold), and a reminder that
+   the architecture questions in `epic.md` remain for the architect.
+
+Brownfield: a new UC added to an epic appends its product questions (answered ones are never clobbered);
+re-folding updates the refined UCs in place.
 
 ---
 
