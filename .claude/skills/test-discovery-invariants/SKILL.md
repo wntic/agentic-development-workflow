@@ -1,11 +1,11 @@
 ---
 name: test-discovery-invariants
-description: Apply once per project to install the cross-cutting integration tests that derive their inputs from the running FastAPI app instead of from hand-maintained registries. Produces four or five test files under `tests/integration/api/` — `test_unauth_returns_401.py` (emitted **only when the app declares auth**: every authenticated route, discovered via `app.routes`, returns 401 with the documented `code` and `WWW-Authenticate` header when called with no token), `test_openapi_advertises_error_codes.py` (every operation in `app.openapi()` declares all the error codes the route can produce, derived from the `error_responses(...)` decorator), `test_cors.py`, `test_request_size_limit.py` (`413` when exceeding `MaxRequestSizeMiddleware`), and `test_info.py` (or `test_health.py`). Adding a new endpoint never requires editing any of these files — discovery handles it. Does not produce per-endpoint tests (use `test-restapi-endpoint`), the rollback fixture (use `test-integration-isolation`), the `authed_client` factory (use `test-integration-authed-client`), or any registry-style table.
+description: Apply once per project to install the cross-cutting integration tests that derive their inputs from the running FastAPI app instead of from hand-maintained registries. Produces four or five test files under `tests/integration/api/` — `test_unauth_returns_401.py` (emitted **only when the app declares auth**: every authenticated route, discovered via `app.routes`, returns 401 with the documented `code` and `WWW-Authenticate` header when called with no token), `test_openapi_advertises_error_codes.py` (every operation in `app.openapi()` declares all the error codes the route can produce, derived from the `error_responses(...)` decorator), `test_cors.py`, `test_request_size_limit.py` (`413` when exceeding `MaxRequestSizeMiddleware`), and `test_info.py` (or `test_health.py`) — plus one unit-level smoke `tests/unit/restapi/test_app_constructs.py` that constructs the app (no database) so a construct-time failure the toolchain otherwise misses (a missing framework dependency like `python-multipart`, broken middleware wiring, a route whose schema won't build) reds the gate. Adding a new endpoint never requires editing any of these files — discovery handles it. Does not produce per-endpoint tests (use `test-restapi-endpoint`), the rollback fixture (use `test-integration-isolation`), the `authed_client` factory (use `test-integration-authed-client`), or any registry-style table.
 ---
 
 # Test — Discovery Invariants
 
-One-shot per project. Four or five test files (the `test_unauth_returns_401.py` probe is emitted only when the app declares auth — see Rules). Each one iterates the running app and asserts a single global property; none of them needs to be edited when an endpoint is added or removed.
+One-shot per project. Four or five integration files under `tests/integration/api/` (the `test_unauth_returns_401.py` probe is emitted only when the app declares auth — see Rules) plus one unit-level app-construction smoke. Each one iterates — or constructs — the running app and asserts a single global property; none of them needs to be edited when an endpoint is added or removed.
 
 ## When to use vs. neighbours
 
@@ -19,12 +19,35 @@ One-shot per project. Four or five test files (the `test_unauth_returns_401.py` 
 
 ```
 tests/integration/api/
-├── test_unauth_returns_401.py
+├── test_unauth_returns_401.py            # auth apps only (Rule 11)
 ├── test_openapi_advertises_error_codes.py
 ├── test_cors.py
 ├── test_request_size_limit.py
 └── test_info.py
+tests/unit/restapi/
+└── test_app_constructs.py                # unit-level construct smoke, no DB (Rule 12)
 ```
+
+### `tests/unit/restapi/test_app_constructs.py`
+
+```python
+from myapp.containers import Container
+from myapp.restapi.main import create_app
+
+
+def test_app_constructs_and_renders_openapi() -> None:
+    """Smoke: the composition root + app shell wire up, and the OpenAPI schema
+    renders over every route. This is the ONLY place a construct-time failure
+    surfaces — a missing framework dependency FastAPI imports at app-build time
+    (e.g. `python-multipart` for a Form(...)/UploadFile route, raised at
+    create_app, never at type-check), broken middleware wiring, or a route
+    whose response schema won't build. mypy / ruff / handler unit tests all
+    stay green through these; constructing the app does not."""
+    app = create_app(container=Container())
+    assert app.openapi()["paths"]  # forces the full schema build over every route
+```
+
+This lives at the **unit** layer, not under `tests/integration/`, on purpose: `create_app` needs **no** database — `dependency-injector` providers are lazy, so it wires routers/middleware/error-handlers without resolving a handler or opening a connection. Placing it under `tests/integration/` would drag that tree's session-autouse `_migrated_db` / `_guard_against_real_db` fixtures and require Postgres, defeating the point — the construct-time defect class must be catchable with no Docker daemon (exactly the environment where mypy/ruff/unit run green and miss it). The test is structural, not a body test: it passes on a fresh scaffold (route functions exist with valid signatures; their `NotImplementedError` bodies are never *called* by construction or `openapi()`), so a missing dependency reds it at scaffold time, before any implementer runs.
 
 ### `test_unauth_returns_401.py`
 
@@ -243,6 +266,7 @@ async def test_info_endpoint_is_public_and_returns_200(real_app):
 9. **No `@pytest.mark.integration` and no `@pytest.mark.asyncio`** — path-based collection and auto mode handle both.
 10. **`pytest_generate_tests` for parametrized discovery.** Using `pytest.fixture` + parametrize at function scope can't both reference the same dynamically-discovered list cleanly; `pytest_generate_tests` is the standard hook.
 11. **`test_unauth_returns_401.py` is auth-gated, like `test_info.py` is `/info`-gated.** Its module-level `from myapp.restapi.dependencies import get_current_user` + `from myapp.domain.exceptions import UnauthorizedError` exist **only** when the app declares auth (auth-presence is graph-derived — any endpoint `auth != anonymous` / a token-verifier capability). In an all-anonymous app there is no `dependencies.py`, no `UnauthorizedError`, and no protected route to probe, so the file would fail to import at collection time and take down the whole `tests/integration/api/` package. Emit five files when the app declares auth, four (drop the 401 file) when it does not.
+12. **`test_app_constructs.py` is the always-emitted, unit-level construct smoke.** It is the one file this skill places at `tests/unit/restapi/`, not `tests/integration/api/`, because it needs no database (lazy DI providers → `create_app` opens nothing) and must run with no Docker daemon — the environment where the other gates pass and a construct-time dependency gap (`python-multipart`, …) slips through. Construct via `create_app(container=Container())` directly (no `real_app` fixture), assert `app.openapi()["paths"]`. Sync, no fixtures, no `await`. It is structural (green on a fresh scaffold), so it is emitted for every app, auth or not.
 
 ## Inlined typing / import rules
 
@@ -265,3 +289,5 @@ async def test_info_endpoint_is_public_and_returns_200(real_app):
 - Project declares no auth (every endpoint anonymous) → do not produce `test_unauth_returns_401.py`; its `get_current_user` / `UnauthorizedError` imports do not exist in an auth-less app, and there are no protected routes to probe (Rule 11).
 - Spec freezes the `WWW-Authenticate` challenge to a specific realm (`Bearer realm="myapp"`) → stop, only the scheme is load-bearing (`.startswith("Bearer")`); the realm is app-specific.
 - Spec pins the 401 body code to a literal string (`"UNAUTHORIZED"`) → stop, assert against the domain exception's `.code` constant, not a frozen literal.
+- Spec proposes placing `test_app_constructs.py` under `tests/integration/` (next to the other discovery tests) → stop, it stays at `tests/unit/restapi/`: under `tests/integration/` the session-autouse `_migrated_db` / `_guard_against_real_db` fixtures would force Postgres on a check that opens no connection, so it could no longer run without a Docker daemon — the one place the construct-time defect class is catchable.
+- Spec makes the construct smoke `async` / gives it `real_app` or any DB fixture → stop, it constructs via `create_app(container=Container())` directly and is plain sync; needing a fixture means it is no longer the Docker-less unit smoke.

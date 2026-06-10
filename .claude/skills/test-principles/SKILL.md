@@ -20,6 +20,7 @@ Every other `test-*` skill consults this one. The rules here are the **catalog-l
 |-------|-------|-------------|-------------------------|-----------------|
 | Domain unit | `test-domain-entity`, `test-domain-value-object`, `test-domain-enum`, `test-domain-service` | No | < 10 ms | Identity equality, `__post_init__` invariants, enum values, pure-logic services, single-rule policies |
 | Application handler unit | `test-application-handler` (+ `test-fake-repository`) | No (in-memory fakes) | < 50 ms | Handler orchestration, PATCH semantics, normalization, domain-exception propagation, compensating-tx undo |
+| App construct smoke | `test-discovery-invariants` | No (constructs the app, no DB) | < 100 ms | Construct-time wiring + framework deps the type/lint/unit layers miss (e.g. `python-multipart`), OpenAPI schema build |
 | Repository contract | `test-repository-contract` | Real Postgres via testcontainers, transaction-rollback isolation | < 500 ms | `IntegrityError` translation, constraint-name map, cascades, `onupdate=`, `get_by_*` semantics |
 | REST endpoint | `test-restapi-endpoint` | Real app + real Postgres via ASGI | < 1 s | Routing, DI wiring, auth (when declared), request/response validation, tenancy/authorization scoping (when the app declares multi-tenancy) |
 | Discovery invariants | `test-discovery-invariants` | Real app, no DB calls | < 500 ms | Global properties (every protected route 401s; every code in OpenAPI matches `error_responses(...)`; CORS; 413) |
@@ -39,6 +40,7 @@ tests/
 │   │   └── fake_<aggregate>_repository.py       # no __init__.py, no conftest, direct import
 │   ├── domain/                                  # domain unit tests
 │   ├── application/                             # handler unit tests
+│   ├── restapi/                                 # test_app_constructs.py — construct smoke, no DB (test-discovery-invariants)
 │   └── test_architecture.py                     # grep firewalls
 └── integration/
     ├── conftest.py                              # OWNED BY test-integration-isolation

@@ -81,6 +81,14 @@ package root:
 - `uv run mypy src/<package>` · `uv run ruff check src tests` · `uv run ruff format src tests` ·
   `uv run pytest` (flat tests green; `_manual` stubs stay skipped — expected, their asserts are a
   deferred step, §9).
+  - **App-construction smoke is part of this `pytest` run.** `tests/unit/restapi/test_app_constructs.py`
+    (from `test-discovery-invariants`) constructs `create_app(container=Container())` and renders
+    `app.openapi()` with no database. It is the only gate that catches **construct-time** failures the
+    type/lint/unit layers miss — a missing framework dependency FastAPI imports at app-build time
+    (`python-multipart` for a multipart route, …), broken middleware wiring, or a route whose schema
+    won't build. A red here on a freshly scaffolded tree is usually an upstream dependency-derivation
+    gap (`conventions` block D / the scaffolder's `pyproject`), not an implementer's body — escalate it
+    as a meta-layer defect, don't patch the generated tree.
 - **No-silenced-imports gate (deterministic).** `grep -rn "# noqa: F401" src` must return **nothing**.
   An inline `# noqa: F401` on a content module is never sanctioned (only the project-wide
   `__init__.py` F403/F405 per-file ignore in `pyproject.toml` is) — a hit means the scaffolder
