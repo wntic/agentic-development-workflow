@@ -182,6 +182,12 @@ run folds the answers.
   - Q1 (<topic>): <the BA's answer> → applied to <where in the UC>.
   ````
 
+  **Fidelity** — the refined UC is the source with its product TBDs resolved, not a rewrite. The title
+  is `# UC-<NN> (refined) — <the source's title text>` (this fixed form regardless of the source's own
+  punctuation); preserve the source's section structure, resolving each TBD inline where it already
+  lives. Add **no** per-UC `Status` line — refinement status is epic-level and lives in `epic.md`. Only
+  the banner and the `Refinement log` are new.
+
 ### Procedure (state-detected: generate, then — once answered — fold)
 
 You handle exactly one epic per run (the command names it in your invocation prompt; it dispatches one
