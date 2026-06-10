@@ -2,7 +2,7 @@
 
 **Module(s)**: Support / Tickets
 **Member use cases**: UC-02
-**Status**: ingested
+**Status**: refined
 
 ## Scope
 

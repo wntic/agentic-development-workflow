@@ -2,7 +2,7 @@
 
 **Module(s)**: Support / Reference data
 **Member use cases**: UC-03
-**Status**: ingested
+**Status**: refined
 
 ## Scope
 

@@ -2,7 +2,7 @@
 
 **Module(s)**: Identity / Authentication
 **Member use cases**: UC-01
-**Status**: ingested
+**Status**: refined
 
 ## Scope
 
