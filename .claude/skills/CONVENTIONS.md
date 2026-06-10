@@ -63,7 +63,7 @@ The `pattern-` prefix marks a skill that **spans layers** (a domain port + an in
 ### REST API entrypoint
 
 - `restapi-app-bootstrap` — **one-shot per project.** Creates `main.py`, `error_handler.py`, `dependencies.py`, `schemas/errors.py`. Attaches the DI container, lifespan, CORS, max-request-size middleware, and the central `DomainError` handler. The catalog of allowed error statuses derives dynamically from `domain.exceptions.__all__` — no `domain/error_catalog.py` is created or maintained.
-- `restapi-endpoint` — one HTTP endpoint in a `restapi/routers/<resource>.py` file. Consumes `auth_mode` and `error_codes` decisions; does not own them.
+- `restapi-endpoint` — one HTTP endpoint in a `restapi/routers/<resource>.py` file. Consumes the route's auth decision (from `restapi-auth-dependency`) and the error codes it advertises (via `restapi-error-responses`); does not own them.
 - `restapi-schema` — Pydantic Request/Response models for one resource.
 - `restapi-auth-dependency` — decision rule for `get_current_user` vs `require_role(Role.X)` and the `_` vs `user` binding. Owns the auth choice; `restapi-endpoint` consumes it.
 - `restapi-error-responses` — route-level `responses=error_responses(...)` advertisement and the rare middleware-code registration. Adding a `DomainError` subclass needs no registry append — the catalog is dynamic.
