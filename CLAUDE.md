@@ -61,7 +61,7 @@ Input is a set of BA use cases (PDF), or free text, or "prototype X". The flow (
 | 1. UC refinement (product questions → BA) | analyst agent | agent, file-channel | `/refine-usecases` *(planned)* |
 | 2. Manifest build / delta (architecture questions → you) | architect agent | agent, interactive chat | `/build-manifest`, `/apply-delta` *(planned)* |
 | — Manifest validation | stdlib graph check (no deps) | deterministic, no LLM | `/validate-manifest` *(planned)* — exists as `.claude/tools/validate_manifest.py` |
-| 3. Scaffolding (declarative + glue + body scaffolds + red tests) | scaffolder agent | agent (role) | `/scaffold` *(planned)* — exists as `.claude/agents/scaffolder.md` |
+| 3. Scaffolding (declarative + glue + body scaffolds + red tests) | scaffolder agent | agent (role) | `/scaffold` — built (`.claude/commands/scaffold.md` + `.claude/agents/scaffolder.md`) |
 | 4. Scaffold tail (fill scaffolded bodies behind contracts) | implementer agent | agent, parallel by DAG | `.claude/agents/implementer.md` + `/verify` (dispatch) |
 | — Verification loop (mypy / ruff / behavioural tests, TDD mode) | runner + implementer | code + agent in a loop | `/verify` — exists (`.claude/commands/verify.md` + thin runner `.claude/tools/plan_implementation.py` + `.claude/tools/scaffold_snapshot.py` for baseline/diff attribution) |
 
@@ -106,18 +106,22 @@ generator, store profiles, and drift check still exist and their tests still pas
 the path and **must not be extended** (removal is deferred to §13's "потом", after the agentic path is
 proven on an epic; `main` stays the generator archive — this branch is not merged there).
 
-**Done (spec §13 steps 3–4):** the **scaffolder** agent (`.claude/agents/scaffolder.md`); the rewritten
+**Done (spec §13 steps 3–5) — the agentic forward path is proven.** The **scaffolder** agent
+(`.claude/agents/scaffolder.md`) + `/scaffold` (`.claude/commands/scaffold.md`); the rewritten
 **implementer** agent (`.claude/agents/implementer.md` — body-fill only, file-as-unit, strict §9
-anti-collusion) + the verification loop as `/verify` (`.claude/commands/verify.md`) driven by the thin
+anti-collusion) + the verification loop `/verify` (`.claude/commands/verify.md`) driven by the thin
 stdlib runner `.claude/tools/plan_implementation.py` (deterministic NotImplementedError/column-less-table
-trigger + DAG-level worklist, reusing the validator). Smoke-green on helpdesk5 (3 nodes / 3 skills
-red→green, mypy clean, anti-collusion held).
+trigger + DAG-level worklist, reusing the validator). Step 5 drove the full path end-to-end on helpdesk
++ vector_rag into `examples/generated/` — validator → scaffolder → implementer (by DAG) → verify —
+mypy/ruff clean, unit tests green, the app constructs with full OpenAPI.
 
-**Still to build (spec §13 step 5, then the upstream bundle):** the first Helpdesk epic end-to-end —
-drive the full `/verify` over every node incl. the §9 review tail (manual-stub asserts + adversarial
-verifier are deferred seams) and the deps-installed integration run; afterwards the **analyst /
-architect** agents and the pipeline slash-commands. See the work order in `codegen_workflow_spec.md`
-(§13) and `notes/6_build_plan.txt`.
+**Still to build (the upstream bundle, then the deferred work).** In workflow order: the **analyst**
+agent + `/ingest-usecases` + `/refine-usecases`; the **architect** agent + `/build-manifest` +
+`/apply-delta`; and the `/validate-manifest` wrapper. Until these exist, manifests are written by hand.
+Deferred (spec §13 «потом»): the brownfield frontier (orphan GC + rename-with-body-transfer), plugin
+packaging + multi-language, and removing the `src/codegen` archive. Open seams: a Docker-backed
+integration run (testcontainers), and the §9 review tail (manual-stub assert authorship + adversarial
+verifier). See the work order in `codegen_workflow_spec.md` (§13) and `notes/6_build_plan.txt`.
 
 ## Repository map
 
@@ -131,8 +135,8 @@ codegen_pipeline_v2_with_ingestion.svg  # the pipeline diagram
     <prefix>-<name>/SKILL.md      # e.g. domain-entity, application-command, restapi-endpoint
   tools/                          # the stdlib manifest validator (validate_manifest.py — SCHEMAS is the
                                   # CANONICAL manifest shape) + gen_template.py + its tests + fixtures/
-  agents/                         # uc-extractor (done); implementer (WIP); scaffolder/analyst/architect to build
-  commands/                       # slash-commands: extract-ucs, brainstorm, commit (pipeline commands to be built)
+  agents/                         # uc-extractor, scaffolder, implementer (done); analyst/architect to build
+  commands/                       # slash-commands: extract-ucs, scaffold, verify, brainstorm, commit (upstream pipeline commands to be built)
   templates/
     MANIFEST_SCHEMA.md            # STALE prose, not the contract — pending a thin rewrite (validator wins on conflict)
     manifest.template.yaml        # the manifest shape skeleton — GENERATED from validate_manifest.SCHEMAS (gen_template.py), never hand-edited
@@ -208,10 +212,10 @@ agentic path: `uv run pytest tests/` and `uv run python examples/generate.py <ma
 `mypy` is part of the *designed* verification loop (spec §12) — type-correctness is load-bearing for
 catching contract drift on scaffolded bodies.
 
-Pipeline slash-commands: `/verify` is **built** (`.claude/commands/verify.md` + the runner
-`.claude/tools/plan_implementation.py`); the upstream ones (`/ingest-usecases`, `/refine-usecases`,
-`/build-manifest`, `/apply-delta`, `/validate-manifest`, `/scaffold`) are **not built yet** — see the
-stage table above and `notes/6_build_plan.txt`. Building them, in workflow order, is the current work.
+Pipeline slash-commands: `/scaffold` and `/verify` are **built** (`.claude/commands/{scaffold,verify}.md`
++ the runner `.claude/tools/plan_implementation.py`); the upstream ones (`/ingest-usecases`,
+`/refine-usecases`, `/build-manifest`, `/apply-delta`, `/validate-manifest`) are **not built yet** — see
+the stage table above and `notes/6_build_plan.txt`. Building them, in workflow order, is the current work.
 
 ## Conventions when extending the pipeline
 
