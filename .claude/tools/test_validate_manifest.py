@@ -67,6 +67,25 @@ def test_unresolved_handler_dependency() -> None:
     assert _has(report, "unresolved_ref", "IGhostRepository")
 
 
+def test_value_object_resolves_as_a_dependency() -> None:
+    # A tunable value object is DI-injected into a service / handler (the domain-value-object tunable
+    # variant); its name must resolve in a dependency list rather than read as a broken edge.
+    def mutate(d: dict) -> None:
+        d["domain"].setdefault("value_objects", []).append(
+            {
+                "name": "RetentionTunable",
+                "subdomain": "labels",
+                "fields": [{"name": "days", "type": "int"}],
+                "sources": ["UC-03"],
+            }
+        )
+        _command(d, "DeleteLabel")["handler"]["dependencies"].append("RetentionTunable")
+
+    report = vm.validate(_data(mutate))
+    assert report.ok
+    assert not _has(report, "unresolved_ref", "RetentionTunable")
+
+
 def test_undeclared_exception_in_raises() -> None:
     report = vm.validate(_data(lambda d: _command(d, "DeleteLabel")["raises"].append("BoomError")))
     assert _has(report, "unresolved_ref", "BoomError")

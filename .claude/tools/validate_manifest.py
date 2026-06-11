@@ -616,7 +616,14 @@ def _check_graph(m: dict, report: Report) -> None:
     repo_protocol_names = {p["name"] for p in d["repository_protocols"]}
     capability_names = {c["name"] for c in d["capability_protocols"]}
     service_names = {s["name"] for s in d["services"]}
-    dependency_names = repo_protocol_names | capability_names | service_names
+    value_object_names = {v["name"] for v in d["value_objects"]}
+    # A value object resolves as a dependency only in its tunable role — a config knob DI-wired as a
+    # Singleton from settings (the domain-value-object tunable variant), injected into services /
+    # handlers. Ordinary VOs (Email, a principal) are built inline and never injected. The validator
+    # stays graph-only: the tunable-vs-ordinary judgment is the architect's, and the
+    # <Stem>Tunable <- <Stem>Settings wiring is the conventions skill's derivation, not a naming rule
+    # encoded here.
+    dependency_names = repo_protocol_names | capability_names | service_names | value_object_names
     settings_names = {s["name"] for s in infra["settings"]}
     datastore_names = {ds["name"] for ds in infra["datastores"]}
     exception_names = {x["name"] for x in d["exceptions"]}
