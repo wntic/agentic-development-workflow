@@ -122,6 +122,12 @@ frontier (spec §4/§14) — surface them for review, do not guess. The full pro
   refinement; do not answer it.
 - A coverage-gap (a UC concept that fits no existing skill's scope — e.g. a websocket on top of
   `restapi-endpoint`) → stop and escalate; do not stretch a skill silently (spec §16).
+- A refined **product** decision cannot be expressed in the manifest schema (e.g. an env-tunable
+  threshold that needs a tunable value object injected into a service) → **stop and escalate the schema
+  gap**. Do not silently downgrade the decision to make the build fit — hard-coding a constant or
+  deferring it to a "later schema question" turns a product commitment into an architecture liberty,
+  which the two-channel rule forbids. The decision is canonical; what bends is the schema (a
+  human-reviewed validator / skill change), or you escalate why it cannot.
 
 ## Out of scope
 
