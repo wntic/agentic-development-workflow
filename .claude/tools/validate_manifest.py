@@ -605,11 +605,59 @@ def _is_cross_epic(ref: str) -> bool:
     return ":" in ref
 
 
+def build_cross_index(siblings: list[dict]) -> dict[tuple[str, str], set[str]]:
+    """Index sibling manifests so a cross-epic ref `subdomain:Name` can be resolved (spec §7/§8,
+    the cross-epic-resolution frontier). Maps (subdomain, category) -> node names for DOMAIN nodes
+    (which carry a `subdomain`), and ("*", category) -> names for the subdomain-less categories
+    (exceptions / settings / datastores / handlers / schemas, resolved by name alone). The `category`
+    keys mirror the local valid-sets `check_ref` consults. Reads raw (un-normalized) sibling dicts
+    defensively — a malformed sibling contributes nothing rather than raising."""
+    idx: dict[tuple[str, str], set[str]] = {}
+
+    def add(sub: object, category: str, name: object) -> None:
+        if isinstance(sub, str) and isinstance(name, str) and name:
+            idx.setdefault((sub, category), set()).add(name)
+
+    for sm in siblings:
+        if not isinstance(sm, dict):
+            continue
+        d = sm.get("domain") or {}
+        a = sm.get("application") or {}
+        infra = sm.get("infrastructure") or {}
+        rest = sm.get("restapi") or {}
+        for e in d.get("entities") or []:
+            add(e.get("subdomain"), "entity", e.get("name"))
+        for p in d.get("repository_protocols") or []:
+            add(p.get("subdomain"), "repo_protocol", p.get("name"))
+            add(p.get("subdomain"), "dependency", p.get("name"))
+        for c in d.get("capability_protocols") or []:
+            add(c.get("subdomain"), "capability", c.get("name"))
+            add(c.get("subdomain"), "dependency", c.get("name"))
+        for s in d.get("services") or []:
+            add(s.get("subdomain"), "dependency", s.get("name"))
+        for v in d.get("value_objects") or []:
+            add(v.get("subdomain"), "dependency", v.get("name"))
+        for en in d.get("enums") or []:
+            add(en.get("subdomain"), "enum", en.get("name"))
+        for x in d.get("exceptions") or []:
+            add("*", "exception", x.get("name"))
+        for st in infra.get("settings") or []:
+            add("*", "settings", st.get("name"))
+        for ds in infra.get("datastores") or []:
+            add("*", "datastore", ds.get("name"))
+        for h in (a.get("commands") or []) + (a.get("queries") or []):
+            add("*", "handler", h.get("name"))
+        for sc in rest.get("schemas") or []:
+            add("*", "schema", sc.get("name"))
+    return idx
+
+
 def _is_uuid_type(type_str: str) -> bool:
     return type_str.split("|")[0].strip() == "UUID"
 
 
-def _check_graph(m: dict, report: Report) -> None:
+def _check_graph(m: dict, report: Report, cross_index: dict[tuple[str, str], set[str]] | None = None) -> None:
+    cross = cross_index or {}
     d, a, infra, rest = m["domain"], m["application"], m["infrastructure"], m["restapi"]
 
     entity_names = {e["name"] for e in d["entities"]}
@@ -630,49 +678,87 @@ def _check_graph(m: dict, report: Report) -> None:
     handler_names = {c["name"] for c in a["commands"]} | {q["name"] for q in a["queries"]}
     schema_names = {s["name"] for s in rest["schemas"]}
 
-    def check_ref(ref: str, valid: set[str], *, where: str, kind: str) -> None:
+    def check_ref(ref: str, valid: set[str], *, where: str, kind: str, category: str) -> None:
         if _is_cross_epic(ref):
-            report.add(
-                "warning",
-                "cross_epic_edge",
-                f"{where}: cross-epic ref {ref!r} left unresolved (no other manifests yet)",
-            )
+            prefix, _, name = ref.partition(":")
+            if name in cross.get((prefix, category), set()) or name in cross.get(("*", category), set()):
+                return  # resolved against a sibling manifest
+            if cross:
+                # siblings were provided → a cross-epic ref that resolves to nothing is a real error
+                report.add(
+                    "error",
+                    "unresolved_cross_epic_ref",
+                    f"{where}: cross-epic {kind} {ref!r} matches no node in the sibling manifests",
+                )
+            else:
+                # single-manifest mode (no siblings) → keep the non-blocking warning (back-compat)
+                report.add(
+                    "warning",
+                    "cross_epic_edge",
+                    f"{where}: cross-epic ref {ref!r} left unresolved (no sibling manifests provided)",
+                )
             return
         if ref not in valid:
             report.add("error", "unresolved_ref", f"{where}: {kind} {ref!r} is not declared in this manifest")
 
     for p in d["repository_protocols"]:
-        check_ref(p["aggregate"], entity_names, where=f"repository_protocol {p['name']}", kind="aggregate")
+        check_ref(
+            p["aggregate"], entity_names, where=f"repository_protocol {p['name']}", kind="aggregate", category="entity"
+        )
 
     for svc in d["services"]:
         for dep in svc["dependencies"]:
-            check_ref(dep, dependency_names, where=f"service {svc['name']}", kind="dependency")
+            check_ref(dep, dependency_names, where=f"service {svc['name']}", kind="dependency", category="dependency")
         for meth in svc["methods"]:
             for exc in meth["raises"]:
-                check_ref(exc, exception_names, where=f"service {svc['name']}", kind="exception")
+                check_ref(exc, exception_names, where=f"service {svc['name']}", kind="exception", category="exception")
 
     for node in (*a["commands"], *a["queries"]):
         for dep in node["handler"]["dependencies"]:
-            check_ref(dep, dependency_names, where=f"handler {node['name']}", kind="dependency")
+            check_ref(dep, dependency_names, where=f"handler {node['name']}", kind="dependency", category="dependency")
         for exc in node["raises"]:
-            check_ref(exc, exception_names, where=f"handler {node['name']}", kind="exception")
+            check_ref(exc, exception_names, where=f"handler {node['name']}", kind="exception", category="exception")
 
     for ds in infra["datastores"]:
         if ds["settings"] is not None:
-            check_ref(ds["settings"], settings_names, where=f"datastore {ds['name']}", kind="settings")
+            check_ref(
+                ds["settings"], settings_names, where=f"datastore {ds['name']}", kind="settings", category="settings"
+            )
 
     for r in infra["repositories"]:
-        check_ref(r["implements"], repo_protocol_names, where=f"repository {r['implements']}", kind="protocol")
-        check_ref(r["backs"], entity_names, where=f"repository {r['implements']}", kind="aggregate")
+        check_ref(
+            r["implements"],
+            repo_protocol_names,
+            where=f"repository {r['implements']}",
+            kind="protocol",
+            category="repo_protocol",
+        )
+        check_ref(r["backs"], entity_names, where=f"repository {r['implements']}", kind="aggregate", category="entity")
         if r["store"] is not None:
-            check_ref(r["store"], datastore_names, where=f"repository {r['implements']}", kind="datastore")
+            check_ref(
+                r["store"],
+                datastore_names,
+                where=f"repository {r['implements']}",
+                kind="datastore",
+                category="datastore",
+            )
 
     for cap in infra["capabilities"]:
         check_ref(
-            cap["implements"], capability_names, where=f"capability {cap['implements']}", kind="capability protocol"
+            cap["implements"],
+            capability_names,
+            where=f"capability {cap['implements']}",
+            kind="capability protocol",
+            category="capability",
         )
         if cap["settings"] is not None:
-            check_ref(cap["settings"], settings_names, where=f"capability {cap['implements']}", kind="settings")
+            check_ref(
+                cap["settings"],
+                settings_names,
+                where=f"capability {cap['implements']}",
+                kind="settings",
+                category="settings",
+            )
 
     for e in d["entities"]:
         for fld in e["fields"]:
@@ -686,11 +772,11 @@ def _check_graph(m: dict, report: Report) -> None:
 
     for ep in rest["endpoints"]:
         loc = f"endpoint {ep['method']} {ep['path']}"
-        check_ref(ep["handler"], handler_names, where=loc, kind="handler")
+        check_ref(ep["handler"], handler_names, where=loc, kind="handler", category="handler")
         if ep["request"] is not None:
-            check_ref(ep["request"], schema_names, where=loc, kind="request schema")
+            check_ref(ep["request"], schema_names, where=loc, kind="request schema", category="schema")
         if ep["response"] is not None:
-            check_ref(ep["response"], schema_names, where=loc, kind="response schema")
+            check_ref(ep["response"], schema_names, where=loc, kind="response schema", category="schema")
 
     _check_behaviour_consistency(m, report)
 
@@ -865,12 +951,14 @@ def load_yaml(path: Path) -> object:
     return yaml.safe_load(path.read_text())
 
 
-def validate(data: object, uc_dir: Path | None = None) -> Report:
+def validate(data: object, uc_dir: Path | None = None, siblings: list[dict] | None = None) -> Report:
     """Validate an already-parsed manifest (a plain dict). Pure stdlib — no YAML, no I/O
-    except optional `sources` resolution against `uc_dir`."""
+    except optional `sources` resolution against `uc_dir`. When `siblings` (other parsed manifests
+    of the same app) are given, cross-epic refs (`subdomain:Name`) are RESOLVED against them — an
+    unresolved cross-epic ref becomes an error; with no siblings it stays a non-blocking warning."""
     report = Report()
     m = _check_mapping(data, "Manifest", "", report)
-    _check_graph(m, report)
+    _check_graph(m, report, build_cross_index(siblings) if siblings else None)
     _check_skill_coverage(m, report)
     _check_degradation(m, report)
     if uc_dir is not None:
@@ -878,8 +966,9 @@ def validate(data: object, uc_dir: Path | None = None) -> Report:
     return report
 
 
-def validate_file(path: str | Path, uc_dir: Path | None = None) -> Report:
-    return validate(load_yaml(Path(path)), uc_dir)
+def validate_file(path: str | Path, uc_dir: Path | None = None, sibling_paths: list[Path] | None = None) -> Report:
+    siblings = [s for s in (load_yaml(p) for p in (sibling_paths or [])) if isinstance(s, dict)]
+    return validate(load_yaml(Path(path)), uc_dir, siblings or None)
 
 
 def _print_report(report: Report, manifest: str) -> None:
@@ -895,9 +984,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate an epic manifest (form + graph + loud degradation).")
     parser.add_argument("manifest", help="path to the manifest YAML")
     parser.add_argument("--uc-dir", type=Path, default=None, help="resolve `sources:` against this use-case dir")
+    parser.add_argument(
+        "--app",
+        type=Path,
+        default=None,
+        help="resolve cross-epic refs against the sibling manifests under this dir (e.g. specs/epics): "
+        "globs <dir>/*/manifest.yaml, excluding the target itself",
+    )
     args = parser.parse_args(argv)
 
-    report = validate_file(args.manifest, args.uc_dir)
+    sibling_paths: list[Path] | None = None
+    if args.app is not None:
+        target = Path(args.manifest).resolve()
+        sibling_paths = [p for p in sorted(args.app.glob("*/manifest.yaml")) if p.resolve() != target]
+
+    report = validate_file(args.manifest, args.uc_dir, sibling_paths)
     _print_report(report, args.manifest)
     return 0 if report.ok else 1
 

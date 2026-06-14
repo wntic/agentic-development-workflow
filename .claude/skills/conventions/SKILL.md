@@ -136,7 +136,23 @@ Determinism in the redesign lives in verification, not authoring (spec §0 princ
 - pin a substrate / SDK package at scaffold time: `uv add <lib>` (dev: `uv add --dev <lib>`)
 - migrations — **Alembic owns the chain natively; migrations are never generated** (spec §3): `uv run alembic revision --autogenerate -m "<change>"` then `uv run alembic upgrade head`. A schema-drift check (entity fields ↔ table columns) is the deterministic trigger that wakes the implementer to author the next revision.
 
-## F. See also
+## F. Multi-context apps (cross-epic resolution + shared substrate)
+
+A bounded context is one manifest (spec §7); a deployable **app** is a SET of context manifests scaffolded into ONE package — contexts as sibling subpackages, keyed by `subdomain` (`domain/auth/` + `domain/tickets/`, `application/auth/` + `application/tickets/`, …). Greenfield (a single manifest) is the degenerate case. Two derivation rules govern the multi-context case:
+
+**A cross-epic ref is a cross-subdomain reference.** A per-context manifest names a node in another context with the cross-epic notation `<subdomain>:<Name>` (e.g. a Tickets service depends on `auth:IUserRepository`, and its body references `auth:Role`). Because the contexts share one package, this is **not special** — it is exactly a cross-subdomain reference (block A "imports are graph edges"): strip the `<subdomain>:` prefix and resolve `<Name>` in the `<subdomain>` subpackage of the appropriate layer, via the ordinary import rules. So `auth:IUserRepository` injected into a `tickets` service → `from <package>.domain.auth import IUserRepository`; `auth:Role` in its body → the same. The `<subdomain>:` prefix **is** the subpackage; the name after it is resolved there, and the DI provider that injects it is wired in the one shared `containers.py`. (The validator resolves the same notation against sibling manifests — `validate_manifest.py --app <dir>` — turning a broken cross-context edge into an error before scaffolding; with no siblings it stays a non-blocking warning.)
+
+**The substrate is emitted ONCE, from the union of contexts.** Per-context artifacts (everything under `domain/<subdomain>/`, `application/<subdomain>/`, a context's repositories/adapters under their tech subpackage, its routers + per-resource schemas) are emitted per manifest. The SHARED substrate is emitted once for the whole app, from the **union** of the contexts' graphs — never regenerated per-context (that would clobber the other context's contributions):
+- `domain/exceptions.py` — the single catalog is the union of every context's `exceptions`, dedup by name (two contexts both declaring `ValidationError` collapse to one).
+- `infrastructure/postgres/` bootstrap (engine, `session_factory`, `metadata.py`) and the single `DbSettings` — one Postgres substrate; a `DbSettings` / `datastore main` declared in several contexts collapses to one (dedup by name + `env_prefix`).
+- `restapi/main.py` — one app shell, with `app.include_router(...)` for **every** context's router.
+- `restapi/error_handler.py`, `restapi/schemas/errors.py`, `restapi/dependencies.py` — one each (the auth dependencies in `dependencies.py` are shared by every context whose endpoints are authenticated, not only the context that defined auth).
+- `containers.py` — ONE `Container`, wiring every context's providers (auth + tickets + …).
+- `pyproject.toml` — substrate ∪ the union of all contexts' `requires_packages` (block D) over the whole app graph.
+
+Dedup is by identifier: same name (and shape) across contexts → one artifact. A genuine **conflict** (same name, different shape) is never silently merged — surface it for the architect, like any cross-epic ambiguity.
+
+## G. See also
 
 - `general-imports-conventions` — relative vs absolute reach, the same-package collapse, the `from .module import *` re-export contract.
 - `general-python-package` — one class per module, `__all__` placement, subpackage `__init__.py` mechanics.

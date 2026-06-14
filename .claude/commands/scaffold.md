@@ -1,6 +1,6 @@
 ---
 description: "Scaffold a validated manifest into a disposable project tree via the scaffolder agent (spec §3)"
-argument-hint: "<manifest> <package> <output-dir>  |  <manifest>  |  (empty)"
+argument-hint: "<manifest> <package> <output-dir>  |  <manifest>  |  (empty)  |  <context-manifest> into an existing multi-context tree"
 ---
 
 You dispatch the **scaffolder** agent (spec §3) to lay down the entire target tree from a validated
@@ -23,19 +23,30 @@ rest) · empty (discover / ask).
   the scaffolder regenerates declarative/glue but must not clobber an implementer-owned body (§4); a
   fresh tree is the clean case. For a clean test run, pick a NEW dir (e.g. `examples/generated/helpdesk6/`).
 
+**Multi-context (app-mode).** A context that draws cross-epic edges (`<subdomain>:<Name>`, e.g. Tickets →
+`auth:IUserRepository`) is scaffolded into the SAME package as the context it depends on (`conventions`
+block F — contexts as sibling subpackages, shared substrate). When `$ARGUMENTS` names such a context (or
+the output tree already holds another context), treat the in-scope set as the **app**: the new context's
+manifest + the manifests of the contexts already in the tree. Scaffold into the existing output dir, not
+a fresh one.
+
 ## 2. Pre-flight (deterministic, no agent)
 
-`uv run .claude/tools/validate_manifest.py <manifest>` — must be `ok`. A form/graph error or a §16
-presence-gap (a `kind` with no skill) is the **architect's** to fix; stop and report. The scaffolder
-only runs on a fully valid, fully covered manifest.
+`uv run .claude/tools/validate_manifest.py <manifest>` — must be `ok`. For a **multi-context** manifest
+(cross-epic edges present), validate with `--app specs/epics` so those edges resolve against their
+sibling manifests (an unresolved cross-epic ref is then a real error, not a warning). A form/graph error
+or a §16 presence-gap (a `kind` with no skill) is the **architect's** to fix; stop and report. The
+scaffolder only runs on a fully valid, fully covered manifest.
 
 ## 3. Dispatch the scaffolder
 
 Spawn one **`scaffolder`** subagent. Its invocation prompt carries only the resolved inputs (it reads
 the `conventions` skill, the per-node producer skills, and the reference skills itself):
 
-- the **validated manifest** path;
-- the **package name** + the **output root**;
+- the **validated manifest** path — or, in app-mode, the **set of in-scope context manifests** (the new
+  context + the contexts already in the tree), with a note to emit the shared substrate from their UNION
+  (`conventions` block F) and to resolve `<subdomain>:<Name>` cross-epic refs as cross-subdomain imports;
+- the **package name** + the **output root** (the existing tree, in app-mode);
 - a reminder that the output is a disposable, git-ignored src-layout project
   (`<output>/pyproject.toml` + `<output>/src/<package>/` + `<output>/tests/`).
 

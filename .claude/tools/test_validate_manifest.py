@@ -130,6 +130,45 @@ def test_cross_epic_edge_is_warning_not_error() -> None:
     assert _has(report, "cross_epic_edge")
 
 
+def _sibling_with_auth_repo() -> dict:
+    """A minimal sibling manifest declaring an `auth`-subdomain IUserRepository to resolve against."""
+    return {
+        "domain": {"repository_protocols": [{"name": "IUserRepository", "subdomain": "auth"}]},
+        "application": {},
+        "infrastructure": {},
+        "restapi": {},
+    }
+
+
+def test_cross_epic_ref_resolves_against_a_sibling() -> None:
+    report = vm.validate(
+        _data(lambda d: _command(d, "DeleteLabel")["handler"]["dependencies"].append("auth:IUserRepository")),
+        siblings=[_sibling_with_auth_repo()],
+    )
+    assert report.ok
+    assert not _has(report, "cross_epic_edge")  # resolved, no warning
+    assert not _has(report, "unresolved_cross_epic_ref")
+
+
+def test_cross_epic_ref_to_missing_sibling_node_is_error() -> None:
+    report = vm.validate(
+        _data(lambda d: _command(d, "DeleteLabel")["handler"]["dependencies"].append("auth:INoSuchRepository")),
+        siblings=[_sibling_with_auth_repo()],
+    )
+    assert not report.ok
+    assert _has(report, "unresolved_cross_epic_ref")
+
+
+def test_cross_epic_ref_wrong_subdomain_is_error() -> None:
+    # IUserRepository exists, but under `auth`, not `billing` — the prefix must match.
+    report = vm.validate(
+        _data(lambda d: _command(d, "DeleteLabel")["handler"]["dependencies"].append("billing:IUserRepository")),
+        siblings=[_sibling_with_auth_repo()],
+    )
+    assert not report.ok
+    assert _has(report, "unresolved_cross_epic_ref")
+
+
 def test_reserved_audit_field_on_entity() -> None:
     report = vm.validate(
         _data(lambda d: d["domain"]["entities"][0]["fields"].append({"name": "created_at", "type": "datetime"}))
