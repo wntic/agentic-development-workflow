@@ -21,17 +21,28 @@ implementer doing the per-file judgement. You orchestrate; you never write a bod
   guess.
 - If `$ARGUMENTS` is a single token that is not a path, treat it as a `--node` filter (single-node
   mode, step 4) against the discovered manifest + root.
+- **Multi-context app (block F).** When the tree was scaffolded from several sibling context
+  manifests into ONE package (a `specs/**/epics/<NN>-slug/manifest.yaml` with siblings under the same
+  epics dir), there is no single "target" manifest whose nodes cover the whole tree — every other
+  context's body would map `UNMAPPED`. Set `<epics-dir>` to the shared parent and pass `--app
+  <epics-dir>` to **both** pre-flight commands (step 2) so the registry is the union over all
+  contexts. Pick any one of the manifests as the positional `<manifest>`; `--app` adds the siblings.
 
 ## 2. Pre-flight (deterministic, no agents)
 
-1. `uv run .claude/tools/validate_manifest.py <manifest>` — must be `ok`. A form/graph error or a
-   §16 presence-gap is the **architect's** to fix; stop and report, do not scaffold or implement on
-   an invalid manifest.
+1. `uv run .claude/tools/validate_manifest.py <manifest>` — must be `ok` (add `--app <epics-dir>` in
+   multi-context mode so cross-epic refs resolve). A form/graph error or a §16 presence-gap is the
+   **architect's** to fix; stop and report, do not scaffold or implement on an invalid manifest.
 2. `uv run .claude/tools/plan_implementation.py <manifest> <root> --json` (add `--node <X>` in
-   single-node mode). This is the **deterministic trigger + DAG ordering**: it returns the pending
-   files (each still carrying `raise NotImplementedError` or a column-less table), the producer skill
-   per file, the canonical test + its kind (`flat` | `manual` | `none`), and a `dag_level`.
+   single-node mode; add `--app <epics-dir>` in multi-context mode so every context's bodies map and
+   none is left `UNMAPPED`). This is the **deterministic trigger + DAG ordering**: it returns the
+   pending files (each still carrying `raise NotImplementedError` or a column-less table), the
+   producer skill per file, the canonical test + its kind (`flat` | `manual` | `none`), and a
+   `dag_level`.
    - If `count == 0`, every body is filled — skip to step 5 (final gate).
+   - A residual `UNMAPPED` item is a defect, not a body to fill — a scaffolder gap (e.g. a
+     `NotImplementedError` connection factory the scaffolder should have rendered complete, F-011) or
+     a missing `--app`. Stop and report it; do not dispatch an implementer against it.
 
 ## 3. Dispatch implementers, level by level (§11)
 
