@@ -84,9 +84,10 @@ def _protected_routes(app: FastAPI) -> list[tuple[str, str]]:
             out.append((method, route.path))
     return out
 
-@pytest.mark.parametrize("method,path", _protected_routes_at_collection_time := None)
-async def test_protected_route_returns_401_without_token(method: str, path: str, real_app):
-    # The parametrize id is recomputed at collection time below — see _ids() helper.
+async def test_protected_route_returns_401_without_token(
+    method: str, path: str, real_app: FastAPI
+) -> None:
+    # `method` / `path` are parametrized by `pytest_generate_tests` below.
     async with AsyncClient(
         transport=ASGITransport(app=real_app),
         base_url="http://testserver",
@@ -106,7 +107,7 @@ async def test_protected_route_returns_401_without_token(method: str, path: str,
     # assert the scheme is present, never freeze a `realm="<app>"` string.
     assert response.headers.get("WWW-Authenticate", "").startswith("Bearer")
 
-def pytest_generate_tests(metafunc):
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Discover protected routes at collection time by importing `create_app`
     once. Keeps test parametrization tied to the actual route graph instead
     of a hand-maintained list."""
@@ -144,7 +145,9 @@ def _expected_codes_from_route(route: APIRoute) -> set[int]:
     stores them on `route.responses` as the dict produced by `error_responses(...)`."""
     return {code for code in route.responses if isinstance(code, int) and code >= 400}
 
-async def test_every_route_advertises_what_its_decorator_declared(real_app):
+async def test_every_route_advertises_what_its_decorator_declared(
+    real_app: FastAPI,
+) -> None:
     declared = _declared_codes(real_app)
     mismatches: list[str] = []
 
@@ -170,22 +173,27 @@ async def test_every_route_advertises_what_its_decorator_declared(real_app):
 ### `test_cors.py`
 
 ```python
+from typing import Any, cast
+
 import pytest
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 
-def _configured_origin(app) -> str | None:
+def _configured_origin(app: FastAPI) -> str | None:
     """Read a real allowed origin off the app's CORS middleware, instead of
     hardcoding one. Returns None when the app configures no CORS."""
+    # Starlette types `Middleware.cls` as `_MiddlewareFactory[P]` and `.kwargs`
+    # as `P.kwargs` (effectively untyped) — match by class name and `cast` the
+    # kwargs to a dict to read off them under strict mypy (no `# type: ignore`).
     for mw in app.user_middleware:
-        if mw.cls is CORSMiddleware:
-            origins = mw.kwargs.get("allow_origins", [])
+        if getattr(mw.cls, "__name__", "") == "CORSMiddleware":
+            origins = cast(dict[str, Any], mw.kwargs).get("allow_origins", [])
             return origins[0] if origins else None
     return None
 
 
-async def test_cors_preflight_echoes_a_configured_origin(real_app):
+async def test_cors_preflight_echoes_a_configured_origin(real_app: FastAPI) -> None:
     origin = _configured_origin(real_app)
     if origin is None:
         pytest.skip("app configures no CORS allow_origins")
@@ -205,21 +213,27 @@ async def test_cors_preflight_echoes_a_configured_origin(real_app):
 ### `test_request_size_limit.py`
 
 ```python
+from typing import Any, cast
+
 import pytest
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 
-def _max_request_bytes(app) -> int | None:
+def _max_request_bytes(app: FastAPI) -> int | None:
     """The configured cap of the request-size middleware, read off the app.
     Returns None when the app declares no such middleware (the kwarg name
     matches the middleware's config field — see restapi-middleware)."""
+    # See `_configured_origin` in test_cors.py — `Middleware.cls` / `.kwargs`
+    # are effectively untyped; match by class name and `cast` the kwargs.
     for mw in app.user_middleware:
-        if mw.cls.__name__ == "MaxRequestSizeMiddleware":
-            return mw.kwargs.get("max_bytes")
+        if getattr(mw.cls, "__name__", "") == "MaxRequestSizeMiddleware":
+            max_bytes = cast(dict[str, Any], mw.kwargs).get("max_bytes")
+            return max_bytes if isinstance(max_bytes, int) else None
     return None
 
 
-async def test_oversize_payload_returns_413(real_app):
+async def test_oversize_payload_returns_413(real_app: FastAPI) -> None:
     limit = _max_request_bytes(real_app)
     if limit is None:
         pytest.skip("app declares no request-size middleware")
@@ -241,9 +255,10 @@ async def test_oversize_payload_returns_413(real_app):
 ### `test_info.py`
 
 ```python
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-async def test_info_endpoint_is_public_and_returns_200(real_app):
+async def test_info_endpoint_is_public_and_returns_200(real_app: FastAPI) -> None:
     async with AsyncClient(
         transport=ASGITransport(app=real_app),
         base_url="http://testserver",

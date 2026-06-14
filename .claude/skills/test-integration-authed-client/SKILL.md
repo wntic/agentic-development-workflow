@@ -68,6 +68,7 @@ from uuid import uuid4
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from myapp.domain.auth import Role
@@ -101,7 +102,7 @@ def jwt_settings(rsa_keypair: tuple[str, str]) -> JwtSettings:
 
 @pytest.fixture
 def authed_client(
-    real_app,
+    real_app: FastAPI,
     rsa_keypair: tuple[str, str],
     jwt_settings: JwtSettings,
 ) -> Callable[..., AsyncClient]:
@@ -113,7 +114,7 @@ def authed_client(
 
     def _factory(
         role: Role,
-        **extra_claims,
+        **extra_claims: object,
     ) -> AsyncClient:
         # Mint only the universal claims every verifier needs (sub + role). Any
         # app-specific claim (tenant/org id, display names, …) is the caller's to

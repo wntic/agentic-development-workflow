@@ -52,7 +52,7 @@ implementer's contract is the `CONTRACT —` comment already in the scaffold + t
 
 After each implementer returns, run the **per-file toolchain check** (commands from `conventions`
 block E):
-- `uv run mypy src/<package>` — green;
+- `uv run mypy src tests` — green;
 - `uv run ruff check <item.file>` then `uv run ruff format <item.file>` — clean;
 - if `item.test_kind == "flat"`: `uv run pytest <item.test>` — green (red→green is the proof).
 
@@ -78,7 +78,7 @@ and acceptance rules.
 
 Once the worklist is drained (or you have escalations), run the **whole-tree** toolchain from the
 package root:
-- `uv run mypy src/<package>` · `uv run ruff check src tests` · `uv run ruff format src tests` ·
+- `uv run mypy src tests` · `uv run ruff check src tests` · `uv run ruff format src tests` ·
   `uv run pytest` (flat tests green; `_manual` stubs stay skipped — expected, their asserts are a
   deferred step, §9).
   - **App-construction smoke is part of this `pytest` run.** `tests/unit/restapi/test_app_constructs.py`

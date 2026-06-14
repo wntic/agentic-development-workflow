@@ -26,23 +26,34 @@ One-shot per project. Produces `tests/integration/conftest.py` with the transact
 import os
 import subprocess
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from typing import TypedDict
 
 import pytest
+from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
+    AsyncEngine,
     AsyncSession,
     async_sessionmaker,
 )
 
+from myapp.infrastructure.jwt.settings import JwtSettings  # AUTH-ONLY: drop with the jwt_settings param below on an auth-less app
 from myapp.infrastructure.postgres.engine import create_engine, dispose_engine
 from myapp.infrastructure.postgres.settings import DbSettings
 from myapp.infrastructure.s3.settings import StorageSettings
 
 # ---------- container lifecycle (session-scoped) ----------
 
+class PgConn(TypedDict):
+    host: str
+    port: int
+    user: str
+    password: str
+    name: str
+
 @pytest.fixture(scope="session")
-def postgres_container():
+def postgres_container() -> Iterator[PgConn]:
     if os.getenv("CI"):
         yield {
             "host": os.environ["MYAPP_DB_HOST"],
@@ -65,7 +76,7 @@ def postgres_container():
         }
 
 @pytest.fixture(scope="session")
-def minio_container():
+def minio_container() -> Iterator[dict[str, str]]:
     if os.getenv("CI"):
         yield {
             "endpoint_url": os.environ["MYAPP_STORAGE_ENDPOINT_URL"],
@@ -88,7 +99,7 @@ def minio_container():
         }
 
 @pytest.fixture(scope="session")
-def db_settings(postgres_container: dict) -> DbSettings:
+def db_settings(postgres_container: PgConn) -> DbSettings:
     return DbSettings(
         host=postgres_container["host"],
         port=postgres_container["port"],
@@ -99,7 +110,7 @@ def db_settings(postgres_container: dict) -> DbSettings:
     )
 
 @pytest.fixture(scope="session")
-def storage_settings(minio_container: dict) -> StorageSettings:
+def storage_settings(minio_container: dict[str, str]) -> StorageSettings:
     return StorageSettings(
         endpoint_url=minio_container["endpoint_url"],
         access_key=minio_container["access_key"],
@@ -122,7 +133,7 @@ def _guard_against_real_db(db_settings: DbSettings) -> None:
 
 # ---------- migrations (once per session) ----------
 
-def _run_alembic(db_settings: DbSettings, *args: str) -> subprocess.CompletedProcess:
+def _run_alembic(db_settings: DbSettings, *args: str) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
         "MYAPP_DB_HOST": db_settings.host,
@@ -147,7 +158,7 @@ def _migrated_db(_guard_against_real_db: None, db_settings: DbSettings) -> DbSet
 # ---------- engine (session-scoped, one per session) ----------
 
 @pytest.fixture(scope="session")
-async def _engine(_migrated_db: DbSettings):
+async def _engine(_migrated_db: DbSettings) -> AsyncIterator[AsyncEngine]:
     engine = create_engine(_migrated_db)
     try:
         yield engine
@@ -157,7 +168,7 @@ async def _engine(_migrated_db: DbSettings):
 # ---------- the load-bearing pair: outer transaction + bound sessionmaker ----------
 
 @pytest.fixture
-async def _outer_connection(_engine) -> AsyncIterator[AsyncConnection]:
+async def _outer_connection(_engine: AsyncEngine) -> AsyncIterator[AsyncConnection]:
     """One connection per test. Open it, begin a transaction, hand it out,
     roll it back at teardown. The handler under test can `commit()` as many
     times as it wants — each commit lands as a SAVEPOINT release inside this
@@ -191,8 +202,8 @@ async def real_app(
     sf: async_sessionmaker[AsyncSession],
     db_settings: DbSettings,
     storage_settings: StorageSettings,  # BLOB-ONLY: present only when the app has a blob store. Drop this param + the storage_settings override/reset below on an app with no S3/MinIO (see the storage-strip Hard stop).
-    jwt_settings,  # AUTH-ONLY: present only when the app declares auth (from test-integration-authed-client). On an auth-less app drop this param AND the jwt_settings override/reset lines below — there is no jwt_settings provider to override.
-):
+    jwt_settings: JwtSettings,  # AUTH-ONLY: present only when the app declares auth (from test-integration-authed-client). On an auth-less app drop this param (and its import) AND the jwt_settings override/reset lines below — there is no jwt_settings provider to override.
+) -> AsyncIterator[FastAPI]:
     """FastAPI app whose container has its DB / storage / session-factory
     / JWT settings overridden to the per-test fixtures. Repositories
     resolved through the container therefore participate in the same
@@ -238,7 +249,7 @@ def s3_prefix() -> str:
     return f"test-{uuid.uuid4().hex}/"
 
 @pytest.fixture(scope="session", autouse=True)
-async def _cleanup_bucket_at_session_end(storage_settings: StorageSettings):
+async def _cleanup_bucket_at_session_end(storage_settings: StorageSettings) -> AsyncIterator[None]:
     yield
     # session-end best-effort cleanup; implementation depends on the s3 helper
 ```
@@ -258,7 +269,7 @@ When `containers.py` has a `Singleton(...)` that captures settings or a sessionm
 
 ```python
 @pytest.fixture(autouse=True)
-def _reset_captured_singletons(real_app):
+def _reset_captured_singletons(real_app: FastAPI) -> Iterator[None]:
     yield
     c = real_app.state.container
     c.<captured_singleton>.reset()
