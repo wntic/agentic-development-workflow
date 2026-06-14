@@ -124,13 +124,23 @@ grows `get_by_id`, a UC-02 cross-epic exposure on the 01-identity manifest): arc
 brownfield re-scaffold (protocol/fake regenerated, filled bodies untouched) → runner drift trigger →
 implementer reconciles → `mypy src tests` + ruff green. See `notes/11_delta_path.txt`.
 
+**Done — multi-context (cross-epic) scaffolding.** The cross-epic frontier is **built and proven**
+(model A — monolith, contexts as sibling subpackages of one package, shared substrate). The validator
+**resolves** cross-epic refs (`<subdomain>:<Name>`) against sibling manifests (`validate_manifest.py
+--app <epics-dir>` → resolve or error; no siblings → the legacy warning); `conventions` block F carries
+the cross-epic→import derivation (a cross-epic ref is just a cross-subdomain reference) + the
+shared-substrate-from-the-union rules; the scaffolder runs **app-mode** (a set of context manifests →
+one package, per-context nodes + substrate emitted once from the union, cross-epic refs imported across
+subpackages). Proven end-to-end: the Tickets context (epic 02) scaffolded into helpdesk4 alongside auth —
+`TicketAssignmentPolicy` calls auth's `get_by_id` + `Role` (the cross-epic consumer compiles), the
+`get_by_id` delta fully reconciled with its real use-site, `mypy src tests` + ruff clean over 94 files,
+both routers in OpenAPI (`/auth/login` + `/tickets`), worklist drained. See `notes/12_cross_epic.txt`.
+
 **Still to build / known frontiers.** The `/validate-manifest` wrapper (the validator itself exists).
-**Cross-epic scaffold-time resolution is unbuilt** (the multi-manifest-into-one-package frontier): the
-validator warns-and-skips a cross-epic edge (`auth:IFoo.method`), conventions has no cross-epic import
-derivation, and the scaffolder has no multi-manifest handling — so a downstream context (e.g. Tickets)
-cannot yet be scaffolded into a package alongside the upstream context it depends on (spec §13 «потом» /
-§15). Drift detection v1 catches **method-presence** drift; a same-name **signature** change still falls
-only to the final whole-tree mypy gate, not the per-node worklist.
+Drift detection v1 catches **method-presence** drift; a same-name **signature** change still falls only
+to the final whole-tree mypy gate, not the per-node worklist. Cross-epic resolution today is model A
+(one package); per-context deployables / separate packages (model B, §15 marketplace) are not built.
+Orphan GC + rename-with-body-transfer (spec §4/§14) remain the unbuilt brownfield frontier.
 Deferred (spec §13 «потом»): the brownfield frontier (orphan GC + rename-with-body-transfer), plugin
 packaging + multi-language, and removing the `src/codegen` archive. Open seams: a Docker-backed
 integration run (testcontainers), and the §9 review tail (manual-stub assert authorship + adversarial
