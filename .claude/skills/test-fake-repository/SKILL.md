@@ -39,6 +39,7 @@ This is deliberate: keeps fakes out of production import graphs.
 
 ```python
 from collections.abc import Sequence
+from dataclasses import replace
 from uuid import UUID
 
 from myapp.domain.exceptions import ConflictError, NotFoundError
@@ -46,14 +47,16 @@ from myapp.domain.foos import Foo, FooListFilter
 
 class FakeFooRepository:
     def __init__(self, items: list[Foo] | None = None) -> None:
-        self._store: dict[UUID, Foo] = {f.id: f for f in (items or [])}
+        # Store DETACHED copies; never alias the caller's instances (see Rule 9).
+        self._store: dict[UUID, Foo] = {f.id: replace(f) for f in (items or [])}
+        self.updated: list[UUID] = []  # call record — ids passed to update(), in order
 
     async def list(self, *, filter: FooListFilter) -> Sequence[Foo]:
         ordered = sorted(
             self._store.values(),
             key=lambda f: (f.sort_order, f.name),
         )
-        return ordered[filter.offset : filter.offset + filter.limit]
+        return [replace(f) for f in ordered[filter.offset : filter.offset + filter.limit]]
 
     async def count(self, *, filter: FooListFilter) -> int:
         return len(self._store)
@@ -61,10 +64,11 @@ class FakeFooRepository:
     async def get_by_id(self, id: UUID) -> Foo:
         if id not in self._store:
             raise NotFoundError("Foo not found", {"id": str(id)})
-        return self._store[id]
+        return replace(self._store[id])  # a copy — a caller mutation must not leak into the store
 
     async def get_by_name(self, name: str) -> Foo | None:
-        return next((f for f in self._store.values() if f.name == name), None)
+        match = next((f for f in self._store.values() if f.name == name), None)
+        return replace(match) if match is not None else None
 
     async def create(self, foo: Foo) -> None:
         if any(f.name == foo.name for f in self._store.values()):
@@ -72,7 +76,7 @@ class FakeFooRepository:
                 "foo name already exists",
                 {"constraint": "uq_foos_name"},
             )
-        self._store[foo.id] = foo
+        self._store[foo.id] = replace(foo)
 
     async def update(self, foo: Foo) -> None:
         if foo.id not in self._store:
@@ -82,7 +86,8 @@ class FakeFooRepository:
                 "foo name already exists",
                 {"constraint": "uq_foos_name"},
             )
-        self._store[foo.id] = foo
+        self._store[foo.id] = replace(foo)
+        self.updated.append(foo.id)  # so a "mutate-but-never-persist" handler is observably caught
 
     async def delete(self, id: UUID) -> None:
         if id not in self._store:
@@ -168,6 +173,8 @@ The `puts` and `deletes` lists are the test-side observation surface. **No `fail
    ```
 
    The storage-gateway `puts` / `deletes` call records are the only sanctioned per-call observation surface — and they observe, they do not inject failure. A test that needs an injected failure uses the inline-subclass pattern above, not a flag or a hook on the fake.
+
+9. **Never alias the caller's entity — store and return COPIES, and record `update()` calls.** The real repository round-trips through the DB: a mutation is persisted **only** by an explicit `update()`, and a fresh `get_by_id` reads back the persisted row. A naive fake that does `self._store[id] = foo` and `return self._store[id]` aliases the same object, so a handler that mutates the entity **in place but never calls `update()`** still observes its change through a later `get_by_id` — a "mutate-but-never-persist" bug passes green, and a persistence assert (`(await repo.get_by_id(x)).status == DONE`) is unpinnable (F-018). So: copy on **write** (`self._store[id] = replace(foo)`) and on **read** (`return replace(self._store[id])`), via `dataclasses.replace` (shallow copy; `copy.deepcopy` only if a field is itself mutable and the test mutates through it), and keep an `updated: list[UUID]` call record that `update()` appends to. Handler tests then pin persistence two ways — `assert repo.updated == [id]` (update was called) and `assert (await repo.get_by_id(id)).status == DONE` (the new state was written) — and a body that forgets `update()` reds both.
 
 ## What a fake must not do
 

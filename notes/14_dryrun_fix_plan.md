@@ -106,6 +106,16 @@ All four live in `.claude/tools/plan_implementation.py` and the runner↔scaffol
 
 ## P1 — gate lets "green-but-wrong" through (A4 integrity; more dangerous than blockers — silent)
 
+**STATUS — DONE (2026-06-14).** All four landed: F-012 (`/verify` table metadata-import smoke +
+`infra-sqlalchemy-table` `text()` functional-index idiom + Hard stop), F-023 (`# type: ignore` gate in
+`/verify` + scaffolder self-verify; `require_role` rewritten as a typed `_RoleDependency` callable class
+— no `[attr-defined]` ignore, `test-discovery-invariants` detection updated in lockstep to read
+`required_role`; `infra-capability-adapter` S3 `download` + a `cast(<type>, …)`-at-the-boundary rule),
+F-024 (`_check_field_order` in the validator + 3 tests + the Meeting entity reordered to a valid
+@dataclass order), F-018 (`test-fake-repository` stores/returns `dataclasses.replace` copies + an
+`updated` call-record log + Rule 9). Validator + planner suites green (52); ruff clean. The F-024 fix
+also exposed that the committed Meeting manifest was itself un-generatable (now fixed).
+
 ### P1-1 · F-012 — a table passes mypy+ruff but fails at IMPORT (functional index)
 - **Problem.** `Index("ix", "lower(email)", ...)` (bare string) → SQLAlchemy reads it as a column name →
   `ConstraintColumnNotFoundError` at table-construct time. mypy+ruff green; only the final app-construct

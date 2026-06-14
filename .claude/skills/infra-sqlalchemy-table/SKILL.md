@@ -153,6 +153,7 @@ Pick once; document the consequence in the repository's `delete` method.
 - Index every FK column you filter or join on. SQLAlchemy does **not** create FK indexes automatically.
 - Index columns used in `ORDER BY` of list endpoints (e.g. `created_at`) and in `WHERE` of filter records.
 - Single-column index name: `ix_<table>_<col>`. Composite indexes are named explicitly with the same prefix.
+- **A bare string argument to `Index` is a COLUMN NAME, not an expression.** `Index("ix_users_email_lower", "lower(email)")` makes SQLAlchemy look for a column literally named `lower(email)` and raises `ConstraintColumnNotFoundError` when the `MetaData` is constructed (mypy + ruff stay green — only constructing the table catches it). A **functional / expression index** wraps the SQL in `text(...)`: `Index("ix_users_email_lower", text("lower(email)"))`. Import `text` from `sqlalchemy`.
 
 ## Rules — constraint names (load-bearing)
 
@@ -194,3 +195,4 @@ The `tables/__init__.py` must re-export the new module — `from . import foos` 
 - Spec asks for `String(n)` length-bounded varchars → stop, use `Text`.
 - Spec changes a constraint name → stop, this is a breaking change; the repository's `_map_integrity_error` must be updated in the same commit (`infra-sqlalchemy-repository`).
 - Spec includes a data migration (`backfill_*`, `seed_*`) → stop, that's a separate migration file; this skill handles DDL only.
+- About to pass a SQL expression to `Index`/`CheckConstraint` as a bare string (`Index("ix", "lower(email)")`) → stop, a bare string is a column NAME; wrap an expression in `text(...)` or it raises `ConstraintColumnNotFoundError` at table-construct time (green under mypy/ruff).
