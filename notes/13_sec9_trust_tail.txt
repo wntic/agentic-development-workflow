@@ -1,0 +1,70 @@
+notes/13 — §9 trust tail closed (manual-assert authoring + adversarial verifier)
+================================================================================
+Date: 2026-06-14. Branch: workflow-without-generator.
+
+THE GAP (before): the canonical behavioural test is the unit of trust (§9). The scaffolder authors
+the FLAT tests complete-and-red; the harder MANUAL stubs (relational / time / negative / multi-dep /
+calls / logs) were left as @pytest.mark.skip with a CONTRACT comment, their asserts DEFERRED, and the
+implementer is walled off from tests entirely (anti-collusion). So thick nodes (A3 lockout, login,
+ticket assignment, ticket creation) shipped green-but-unverified — 16 skipped stubs in helpdesk4.
+
+WHAT WAS BUILT
+--------------
+`/author-manual-tests` (.claude/commands/author-manual-tests.md) — the post-hoc §9 closure, two passes,
+each in a context SEPARATE from the body author (anti-collusion, PRINCIPLES D3; the orchestrator must
+NOT author asserts itself — it has seen the bodies):
+  1. AUTHOR — a fresh, body-blind context fills each _manual stub's assert FROM THE CONTRACT (behaviour
+     given/then + notes + the test skill + the in-memory fakes / inline stubs), drops the skip, runs it
+     against the filled body: green = conforms, red = a real body-vs-contract divergence → escalate (do
+     NOT auto-fix either side — that red is the §9 signal).
+  2. ADVERSARIAL VERIFY — a second fresh, body-blind context tries to REFUTE each assert: would a
+     plausibly-wrong body still pass it? Classifies each STRONG / WEAK; weak → re-author or flag.
+Resolves the spec's own §9 tension ("the implementer writes the assert" vs anti-collusion): the author
+is a SEPARATE context, never the body author. implementer.md updated (deferred → "/author-manual-tests").
+Roles stay four (D1): author = scaffolder role (test authoring), verifier = a §9 review pass (no artifact).
+
+RUN ON helpdesk4 (4 manual files, body-blind author subagents)
+--------------------------------------------------------------
+All authored + green: test_authentication_service_manual (6), test_login_handler_manual (5),
+test_ticket_assignment_policy_manual (3), test_create_ticket_handler_manual (3). Gate after: mypy clean
+(94 files), ruff + format clean, pytest 42 passed / 0 skipped (was 25 passed / 16 skipped) / 4 errors
+(Docker testcontainers, the known gap). The mechanism PROVED its worth on the first run: the auth author
+hit a genuine contract ambiguity (window-reset semantics when last_failed_at is stale) and — per
+anti-collusion — disambiguated the seed and FLAGGED the under-specification instead of peeking at the body.
+
+Two mechanical typing fixes the orchestrator made (NOT assert-intent, no collusion): inline stubs of a
+CONCRETE domain-service dependency (vs a Protocol repo) fail strict mypy at the handler ctor → the
+sanctioned `# type: ignore[arg-type]` at the injection site (login ×5, create_ticket ×3); and one
+`assert await <None-returning> is None` → a bare call (func-returns-value). SKILL FOLLOW-UP:
+test-application-handler should document the type:ignore-on-concrete-service-stub pattern (a handler
+whose dep is a domain SERVICE, not a protocol, can't be structurally stubbed under strict mypy).
+
+THE RESIDUAL REVIEW SURFACE (now small + explicit — §9's irreducible minimum, a named queue)
+--------------------------------------------------------------------------------------------
+The adversarial pass found these WEAK asserts (a wrong body could pass) — strengthening recipes given:
+
+* AuthenticationService (A3) — the state machine is largely UNPINNED (highest residual):
+  - success-path counter RESET (step 4) not tested (seed failed_attempts>0, authenticate OK, assert cleared);
+  - lock-before-verify ordering not pinned (use a verify-call-recording stub, assert verify NOT called on locked);
+  - locked_until not asserted to be in the FUTURE (a body setting it to `now`/past passes);
+  - last_failed_at stamping not asserted; window auto-reset (stale last_failed_at → count restarts at 1) untested;
+  - PERSIST never observed — the inline stub shares the entity reference, so post-state passes even if
+    update() is never called (give the stub an update_calls counter). STRONG: exception-type
+    discrimination + the dummy_verify timing pin.
+* Login handler — happy path WEAK: the token is not proven to come from issue() (stub returns a constant);
+  authenticate args not pinned; exception pass-through-vs-rewrap (identity) not pinned. Failure tests strong.
+  Recipe: make the token stub derive its return from the principal + record the principal; assert identity.
+* TicketAssignmentPolicy — role boundary WEAK: ADMIN never tested, so a policy accepting {AGENT, ADMIN}
+  passes (add an ADMIN-rejection test — highest-value, cheapest fix); "looked up the specific assignee_id"
+  not pinned (record received ids on the stub). STRONG: the three crude wrong-policies are killed, and
+  the collapse-to-same-error is pinned (InvalidAssigneeError is a leaf class).
+* CreateTicket — moderate-low: STRONG on created_by==caller_id, assignee threading, exception propagation,
+  no-persist-on-failure. WEAK: policy-skip on the None-assignee path unpinned (a handler calling the policy
+  with None passes — use a call-recording policy stub); status==OPEN is inherently weak while TicketStatus
+  has one member (re-strengthen when a lifecycle delta adds CLOSED/RESOLVED).
+
+OUTCOME: the behavioural trust tail is no longer a blanket skip — every thick node has a real, green,
+adversarially-reviewed assert, and the residual is a small explicit list of named weaknesses with
+recipes (the §9 irreducible human-review surface), not silence. Strengthening the WEAK asserts (re-author
+round) is the optional next increment; the ADMIN-rejection test + the auth state-machine persist/reset
+pins are the highest value.

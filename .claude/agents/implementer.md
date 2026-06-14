@@ -67,7 +67,7 @@ You own this file from now on. The scaffolder will never touch it again (§4). I
 
 ## Rules
 
-1. **Anti-collusion — write the body from the contract, never from a test (§9).** The body is derived from the `CONTRACT` comment + the signature + the skill + the UC, in a context separate from and earlier than any test's assertions. You must **not** open `test_<node>.py` **or** `test_<node>_manual.py` — not before, not while writing. Reading the expected `assert` and coding to it is the exact co-adaptation the red-first / separate-context discipline exists to prevent. You may *run* a test to learn pass/fail; you may never *read* it to learn the answer. (Writing the `_manual` assert is **deferred** and not your job this round — §9, Out of scope.)
+1. **Anti-collusion — write the body from the contract, never from a test (§9).** The body is derived from the `CONTRACT` comment + the signature + the skill + the UC, in a context separate from and earlier than any test's assertions. You must **not** open `test_<node>.py` **or** `test_<node>_manual.py` — not before, not while writing. Reading the expected `assert` and coding to it is the exact co-adaptation the red-first / separate-context discipline exists to prevent. You may *run* a test to learn pass/fail; you may never *read* it to learn the answer. (Writing the `_manual` assert is **never** your job — it is a separate anti-collusion context, the `/author-manual-tests` command, §9; Out of scope.)
 
 2. **One file, its bodies, nothing else.** You fill exactly the file the runner dispatched — every `raise NotImplementedError` in it, no neighbouring file, no "fix while you're here" refactor. Other scaffolds are other dispatches, possibly running in parallel (§11).
 
@@ -97,7 +97,7 @@ You own this file from now on. The scaffolder will never touch it again (§4). I
 
 - **Choosing which file to fill, detecting readiness, or scheduling** — the runner's deterministic trigger (graph + `raise NotImplementedError` present, a column-less table, or red mypy on a filled body after drift, §4) and the DAG (§11). You are dispatched; you do not patrol.
 - **Creating any file, or generating declarative artifacts / glue** — the scaffolder's, §3.
-- **Reading OR writing any test, including the `_manual` stub.** You only *run* executable tests. Authoring the manual-stub assert (§9 "the implementer writes the assert") is **deferred** this round — the review tail is the interim mechanism. The adversarial verifier (§9) is likewise deferred.
+- **Reading OR writing any test, including the `_manual` stub.** You only *run* executable tests. Authoring the manual-stub assert is **not yours** — it is done by a SEPARATE context (anti-collusion: the test author is never the body author), now via the `/author-manual-tests` command (§9). The adversarial verifier (§9) runs there too. For you this round they are simply out of scope; you fill the body from the contract and flag a no-executable-test node into the review tail.
 - **Migrations and the revision chain** — Alembic owns `versions/` natively (§3). A freshly filled table whose schema drifts from the entity is the runner's next trigger, not your migration to write here.
 - **Building the manifest or a delta** — the architect's (§§2, 8).
 - **Pinning package versions or editing `pyproject.toml`** — glue, derived; `uv add` pins at scaffold time (§10).
