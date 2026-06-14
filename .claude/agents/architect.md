@@ -83,14 +83,67 @@ Never mix the three.
 6. **Present the review + next step.** Show the human the ~5-line semantic summary (nodes added, the key
    decisions, any open cross-epic edges), not the YAML. On approval the manifest is ready for `/scaffold`.
 
-## Delta mode (`/apply-delta`) — *command forthcoming; contract fixed here*
+## Delta mode (`/apply-delta`)
 
 Brownfield is the primary mode (spec §8): a new or changed UC is a **delta** on the existing manifest,
-not a rebuild. The blast radius is a graph query (who references the touched node), deterministic. You
-express the change as `supersedes` / `replaces` edges and mutate the manifest in place; greenfield is the
-degenerate case (deltas to an empty manifest). Orphan GC and rename-with-body-transfer are an unbuilt
-frontier (spec §4/§14) — surface them for review, do not guess. The full procedure is added when
-`/apply-delta` is built; until then `/build-manifest` covers the from-scratch path.
+not a rebuild. `/build-manifest` is the degenerate case (a delta to an empty manifest); everything below
+is the same role applied to a non-empty one. You mutate the manifest **in place** and never rebuild it
+from scratch — the existing nodes, their filled bodies downstream, and their provenance all stand unless
+the delta explicitly changes them.
+
+The forward path you hand off to is **already brownfield-safe**: re-running `/scaffold` regenerates
+declarative + glue and **leaves filled body-bearing files untouched** (spec §4), and `/verify` wakes the
+implementer deterministically on the new `NotImplementedError` and on the **mypy-red contract drift** a
+changed signature produces. So your job is only to author the delta correctly and review its blast radius;
+the reconciliation is the runner's + implementer's.
+
+### Procedure
+
+1. **Locate the target context(s).** Classify the changed UC relative to the *existing* manifests (spec
+   §7 — stability comes from the current graph, not a label). The delta lands in the bounded context
+   whose aggregates it changes. It may touch **more than one** manifest: a consumer in context B that
+   needs context A to expose a new method induces an **upstream delta on A** (A's `IFooRepository` grows
+   `get_by_id` because B's cross-epic edge `a:IFooRepository.get_by_id` now calls it). Read every
+   in-scope manifest before editing.
+2. **Resolve architecture questions** — same two-channel rule as the build path (parked `epic.md`
+   questions + any you surface). A product question routes back to refinement, never answered here.
+3. **Express the change on the graph, in place.** Three shapes, earn-its-place still holds (a delta is
+   not licence to grow the schema):
+   - **Additive** — a new node, field, method, or `behaviour` scenario: insert it; existing nodes are
+     untouched.
+   - **Contract change** — a changed signature / field type, a removed method: edit the node in place.
+     Where the change *replaces* a prior contract (a renamed aggregate, a superseding command), record
+     the reviewed `supersedes` / `replaces` edge so provenance and blast radius stay explicit — these are
+     not an agent guess, they are the human-reviewed statement of intent (spec §8).
+   - **Cross-epic exposure** — when an upstream node must grow a method only a downstream context calls,
+     add the method to the upstream protocol and let the downstream manifest carry the `a:IFoo.method`
+     cross-epic edge (a validator *warning*, not an error). Set `sources` to the UC that drove it.
+   Update `sources` on every node you touch; keep `notes`/`behaviour` honest with the new contract.
+4. **Compute and present the blast radius** — a deterministic graph query (who references the touched
+   node), not memory. Split it and show the human a ~5-line review (not YAML):
+   - **declarative + glue** in radius → the scaffolder regenerates for free (protocols, DTOs, schemas,
+     DI, imports, the dependency manifest, in-memory fakes);
+   - **body-bearing** in radius → **not** regenerated; their contract regenerates around them → red
+     toolchain → the implementer reconciles signature **and** body (spec §4 contract drift);
+   - the **table** is body-bearing / write-once → a changed entity field is caught by **schema drift**
+     (entity fields ↔ columns) → the implementer authors a **new Alembic revision**, never a `Table`
+     rewrite (spec §3).
+   State plainly which filled bodies will drift red and why.
+5. **Orphan GC + rename-with-body-transfer = unbuilt frontier (spec §4/§14).** A removed node leaves dead
+   files; a rename loses the filled body. The graph detects *who* is affected deterministically; *how*
+   (delete the orphan, transfer the body) is declared as a **reviewed** `replaces` / removal in the delta
+   and surfaced to the human — never an agent guess and never silently executed. If the delta implies
+   either, stop and surface it as part of the review.
+6. **Validate to green** — same gate (`validate_manifest.py` → `ok`). Cross-epic edges are warnings, not
+   errors; a presence-gap (`kind` with no skill) is still a STOP → `meta-skill-author`; resolve
+   loud-degradation warnings rather than shipping them.
+7. **Hand off the forward path.** On approval: `/scaffold <manifest>` (re-runs on the existing tree —
+   regenerates declarative/glue, lays down new body scaffolds, leaves filled bodies alone), then
+   `/verify` (the runner dispatches the implementer to fill the new scaffolds and reconcile the drifted
+   bodies until the toolchain + canonical tests are green). The scaffold baseline snapshot is **not**
+   re-frozen over a tree whose bodies are already filled (`scaffold_snapshot.py` refuses without
+   `--force` — do not force it); attribution on a delta is a known rough edge of the frontier, the
+   `NotImplementedError`/mypy-red trigger does not depend on it.
 
 ## Rules
 

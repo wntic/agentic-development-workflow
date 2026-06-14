@@ -14,9 +14,16 @@ It deliberately stays THIN and reuses the validator (spec §0 principle 1 — kn
 place):
   * `KIND_TO_SKILL` (the kind→skill registry), `load_yaml`, `_section_list` are imported from
     `validate_manifest.py`, never re-stated here.
-  * The trigger is TEXTUAL (spec §4): a body scaffold is pending while it still carries
-    `raise NotImplementedError`; a relational table is pending while its `Table(...)` has no
-    `Column(`. The ground truth is the file tree, not a guess.
+  * The trigger has two halves (spec §4 — "наличие NotImplementedError + краснота тулчейна"):
+      1. a body scaffold is pending while it still carries `raise NotImplementedError`; a relational
+         table is pending while its `Table(...)` has no `Column(`.
+      2. **contract drift** — a protocol-implementing body (repository / capability adapter) is
+         MISSING a method its protocol declares. An additive delta regenerates the protocol
+         (declarative) with the new method but leaves the body (written once) untouched, so it no
+         longer satisfies the protocol → mypy red, yet there is NO `NotImplementedError`, so the
+         textual scan alone would miss it. Detected STRUCTURALLY — the manifest declares the methods,
+         the file is the ground truth — so the runner stays thin and never invokes mypy itself.
+    Both halves read the file tree, not a guess.
   * Node↔file mapping mirrors a thin slice of `conventions` block A — filename derivation only
     (snake / pluralize / per-kind stem), enough to attach a skill + test to each pending file.
     It does not re-implement the full path derivation; the scaffolder owns that.
@@ -298,6 +305,64 @@ def pending_files(pkg_src: Path) -> list[Path]:
     return out
 
 
+def _decl_method_names(entries: list | None) -> set[str]:
+    """Method names a protocol declares in the manifest. Each entry is a bare signature string or a
+    `{signature, notes}` mapping; pull the name out of `(async )?def <name>(`."""
+    out: set[str] = set()
+    for me in entries or []:
+        sig = me if isinstance(me, str) else (me.get("signature") or "")
+        mo = re.search(r"\bdef\s+(\w+)", sig)
+        if mo:
+            out.add(mo.group(1))
+    return out
+
+
+def _defined_method_names(path: Path) -> set[str]:
+    """Method names a concrete body file defines (comments stripped, so a contract-comment that
+    mentions a method name does not count as a definition)."""
+    code = "".join(line.split("#", 1)[0] for line in path.read_text().splitlines(keepends=True))
+    return set(re.findall(r"\bdef\s+(\w+)", code))
+
+
+def drifted_files(m: dict, pkg_src: Path, already: set[Path]) -> dict[Path, list[str]]:
+    """The second trigger half (spec §4): protocol-implementing bodies (repositories, capability
+    adapters) whose concrete class is MISSING a method its protocol declares — additive-delta
+    contract drift. The protocol regenerated with the new method; the written-once body did not, so
+    it no longer satisfies the protocol (mypy red) but carries no `NotImplementedError`. Detected
+    structurally against the manifest; files already pending (NIE / column-less) are skipped."""
+    repo_protocols = {p["name"]: p for p in _section_list(m, "domain.repository_protocols")}
+    cap_protocols = {c["name"]: c for c in _section_list(m, "domain.capability_protocols")}
+    out: dict[Path, list[str]] = {}
+
+    def check(stem: str, declared: set[str]) -> None:
+        f = next((p for p in pkg_src.rglob(f"{stem}.py")), None)
+        if f is None or f in already:
+            return
+        missing = sorted(declared - _defined_method_names(f))
+        if missing:
+            out[f] = missing
+
+    for r in _section_list(m, "infrastructure.repositories"):
+        proto = repo_protocols.get(r.get("implements", ""))
+        if proto:
+            check(f"{snake(r.get('backs', ''))}_repository", _decl_method_names(proto.get("methods")))
+
+    for cap in _section_list(m, "infrastructure.capabilities"):
+        proto = cap_protocols.get(cap.get("implements", ""))
+        if not proto:
+            continue
+        adapter = str(cap.get("adapter", ""))
+        role = cap.get("role")
+        cls = (
+            adapter.capitalize() + role
+            if role
+            else adapter.capitalize() + re.sub(r"^ICan", "", str(cap.get("implements", "")))
+        )
+        check(snake(cls), _decl_method_names(proto.get("methods")))
+
+    return out
+
+
 def _match(pkg_src: Path, f: Path, reg: dict[str, dict]) -> dict | None:
     stem = f.stem
     rel = f.relative_to(pkg_src).as_posix()
@@ -337,7 +402,8 @@ def plan(manifest: Path, root: Path, only_node: str | None) -> list[dict]:
     tests_dir = root / "tests"
 
     items: list[dict] = []
-    for f in pending_files(pkg_src):
+    pending = pending_files(pkg_src)
+    for f in pending:
         meta = _match(pkg_src, f, reg)
         rel = f.relative_to(root).as_posix()
         if meta is None:
@@ -354,6 +420,8 @@ def plan(manifest: Path, root: Path, only_node: str | None) -> list[dict]:
                     "test_kind": "none",
                     "dag_level": _LAYER_ORDER.get(layer, 3),
                     "unmapped": True,
+                    "trigger": "scaffold",
+                    "missing_methods": [],
                 }
             )
             continue
@@ -370,6 +438,31 @@ def plan(manifest: Path, root: Path, only_node: str | None) -> list[dict]:
                 "test_kind": tkind,
                 "dag_level": levels[key],
                 "unmapped": False,
+                "trigger": "scaffold",
+                "missing_methods": [],
+            }
+        )
+
+    # second trigger half — contract drift (a protocol-implementer missing a declared method)
+    for f, missing in drifted_files(m, pkg_src, set(pending)).items():
+        meta = _match(pkg_src, f, reg)
+        if meta is None:
+            continue
+        key = label_to_key[meta["label"]]
+        test, tkind = _find_test(tests_dir, meta["test_base"])
+        items.append(
+            {
+                "file": str(f),
+                "rel": f.relative_to(root).as_posix(),
+                "label": meta["label"],
+                "kind": meta["kind"],
+                "skill": meta["skill"],
+                "test": test,
+                "test_kind": tkind,
+                "dag_level": levels[key],
+                "unmapped": False,
+                "trigger": "drift",
+                "missing_methods": missing,
             }
         )
 
@@ -413,7 +506,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"── DAG level {it['dag_level']} " + "─" * 40)
             last = it["dag_level"]
         flag = "  ⚠ UNMAPPED" if it["unmapped"] else ""
-        print(f"  [{it['test_kind']:^6}] {it['rel']}")
+        drift = f"  ⟲ DRIFT: missing {', '.join(it['missing_methods'])}" if it.get("trigger") == "drift" else ""
+        print(f"  [{it['test_kind']:^6}] {it['rel']}{drift}")
         print(f"           skill={it['skill']}  node={it['label']}{flag}")
         if it["test"]:
             print(f"           test={Path(it['test']).name}")

@@ -1,0 +1,367 @@
+# Epic 01 — Identity & Authentication (the Helpdesk's front door).
+#
+# Bounded context: Identity alone (approved). This manifest owns the User aggregate,
+# the Role enum, the credential exchange, and the JWT token capability. Support
+# (Tickets, epic 02) draws inbound cross-epic edges into it — auth:IUserRepository,
+# auth:Role, auth:ICanManageTokens.verify — when it is built; Identity and Support
+# do not change together, so they are separate contexts.
+#
+# Source: UC-01 (refined). Real password auth (argon2id) with a per-account lockout
+# state machine (A3) — materially richer than the helpdesk fixture's passwordless probe.
+#
+# Architecture decisions folded in (the parked epic.md questions + ones surfaced while
+# modeling):
+#   * Login mutates (lockout counter) AND returns a token → modeled as a QUERY whose
+#     injected AuthenticationService owns the mutation+persist; the handler stays
+#     read-shaped (authenticate → issue token → return LoginResult).
+#   * Token capability publishes issue + verify now (the context's full output contract).
+#   * Login response ships simple ({access_token, token_type}); a future OTP challenge
+#     discriminator is a later delta (not pre-shaped — anticipation-litmus).
+#   * Lockout thresholds (5 / 10min / 15min) are config → a LockoutTunable value object
+#     sourced from AuthSettings and injected, never hard-coded.
+
+meta:
+  epic: 01-identity
+  name: "Identity — sign in with email and password (JWT bearer)"
+  sources: ["specs/use-cases/UC-01-sign-in.md"]
+
+domain:
+
+  enums:
+    - name: Role
+      subdomain: auth
+      base: StrEnum
+      members:
+        - {name: MEMBER, value: MEMBER}
+        - {name: AGENT, value: AGENT}
+        - {name: ADMIN, value: ADMIN}
+      # No `satisfies` rank method yet: epic 01's only route is anonymous login, so
+      # nothing compares roles. The rank method is epic 02's delta (it adds the first
+      # role-gated route) — anticipation-litmus, PRINCIPLES.md B2.
+      sources: ["UC-01"]
+
+  value_objects:
+    - name: Email
+      subdomain: auth
+      fields:
+        - {name: value, type: str}
+      invariants:
+        - rule: "RFC 5322 shape; normalized to lowercase (the store is queried by the lower-cased form)"
+          field: value
+          source: spec
+      sources: ["UC-01"]
+
+    - name: Password
+      subdomain: auth
+      # The plaintext attempt — transient login input, never stored. Modeled as a VO so
+      # the min-8 rule is a STRUCTURAL pre-flight gate (constructing it fails before the
+      # store is touched), which is exactly what UC-01 main-flow step 1 asks for.
+      fields:
+        - {name: value, type: str}
+      invariants:
+        - rule: "at least 8 characters — the only v1 password rule (no maximum, no complexity)"
+          field: value
+          source: spec
+      sources: ["UC-01"]
+
+    - name: CurrentUser            # the authenticated principal: issue's input, verify's output
+      subdomain: auth
+      fields:
+        - {name: id, type: UUID}
+        - {name: role, type: Role}
+      sources: ["UC-01"]
+
+    - name: LockoutTunable         # tunable VO: the A3 thresholds, sourced from AuthSettings at DI
+      subdomain: auth
+      fields:
+        - {name: max_failed_attempts, type: int}
+        - {name: window_seconds, type: int}
+        - {name: lock_seconds, type: int}
+      sources: ["UC-01"]
+
+  entities:
+    - name: User
+      subdomain: auth
+      fields:
+        - {name: id, type: UUID}
+        - {name: email, type: Email}
+        - {name: role, type: Role}
+        - {name: password_hash, type: str}
+        - {name: is_active, type: bool, default: "True"}
+        # Lockout state (A3) — DOMAIN state, tracked per account. NOT the forbidden
+        # created_at/updated_at audit pair (E2 does not apply); these drive the state machine.
+        - {name: failed_attempts, type: int, default: "0"}
+        - {name: last_failed_at, type: "datetime | None", optional: true, default: "None"}
+        - {name: locked_until, type: "datetime | None", optional: true, default: "None"}
+      # No __post_init__ invariant: the lockout transitions are whole-entity behaviour the
+      # AuthenticationService drives (entities carry no methods field), not a single-field check.
+      invariants: []
+      sources: ["UC-01"]
+
+  services:
+    - name: AuthenticationService     # the credential check + the A3 lockout state machine
+      subdomain: auth
+      dependencies: [IUserRepository, ICanVerifyPasswords, LockoutTunable]
+      methods:
+        - signature: "async def authenticate(self, email: Email, password: Password) -> CurrentUser"
+          raises: [UnauthorizedError, InactiveAccountError, AccountLockedError]
+          behaviour:                  # multi-dependency + stateful → all scenarios land in the manual stub
+            - given: "an active user whose password matches and who is not locked"
+              when: authenticate
+              then: {returns: CurrentUser}
+              source: spec
+            - given: "no user with that email (unknown email)"
+              when: authenticate
+              then: {raises: UnauthorizedError}    # after a dummy verify — timing must not leak existence
+              source: spec
+            - given: "a user that exists but the password is wrong"
+              when: authenticate
+              then: {raises: UnauthorizedError}    # SAME generic outcome as unknown-email (non-disclosure)
+              source: spec
+            - given: "the password matches but the account is deactivated (is_active false)"
+              when: authenticate
+              then: {raises: InactiveAccountError} # A2 — distinct message, exempt from non-disclosure
+              source: spec
+            - given: "an account already locked by too many recent failures"
+              when: authenticate
+              then: {raises: AccountLockedError}   # A3 — rejected before the password is even verified
+              source: spec
+          notes: |
+            The full A3 state machine — the rule a flat `then` cannot carry:
+            1. Look up the user by the (lower-cased) email. If absent: call
+               ICanVerifyPasswords.dummy_verify() to equalize response timing, then raise
+               UnauthorizedError. NEVER reveal that the email is unknown.
+            2. If the account is currently locked (locked_until is set and in the future),
+               raise AccountLockedError without verifying the password.
+            3. Verify the password against user.password_hash. On mismatch: register the
+               failure — increment failed_attempts; if the LockoutTunable.window_seconds has
+               lapsed since last_failed_at, restart the count at 1; set last_failed_at = now;
+               when failed_attempts reaches LockoutTunable.max_failed_attempts set
+               locked_until = now + lock_seconds — then persist the user and raise
+               UnauthorizedError (the generic credential error).
+            4. On a correct password: if is_active is false raise InactiveAccountError;
+               otherwise clear the lockout state (failed_attempts = 0, last_failed_at = None,
+               locked_until = None), persist the user, and return CurrentUser(user.id, user.role).
+            Thresholds come ONLY from the injected LockoutTunable — never hard-coded. `now`
+            is datetime.now(UTC). The 10-min window auto-reset and the 15-min auto-release
+            both fall out of comparing `now` against the stored timestamps (no scheduler).
+      notes: |
+        Stateless apart from its injected dependencies. Encapsulates the three things a
+        thin handler must not: the credential check, the per-account lockout state machine
+        (A3), and the timing-leak defense (dummy hash on unknown email). It is the only
+        place that mutates and persists the User's lockout fields.
+      sources: ["UC-01"]
+
+  repository_protocols:
+    - name: IUserRepository
+      subdomain: auth
+      aggregate: User
+      methods:
+        # Epic 01 needs a credential read + a lockout-state persist. No `add` (accounts are
+        # admin-created — out of scope). `get_by_id` is the UC-02 delta: the Support context's
+        # assignee validation reads a user by id to confirm the Agent role. It is a CROSS-EPIC
+        # EXPOSURE — the method lives on this (owning) context's protocol; the Tickets manifest
+        # carries the cross-epic edge `auth:IUserRepository.get_by_id` to it. The identity
+        # context itself does not call it yet, so it has no in-context use-site — the forward
+        # reconciliation (a concrete `get_by_id` body) fires when Tickets is scaffolded into the
+        # package, not on the identity tree alone.
+        - signature: "async def get_by_email(self, email: Email) -> User | None"
+          notes: "Lookup by the lower-cased email; return None when absent (the service handles the miss — it does not raise, so non-disclosure stays intact)."
+        - signature: "async def get_by_id(self, id: UUID) -> User | None"
+          notes: "Lookup by user id; return None when absent. Added by the UC-02 delta — Support's assignee validation reads the user to confirm the Agent role before assigning a ticket."
+        - "async def update(self, user: User) -> None"
+      sources: ["UC-01", "UC-02"]
+
+  capability_protocols:
+    - name: ICanVerifyPasswords      # argon2id — the credential primitive (verify + timing defense)
+      subdomain: auth
+      methods:                       # sync — pure CPU (hashing), no IO
+        - "def verify(self, raw: str, password_hash: str) -> bool"
+        - signature: "def dummy_verify(self) -> None"
+          notes: "Run a verification against a fixed dummy hash and discard the result, so an unknown-email path costs the same time as a real verify (timing-leak defense)."
+      notes: "A stateless password verifier. `verify` checks a raw password against a stored hash; `dummy_verify` performs equivalent work to equalize timing when there is no account. Account creation / hashing is out of this epic (admin-created users)."
+      sources: ["UC-01"]
+
+    - name: ICanManageTokens         # the bearer-token mint/verify pair (the context's output contract)
+      subdomain: auth
+      methods:                       # sync — pure CPU (sign/verify), no IO
+        - "def issue(self, principal: CurrentUser) -> str"
+        - signature: "def verify(self, token: str) -> CurrentUser"
+          notes: "Decode + validate the bearer token; reject expired/tampered tokens (UnauthorizedError); map the claims back to CurrentUser(id, role). Consumed cross-epic by authenticated routes (epic 02); epic 01 exercises only issue()."
+      notes: "A stateless bearer-token mint/verify pair — issue and verify are inverse. Claims carried: sub = user id, role, exp."
+      sources: ["UC-01"]
+
+  # Every exception the epic uses, declared here (no hardcoded catalog). ValidationError is
+  # raised by the Email/Password __post_init__ (the pre-flight gate). The three auth errors
+  # are the login outcomes; codes are SCREAMING_SNAKE, all subclass DomainError.
+  exceptions:
+    - {name: ValidationError, code: VALIDATION_ERROR, http_status: 422, sources: ["UC-01"]}
+    - {name: UnauthorizedError, code: UNAUTHORIZED, http_status: 401, sources: ["UC-01"]}      # A1 + the generic credential error
+    - {name: InactiveAccountError, code: ACCOUNT_INACTIVE, http_status: 403, sources: ["UC-01"]} # A2
+    - {name: AccountLockedError, code: ACCOUNT_LOCKED, http_status: 429, sources: ["UC-01"]}    # A3 (rate-limited)
+
+application:
+
+  queries:
+    - name: Login
+      # A query by handler-shape (returns the token, mutates nothing directly); the lockout
+      # WRITE is owned by the injected AuthenticationService, per the approved modeling.
+      input:
+        - {name: email, type: Email}        # the route constructs the VOs from the request strings
+        - {name: password, type: Password}  # (their __post_init__ are the normalization + min-8 gate)
+      output: LoginResult
+      result_fields:
+        - {name: token, type: str}
+      handler: {dependencies: [AuthenticationService, ICanManageTokens]}
+      raises: [UnauthorizedError, InactiveAccountError, AccountLockedError]
+      behaviour:                     # multi-dependency → manual stub
+        - given: "an active user signing in with the correct password"
+          when: execute
+          then: {returns: LoginResult}
+          source: spec
+        - given: "an unknown email"
+          when: execute
+          then: {raises: UnauthorizedError}
+          source: spec
+        - given: "a wrong password"
+          when: execute
+          then: {raises: UnauthorizedError}
+          source: spec
+        - given: "a deactivated account with the correct password"
+          when: execute
+          then: {raises: InactiveAccountError}
+          source: spec
+        - given: "an account locked by too many failed attempts"
+          when: execute
+          then: {raises: AccountLockedError}
+          source: spec
+      notes: |
+        Thin: principal = await AuthenticationService.authenticate(query.email, query.password)
+        (it runs the credential + lockout checks and persists the counter); token =
+        ICanManageTokens.issue(principal); return LoginResult(token). The handler performs no
+        credential logic and no state mutation — those live in the service. A successful
+        sign-in clearing the failed-attempt counter is the service's job, not the handler's.
+      sources: ["UC-01"]
+
+infrastructure:
+
+  settings:
+    - name: JwtSettings
+      env_prefix: HELPDESK_JWT_
+      fields:
+        - {name: secret, type: SecretStr, secret: true}      # the server-side signing key; no default
+        - {name: algorithm, type: str, default: '"HS256"'}
+        - {name: ttl_seconds, type: int, default: "3600"}    # token expiry → the `exp` claim
+      sources: ["UC-01"]
+
+    - name: AuthSettings
+      env_prefix: HELPDESK_AUTH_
+      # The A3 lockout knobs — env-tunable so security can retune without a code change. The
+      # LockoutTunable VO is built from these at the DI layer. Defaults are the agreed v1
+      # numbers: 5 failures / 10-minute window / 15-minute lock.
+      fields:
+        - {name: max_failed_attempts, type: int, default: "5"}
+        - {name: lockout_window_seconds, type: int, default: "600"}
+        - {name: lockout_duration_seconds, type: int, default: "900"}
+      sources: ["UC-01"]
+
+    - name: DbSettings
+      env_prefix: HELPDESK_DB_
+      fields:
+        - {name: host, type: str, default: '"localhost"'}
+        - {name: port, type: int, default: "5432"}
+        - {name: user, type: str, default: '"postgres"'}
+        - {name: password, type: SecretStr, secret: true}
+        - {name: name, type: str, default: '"helpdesk"'}
+      sources: ["UC-01"]
+
+  capabilities:
+    - implements: ICanVerifyPasswords
+      adapter: argon2
+      role: PasswordHasher           # → Argon2PasswordHasher (agent-noun; not derivable from the verb)
+      requires_packages: ["argon2-cffi>=23"]
+      notes: |
+        argon2-cffi PasswordHasher (argon2id, library defaults). verify: ph.verify(
+        password_hash, raw) returns True; catch argon2.exceptions.VerifyMismatchError →
+        return False, and InvalidHashError → return False. dummy_verify: ph.verify against a
+        precomputed module-level dummy argon2 hash of a throwaway string, discarding the
+        outcome, so the unknown-email path matches a real verification's timing.
+      sources: ["UC-01"]
+
+    - implements: ICanManageTokens
+      adapter: jwt
+      role: TokenManager             # → JwtTokenManager
+      settings: JwtSettings
+      requires_packages: ["pyjwt>=2.8"]
+      notes: |
+        PyJWT, HS256. issue: jwt.encode({"sub": str(principal.id), "role": principal.role,
+        "exp": now + settings.ttl_seconds}, settings.secret.get_secret_value(),
+        algorithm=settings.algorithm). verify: jwt.decode(...); map jwt.ExpiredSignatureError
+        and jwt.InvalidTokenError → UnauthorizedError; rebuild CurrentUser(UUID(sub), Role(role)).
+      sources: ["UC-01"]
+
+  datastores:
+    - name: main
+      kind: postgres
+      settings: DbSettings
+      sources: ["UC-01"]
+
+  # No `tables:` block — a relational table is a write-once scaffold the implementer fills
+  # (column types/indexes are judgment); migrations are Alembic-native (chain in versions/).
+
+  repositories:
+    - implements: IUserRepository
+      backs: User
+      store: main
+      notes: |
+        get_by_email: SQLAlchemy Core select(users_table).where(email == :email) — the email
+        arrives already lower-cased (the VO normalizes it); return None on no row.
+        update: persist is_active and the lockout columns (failed_attempts, last_failed_at,
+        locked_until). Epic 01 performs no inserts (accounts are admin-created), so there is
+        no ConflictError path here.
+      sources: ["UC-01"]
+
+restapi:
+
+  schemas:
+    - name: LoginRequest
+      resource: auth
+      kind: request
+      fields:
+        - {name: email, type: str}
+        - {name: password, type: str}
+      sources: ["UC-01"]
+
+    - name: TokenResponse
+      resource: auth
+      kind: response
+      fields:
+        - {name: access_token, type: str}
+        - {name: token_type, type: str}
+      sources: ["UC-01"]
+
+  endpoints:
+    - method: POST
+      path: /auth/login
+      resource: auth
+      auth: anonymous
+      request: LoginRequest
+      response: TokenResponse
+      handler: Login
+      notes: |
+        Construct Email(body.email) and Password(body.password) from the request — their
+        __post_init__ enforce the lowercase-normalization and the min-8 pre-flight gate,
+        raising ValidationError (→ 422) BEFORE the store is touched — then build the LoginQuery
+        and dispatch. Map the result: access_token = result.token; token_type = "bearer".
+        Advertises 401 (invalid email or password — unknown email and wrong password are
+        indistinguishable), 403 (account inactive), 429 (account locked), 422 (malformed
+        email / password under 8 chars).
+      sources: ["UC-01"]
+
+tests:
+  architecture_rules:
+    - name: test_no_print_outside_entrypoints
+      pattern: '\bprint\('
+      paths: [domain/, application/, infrastructure/]
+      allow_list: []
+      sources: ["UC-01"]

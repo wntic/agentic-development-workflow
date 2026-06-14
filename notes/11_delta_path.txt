@@ -1,0 +1,81 @@
+notes/11 — the brownfield delta path (/apply-delta) — built + proven, with findings
+====================================================================================
+Date: 2026-06-14. Branch: workflow-without-generator.
+
+WHAT WAS BUILT
+--------------
+1. `/apply-delta` (.claude/commands/apply-delta.md) — the architect's brownfield delta command,
+   sibling to `/build-manifest`. Interactive (main loop): locate the target context(s), author the
+   change in place, review the blast radius, validate to green, hand off the forward path.
+2. The architect's delta-mode procedure (.claude/agents/architect.md) — was a stub ("command
+   forthcoming"); now a full 7-step procedure grounded in spec §8/§4/§7: locate context(s) (a delta
+   may touch >1 manifest — a downstream consumer induces an upstream delta); express the change
+   (additive / contract-change with supersedes-replaces / cross-epic exposure); compute + present the
+   blast radius (declarative+glue regen free · body-bearing → drift → implementer · table → schema
+   drift → Alembic); orphan/rename = surfaced frontier, never guessed; validate; hand off
+   /scaffold → /verify.
+3. The runner's SECOND trigger half (.claude/tools/plan_implementation.py). Spec §4's trigger is
+   "наличие NotImplementedError + краснота тулчейна" — only the first half was implemented. Added
+   `drifted_files()`: a protocol-implementing body (repository / capability adapter) MISSING a method
+   its protocol declares is contract drift. Detected STRUCTURALLY (manifest declares the methods, the
+   file is ground truth) — the runner stays thin, never invokes mypy. Worklist items now carry a
+   `trigger` field (scaffold | drift) + `missing_methods`.
+
+THE PROOF (end-to-end, on a real delta)
+----------------------------------------
+Delta: UC-02 (Tickets) validates a ticket assignee by reading the user by id to confirm the Agent
+role. That needs `auth:IUserRepository.get_by_id`, which epic 01 deliberately omitted. Applied it as
+a CROSS-EPIC EXPOSURE on specs/epics/01-identity/manifest.yaml: IUserRepository grew
+`async def get_by_id(self, id: UUID) -> User | None`, sources ["UC-01","UC-02"].
+
+Cycle, on examples/generated/helpdesk4 (the already-scaffolded + filled identity tree):
+  architect: mutate manifest + validate → OK 0/0/0; blast-radius review presented.
+  scaffolder (FIRST brownfield re-run, spec §14 #1): regenerated the protocol (now carries get_by_id)
+    and the in-memory fake (got get_by_id in full); left ALL filled bodies untouched; self-verify
+    green; correctly did NOT re-freeze the snapshot on a filled tree.
+  runner: NEW drift trigger lists `user_repository.py ⟲ DRIFT: missing get_by_id` (attributed to the
+    implementer-owned body file, NOT the containers.py glue), skill=infra-sqlalchemy-repository.
+  implementer: added get_by_id mirroring get_by_email (1 iteration), mypy+ruff clean.
+  final gate: `mypy src tests` Success (72 files) · ruff clean · worklist drained.
+
+FINDINGS / CORRECTIONS
+----------------------
+* CORRECTION to an earlier (wrong) in-chat analysis. I claimed an added protocol method with no
+  in-context consumer would produce NO mypy-red (structural protocols + "untyped DI"). WRONG: the DI
+  container types the provider as `providers.Provider[IUserRepository] = providers.Factory(
+  UserRepository, ...)`, and dependency-injector ships its own stubs, so mypy DOES check conformance —
+  the missing method reds `containers.py:48`. The DI-container annotation is the use-site that forces
+  conformance even with no business caller.
+* But the red surfaces at containers.py (GLUE, scaffolder-owned), while the FIX belongs in the repo
+  body (implementer-owned). The runner's textual NIE scan listed nothing (the body has no
+  NotImplementedError), so /verify would have drained 0 items and only hit the red at the final
+  whole-tree gate with no per-node entry to dispatch. That is exactly the gap the new drift trigger
+  closes — it attributes the drift to the body file via the graph, not by parsing mypy messages.
+* Drift detection v1 catches METHOD-PRESENCE drift (added/removed protocol methods on repo/capability
+  implementers). A same-name SIGNATURE change (renamed param, changed type) is NOT caught by the
+  per-node trigger; it still falls only to the final whole-tree mypy gate. Acceptable increment;
+  earn-its-place for the trigger logic (built for the case that arises). Worth a follow-up if
+  signature-drift deltas become common.
+* No unit-level protocol-conformance test exists (test-repository-contract is Postgres/integration,
+  absent without Docker). The DI-container mypy check is what catches conformance in the Docker-less
+  gate — which is why the drift surfaced there at all. A unit conformance check would make it explicit.
+
+KNOWN FRONTIER (blocks the FULL Tickets forward proof) — UNBUILT, spec §13 «потом» / §15
+-----------------------------------------------------------------------------------------
+Cross-epic scaffold-time resolution. A bounded context is one manifest (spec §7); Tickets is a
+SEPARATE context from Identity (they do not change together) that draws an inbound cross-epic edge
+`auth:IUserRepository.get_by_id`. At scaffold time that edge must resolve to an import of the
+already-scaffolded identity code in the same package — and NONE of that is built:
+  - validator: treats `:`-bearing refs as a WARNING ("left unresolved, no other manifests yet"),
+    does not resolve them across manifests.
+  - conventions: no cross-epic → import derivation.
+  - scaffolder: no multi-manifest / second-manifest-into-an-existing-package handling.
+So the consuming context (Tickets) cannot yet be scaffolded into the identity package, which is why
+the delta proof used the cross-epic EXPOSURE (the upstream half, on identity) rather than the full
+Tickets build. Building this is the multi-manifest/cross-context frontier the spec defers to the
+packaging/marketplace phase (§15) and §14 open questions #5/#7 (role placement, cross-epic notation).
+
+SIDE-EFFECT: this session also fixed the test-skill mypy-annotation defects + extended the gate to
+`mypy src tests` (see git log / the conventions §E + test-integration-* + test-discovery-invariants
+edits). The brownfield re-scaffold re-emitted the test files from the fixed templates and the gate is
+green over both trees.

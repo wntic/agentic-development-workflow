@@ -57,10 +57,10 @@ Input is a set of BA use cases (PDF), or free text, or "prototype X". The flow (
 
 | Stage | Executor | Type | Command |
 |---|---|---|---|
-| 0. Ingestion → epics + backend filter | analyst agent | agent, interactive | `/ingest-usecases` *(planned)* |
-| 1. UC refinement (product questions → BA) | analyst agent | agent, file-channel | `/refine-usecases` *(planned)* |
-| 2. Manifest build / delta (architecture questions → you) | architect agent | agent, interactive chat | `/build-manifest`, `/apply-delta` *(planned)* |
-| — Manifest validation | stdlib graph check (no deps) | deterministic, no LLM | `/validate-manifest` *(planned)* — exists as `.claude/tools/validate_manifest.py` |
+| 0. Ingestion → epics + backend filter | analyst agent | agent, interactive | `/ingest-usecases` — built |
+| 1. UC refinement (product questions → BA) | analyst agent | agent, file-channel | `/refine-usecases` — built |
+| 2. Manifest build / delta (architecture questions → you) | architect agent | agent, interactive chat | `/build-manifest` — built; `/apply-delta` — built (`.claude/commands/apply-delta.md`; delta procedure in `.claude/agents/architect.md`) |
+| — Manifest validation | stdlib graph check (no deps) | deterministic, no LLM | `/validate-manifest` *(planned wrapper)* — exists as `.claude/tools/validate_manifest.py` |
 | 3. Scaffolding (declarative + glue + body scaffolds + red tests) | scaffolder agent | agent (role) | `/scaffold` — built (`.claude/commands/scaffold.md` + `.claude/agents/scaffolder.md`) |
 | 4. Scaffold tail (fill scaffolded bodies behind contracts) | implementer agent | agent, parallel by DAG | `.claude/agents/implementer.md` + `/verify` (dispatch) |
 | — Verification loop (mypy / ruff / behavioural tests, TDD mode) | runner + implementer | code + agent in a loop | `/verify` — exists (`.claude/commands/verify.md` + thin runner `.claude/tools/plan_implementation.py` + `.claude/tools/scaffold_snapshot.py` for baseline/diff attribution) |
@@ -110,14 +110,27 @@ proven on an epic; `main` stays the generator archive — this branch is not mer
 (`.claude/agents/scaffolder.md`) + `/scaffold` (`.claude/commands/scaffold.md`); the rewritten
 **implementer** agent (`.claude/agents/implementer.md` — body-fill only, file-as-unit, strict §9
 anti-collusion) + the verification loop `/verify` (`.claude/commands/verify.md`) driven by the thin
-stdlib runner `.claude/tools/plan_implementation.py` (deterministic NotImplementedError/column-less-table
-trigger + DAG-level worklist, reusing the validator). Step 5 drove the full path end-to-end on helpdesk
-+ vector_rag into `examples/generated/` — validator → scaffolder → implementer (by DAG) → verify —
-mypy/ruff clean, unit tests green, the app constructs with full OpenAPI.
+stdlib runner `.claude/tools/plan_implementation.py` (deterministic trigger — both halves of spec §4:
+`NotImplementedError`/column-less-table **and** structural contract drift, i.e. a protocol-implementing
+body missing a method its protocol declares — + DAG-level worklist, reusing the validator). Step 5 drove
+the full path end-to-end on helpdesk + vector_rag into `examples/generated/` — validator → scaffolder →
+implementer (by DAG) → verify — mypy/ruff clean, unit tests green, the app constructs with full OpenAPI.
 
-**Still to build (the upstream bundle, then the deferred work).** In workflow order: the **analyst**
-agent + `/ingest-usecases` + `/refine-usecases`; the **architect** agent + `/build-manifest` +
-`/apply-delta`; and the `/validate-manifest` wrapper. Until these exist, manifests are written by hand.
+**Done — the upstream bundle + the brownfield delta path.** The **analyst** agent + `/ingest-usecases` +
+`/refine-usecases`; the **architect** agent + `/build-manifest` + `/apply-delta`. The forward path is
+brownfield-safe (re-`/scaffold` regenerates declarative/glue, leaves filled bodies; `/verify` reconciles
+drift via the two-half trigger). The delta path was proven end-to-end on a real delta (`IUserRepository`
+grows `get_by_id`, a UC-02 cross-epic exposure on the 01-identity manifest): architect mutate + validate →
+brownfield re-scaffold (protocol/fake regenerated, filled bodies untouched) → runner drift trigger →
+implementer reconciles → `mypy src tests` + ruff green. See `notes/11_delta_path.txt`.
+
+**Still to build / known frontiers.** The `/validate-manifest` wrapper (the validator itself exists).
+**Cross-epic scaffold-time resolution is unbuilt** (the multi-manifest-into-one-package frontier): the
+validator warns-and-skips a cross-epic edge (`auth:IFoo.method`), conventions has no cross-epic import
+derivation, and the scaffolder has no multi-manifest handling — so a downstream context (e.g. Tickets)
+cannot yet be scaffolded into a package alongside the upstream context it depends on (spec §13 «потом» /
+§15). Drift detection v1 catches **method-presence** drift; a same-name **signature** change still falls
+only to the final whole-tree mypy gate, not the per-node worklist.
 Deferred (spec §13 «потом»): the brownfield frontier (orphan GC + rename-with-body-transfer), plugin
 packaging + multi-language, and removing the `src/codegen` archive. Open seams: a Docker-backed
 integration run (testcontainers), and the §9 review tail (manual-stub assert authorship + adversarial
@@ -203,7 +216,7 @@ uv run .claude/tools/validate_manifest.py .claude/tools/fixtures/helpdesk_manife
 uv run pytest .claude/tools/test_validate_manifest.py
 
 # the generated target backend uses the verification loop (spec §12), run inside
-# examples/generated/<pkg>/ once it exists: uv run mypy . / ruff check . / ruff format . / pytest
+# examples/generated/<pkg>/: uv run mypy src tests / ruff check src tests / ruff format src tests / pytest
 ```
 
 The **archived generator** (`src/codegen/`) keeps its own green suite for reference, not part of the
@@ -212,10 +225,12 @@ agentic path: `uv run pytest tests/` and `uv run python examples/generate.py <ma
 `mypy` is part of the *designed* verification loop (spec §12) — type-correctness is load-bearing for
 catching contract drift on scaffolded bodies.
 
-Pipeline slash-commands: `/scaffold` and `/verify` are **built** (`.claude/commands/{scaffold,verify}.md`
-+ the runner `.claude/tools/plan_implementation.py`); the upstream ones (`/ingest-usecases`,
-`/refine-usecases`, `/build-manifest`, `/apply-delta`, `/validate-manifest`) are **not built yet** — see
-the stage table above and `notes/6_build_plan.txt`. Building them, in workflow order, is the current work.
+Pipeline slash-commands: the full chain is **built** — `/ingest-usecases`, `/refine-usecases`,
+`/build-manifest`, `/apply-delta`, `/scaffold`, `/verify` (under `.claude/commands/`, driven by the
+analyst/architect/scaffolder/implementer agents + the runner `.claude/tools/plan_implementation.py`). The
+only unbuilt command is the `/validate-manifest` wrapper (the validator itself exists). See the stage
+table above, `notes/6_build_plan.txt`, and `notes/11_delta_path.txt` (the delta path + the cross-epic
+scaffolding frontier).
 
 ## Conventions when extending the pipeline
 
