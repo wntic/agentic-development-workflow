@@ -125,6 +125,14 @@ Fixed rules, no latitude: ASCII `->` (never the unicode `→`); the line order i
    **dependency manifest** → `pyproject.toml`
    **tests** → fakes → handler tests → domain tests
 
+   **Stream progress + resume (a long pass can be killed — F-021).** This walk is long; emit a one-line
+   progress marker as each layer / subdomain / context completes (e.g. `scaffolded domain/meetings (12
+   files)`) so the run keeps streaming and a no-progress watchdog does not kill it mid-pass. The walk is
+   **resumable**: a file already written and non-empty is done — on a re-run (including a `/scaffold`
+   resume dispatch after a killed pass, command step 3a) **skip** it and emit only the missing files,
+   then self-verify and freeze. The partial tree is the checkpoint; never restart from an empty tree when
+   one is half-written, and never re-snapshot a tree whose bodies are already filled.
+
    Per node, the deterministic recipe:
    - **a. Derive** the file path(s) and class name(s) from `conventions` block A; pick the producer skill from block B. (A node whose skill's **Hard stops** match it is a **coverage-gap** — stop and escalate, §16; do not stretch the wrong skill.)
    - **b. Read** that skill's `Template` + `Rules`.

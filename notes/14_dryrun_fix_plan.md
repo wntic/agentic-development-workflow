@@ -212,6 +212,14 @@ also exposed that the committed Meeting manifest was itself un-generatable (now 
   *Fix:* a resumable/checkpointed scaffold for long re-scaffolds, or split the pass; AND `/scaffold`
   should run a whole-tree `ruff --fix` + report-presence check after the scaffolder returns (the
   implementer per-file gate doesn't cover scaffolder-owned glue).
+  **STATUS — DONE (2026-06-14).** Chose the resumable/checkpointed route (the partial tree IS the
+  checkpoint, leveraging the scaffolder's existing idempotency). `/scaffold` gained step 3a: a post-return
+  whole-tree `ruff format` + `ruff check --fix` safety net, a completion check (report + `.scaffold/`
+  baseline present), and a **resume loop** (≤2 re-dispatches on the partial tree — each skips existing
+  files so it converges). `scaffolder.md` now streams a per-layer/context progress marker (defeats the
+  no-progress watchdog) and states the resume contract (skip existing non-empty files, finish the tail,
+  self-verify + freeze). The earlier P0 blind run stalled here (121 files, connection factories already
+  complete, no baseline) — the exact case the resume loop now recovers.
 - **F-001 / F-002 · corpus path hard-coded.** Commands resolve `specs/use-cases/` + `specs/epics/`;
   `meta-uc-author` hard-stops outside `specs/use-cases/`. *Fix:* a `--corpus` / `--epics-dir` arg (or
   config knob) on the pipeline commands + relax the meta-uc-author hard-stop to a configured root, so a
