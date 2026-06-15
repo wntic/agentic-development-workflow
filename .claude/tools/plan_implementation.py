@@ -17,12 +17,16 @@ place):
   * The trigger has two halves (spec §4 — "наличие NotImplementedError + краснота тулчейна"):
       1. a body scaffold is pending while it still carries `raise NotImplementedError`; a relational
          table is pending while its `Table(...)` has no `Column(`.
-      2. **contract drift** — a protocol-implementing body (repository / capability adapter) is
-         MISSING a method its protocol declares. An additive delta regenerates the protocol
-         (declarative) with the new method but leaves the body (written once) untouched, so it no
-         longer satisfies the protocol → mypy red, yet there is NO `NotImplementedError`, so the
-         textual scan alone would miss it. Detected STRUCTURALLY — the manifest declares the methods,
-         the file is the ground truth — so the runner stays thin and never invokes mypy itself.
+      2. **contract drift** — a protocol-implementing body (repository / capability adapter) no
+         longer satisfies its protocol: either it is MISSING a method the protocol declares, or it
+         HAS the method but with a drifted SIGNATURE (a renamed/added parameter or a changed type —
+         e.g. the protocol grew an `org_id` filter param). An additive delta regenerates the protocol
+         (declarative) but leaves the body (written once) untouched, so it no longer satisfies the
+         protocol → mypy red, yet there is NO `NotImplementedError`, so the textual scan alone would
+         miss it. Detected STRUCTURALLY — the manifest declares the method signatures, the file is the
+         ground truth, both normalized through one canonicalizer — so the runner stays thin and never
+         invokes mypy itself. (House style is exact-match, so any normalized signature difference is a
+         real mypy mismatch, not covariance latitude.)
     Both halves read the file tree, not a guess.
   * Node↔file mapping mirrors a thin slice of `conventions` block A — filename derivation only
     (snake / pluralize / per-kind stem), enough to attach a skill + test to each pending file.
@@ -334,49 +338,134 @@ def pending_files(pkg_src: Path) -> list[Path]:
     return out
 
 
-def _decl_method_names(entries: list | None) -> set[str]:
-    """Method names a protocol declares in the manifest. Each entry is a bare signature string or a
-    `{signature, notes}` mapping; pull the name out of `(async )?def <name>(`."""
-    out: set[str] = set()
-    for me in entries or []:
-        sig = me if isinstance(me, str) else (me.get("signature") or "")
-        mo = re.search(r"\bdef\s+(\w+)", sig)
-        if mo:
-            out.add(mo.group(1))
+def _collapse_type(s: str) -> str:
+    """Canonicalize a type/param fragment so formatting noise is NOT drift: drop forward-ref quotes,
+    collapse internal whitespace, and tighten the spacing around the delimiters that vary by author
+    (`[] | , () :`). `tuple[ Foo , ... ]`, `tuple[Foo,...]`, `foo: Foo`/`foo:Foo` and `"Foo"|None`
+    all normalize alike."""
+    s = s.replace('"', "").replace("'", "")
+    s = re.sub(r"\s+", " ", s).strip()
+    return re.sub(r"\s*([\[\]|,():])\s*", r"\1", s)
+
+
+def _split_top_level(s: str, sep: str) -> list[str]:
+    """Split on `sep` only at bracket-depth 0, so a comma inside `tuple[Foo, int]` or a `=` inside a
+    default expression does not split the parameter list."""
+    out: list[str] = []
+    depth = 0
+    buf: list[str] = []
+    for ch in s:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == sep and depth == 0:
+            out.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    out.append("".join(buf))
     return out
 
 
-def _defined_method_names(path: Path) -> set[str]:
-    """Method names a concrete body file defines (comments stripped, so a contract-comment that
-    mentions a method name does not count as a definition)."""
+def _canonical_sig(text: str, open_paren: int) -> tuple[tuple[str, ...], str]:
+    """The structural contract of a method: its (parameters, return type), normalized. `open_paren`
+    is the index of the `(` that starts the parameter list. `self`/`cls` and default VALUES are
+    dropped (neither is part of the protocol contract mypy enforces); the keyword-/positional-only
+    markers (`*`, `/`) and the parameter NAMES are kept (they ARE part of structural conformance —
+    a renamed or added parameter is what an additive delta produces). Works on a bare manifest
+    signature string (no body) and on a real `def` in a file (stops the return clause at the body
+    colon), so both sides normalize through ONE function and compare by equality."""
+    i = open_paren + 1
+    depth = 1
+    while i < len(text) and depth:
+        ch = text[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        i += 1
+    params_src = text[open_paren + 1 : i - 1]
+    rest = text[i:]
+    # the return clause runs from past the `)` to the first top-level `:` (the body colon) or to the
+    # end (a manifest signature string has no body, so no colon).
+    j = 0
+    depth = 0
+    while j < len(rest):
+        ch = rest[j]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == ":" and depth == 0:
+            break
+        j += 1
+    ret = re.sub(r"^\s*->\s*", "", rest[:j]).strip()
+    params: list[str] = []
+    for raw in _split_top_level(params_src, ","):
+        p = _split_top_level(raw, "=")[0].strip()  # drop the default value
+        if not p or p in ("self", "cls"):
+            continue
+        params.append(_collapse_type(p))
+    return tuple(params), _collapse_type(ret)
+
+
+def _decl_method_sigs(entries: list | None) -> dict[str, tuple[tuple[str, ...], str]]:
+    """method name → canonical (params, return) for every signature a protocol declares. Each entry
+    is a bare signature string or a `{signature, notes}` mapping."""
+    out: dict[str, tuple[tuple[str, ...], str]] = {}
+    for me in entries or []:
+        sig = me if isinstance(me, str) else (me.get("signature") or "")
+        mo = re.search(r"\bdef\s+(\w+)\s*\(", sig)
+        if mo:
+            out[mo.group(1)] = _canonical_sig(sig, mo.end() - 1)
+    return out
+
+
+def _body_method_sigs(path: Path) -> dict[str, tuple[tuple[str, ...], str]]:
+    """method name → canonical (params, return) for every `def` a concrete body file defines
+    (comments stripped, so a contract-comment that mentions a method does not count as a definition).
+    First definition of a name wins."""
     code = "".join(line.split("#", 1)[0] for line in path.read_text().splitlines(keepends=True))
-    return set(re.findall(r"\bdef\s+(\w+)", code))
+    out: dict[str, tuple[tuple[str, ...], str]] = {}
+    for mo in re.finditer(r"\bdef\s+(\w+)\s*\(", code):
+        out.setdefault(mo.group(1), _canonical_sig(code, mo.end() - 1))
+    return out
 
 
-def drifted_files(m: dict, pkg_src: Path, already: set[Path]) -> dict[Path, list[str]]:
+def drifted_files(m: dict, pkg_src: Path, already: set[Path]) -> dict[Path, dict[str, list[str]]]:
     """The second trigger half (spec §4): protocol-implementing bodies (repositories, capability
-    adapters) whose concrete class is MISSING a method its protocol declares — additive-delta
-    contract drift. The protocol regenerated with the new method; the written-once body did not, so
-    it no longer satisfies the protocol (mypy red) but carries no `NotImplementedError`. Detected
-    structurally against the manifest; files already pending (NIE / column-less) are skipped."""
+    adapters) whose concrete class no longer satisfies its protocol — additive-delta contract drift.
+    The protocol regenerated; the written-once body did not, so mypy reds but there is no
+    `NotImplementedError`, and the textual scan alone would miss it. Two shapes, both structural
+    (the manifest declares the methods, the file is ground truth — the runner never invokes mypy):
+      * **missing** — the body lacks a method the protocol declares (an added method);
+      * **changed** — the body HAS the method but with a different signature than the protocol now
+        declares (a renamed/added parameter or a changed type — the `RagRetriever now filters by
+        org_id` case, §4). House style is exact-match (`infra-sqlalchemy-repository` rule 3), so any
+        normalized difference is a real mypy-red mismatch, not covariance latitude.
+    Returns `{file: {"missing": [...], "changed": [...]}}`; files already pending (NIE / column-less)
+    are skipped — they will be filled fresh, not reconciled."""
     repo_protocols = {p["name"]: p for p in _section_list(m, "domain.repository_protocols")}
     cap_protocols = {c["name"]: c for c in _section_list(m, "domain.capability_protocols")}
     store_kind_by_name = {d["name"]: d.get("kind") for d in _section_list(m, "infrastructure.datastores")}
-    out: dict[Path, list[str]] = {}
+    out: dict[Path, dict[str, list[str]]] = {}
 
-    def check(stem: str, declared: set[str]) -> None:
+    def check(stem: str, declared: dict[str, tuple[tuple[str, ...], str]]) -> None:
         f = next((p for p in pkg_src.rglob(f"{stem}.py")), None)
         if f is None or f in already:
             return
-        missing = sorted(declared - _defined_method_names(f))
-        if missing:
-            out[f] = missing
+        defined = _body_method_sigs(f)
+        missing = sorted(set(declared) - set(defined))
+        changed = sorted(name for name in set(declared) & set(defined) if declared[name] != defined[name])
+        if missing or changed:
+            out[f] = {"missing": missing, "changed": changed}
 
     for r in _section_list(m, "infrastructure.repositories"):
         proto = repo_protocols.get(r.get("implements", ""))
         if proto:
             store_kind = store_kind_by_name.get(r.get("store")) if r.get("store") else None
-            check(repo_file_stem(r, store_kind), _decl_method_names(proto.get("methods")))
+            check(repo_file_stem(r, store_kind), _decl_method_sigs(proto.get("methods")))
 
     for cap in _section_list(m, "infrastructure.capabilities"):
         proto = cap_protocols.get(cap.get("implements", ""))
@@ -389,7 +478,7 @@ def drifted_files(m: dict, pkg_src: Path, already: set[Path]) -> dict[Path, list
             if role
             else adapter.capitalize() + re.sub(r"^ICan", "", str(cap.get("implements", "")))
         )
-        check(snake(cls), _decl_method_names(proto.get("methods")))
+        check(snake(cls), _decl_method_sigs(proto.get("methods")))
 
     return out
 
@@ -462,6 +551,7 @@ def plan(manifests: list[Path], root: Path, only_node: str | None) -> list[dict]
                     "unmapped": True,
                     "trigger": "scaffold",
                     "missing_methods": [],
+                    "signature_drift": [],
                 }
             )
             continue
@@ -480,16 +570,18 @@ def plan(manifests: list[Path], root: Path, only_node: str | None) -> list[dict]
                 "unmapped": False,
                 "trigger": "scaffold",
                 "missing_methods": [],
+                "signature_drift": [],
             }
         )
 
-    # second trigger half — contract drift (a protocol-implementer missing a declared method),
-    # merged across every in-scope context (app-mode unions the drift the same way as the registry)
-    drift: dict[Path, list[str]] = {}
+    # second trigger half — contract drift (a protocol-implementer that no longer satisfies its
+    # protocol: a method is MISSING or its SIGNATURE drifted), merged across every in-scope context
+    # (app-mode unions the drift the same way as the registry).
+    drift: dict[Path, dict[str, list[str]]] = {}
     for m in loaded:
-        for f, missing in drifted_files(m, pkg_src, set(pending)).items():
-            drift.setdefault(f, missing)
-    for f, missing in drift.items():
+        for f, info in drifted_files(m, pkg_src, set(pending)).items():
+            drift.setdefault(f, info)
+    for f, info in drift.items():
         meta = _match(pkg_src, f, reg)
         if meta is None:
             continue
@@ -507,7 +599,8 @@ def plan(manifests: list[Path], root: Path, only_node: str | None) -> list[dict]
                 "dag_level": levels[key],
                 "unmapped": False,
                 "trigger": "drift",
-                "missing_methods": missing,
+                "missing_methods": info["missing"],
+                "signature_drift": info["changed"],
             }
         )
 
@@ -563,7 +656,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"── DAG level {it['dag_level']} " + "─" * 40)
             last = it["dag_level"]
         flag = "  ⚠ UNMAPPED" if it["unmapped"] else ""
-        drift = f"  ⟲ DRIFT: missing {', '.join(it['missing_methods'])}" if it.get("trigger") == "drift" else ""
+        drift = ""
+        if it.get("trigger") == "drift":
+            bits = []
+            if it["missing_methods"]:
+                bits.append("missing " + ", ".join(it["missing_methods"]))
+            if it.get("signature_drift"):
+                bits.append("signature drift on " + ", ".join(it["signature_drift"]))
+            drift = "  ⟲ DRIFT: " + "; ".join(bits)
         print(f"  [{it['test_kind']:^6}] {it['rel']}{drift}")
         print(f"           skill={it['skill']}  node={it['label']}{flag}")
         if it["test"]:

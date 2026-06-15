@@ -137,8 +137,11 @@ subpackages). Proven end-to-end: the Tickets context (epic 02) scaffolded into h
 both routers in OpenAPI (`/auth/login` + `/tickets`), worklist drained. See `notes/12_cross_epic.txt`.
 
 **Still to build / known frontiers.** The `/validate-manifest` wrapper (the validator itself exists).
-Drift detection v1 catches **method-presence** drift; a same-name **signature** change still falls only
-to the final whole-tree mypy gate, not the per-node worklist. Cross-epic resolution today is model A
+Drift detection catches both halves now — **method-presence** (a body missing a declared method) **and
+same-name signature drift** (a renamed/added parameter or changed type), detected structurally by the
+runner (`plan_implementation.py` canonicalizes the manifest signature and the body `def`, comparing by
+equality since the house style is exact-match) so it lands on the per-node worklist, not only the final
+whole-tree mypy gate. Cross-epic resolution today is model A
 (one package); per-context deployables / separate packages (model B, §15 marketplace) are not built.
 Orphan GC + rename-with-body-transfer (spec §4/§14) remain the unbuilt brownfield frontier.
 Deferred (spec §13 «потом»): the brownfield frontier (orphan GC + rename-with-body-transfer), plugin
