@@ -290,3 +290,33 @@ refinement is elidable for a delta ONLY when the UC is already TBD-free (a produ
 Cross-ref: every F-NNN above is detailed in `notes/pipeline_dryrun_feedback.md`. The §9 residual
 WEAK-assert queue (test-strength, not body defects) is in that report's "residual review surface"
 section and is a separate, optional strengthening track (depends on the F-018 fake fix landing first).
+
+---
+
+## New findings (post-PR) — surfaced driving a fresh scaffold to a green `mypy src tests`
+
+These two are **beyond F-001..F-025** — they only appear when a freshly-scaffolded app is type-checked all
+the way (the F-021 resume's final self-verify exposed them on `mm2`). **Both FOUND + FIXED + verified
+(2026-06-15)** — `mm2` now passes `mypy src tests` (176 files) + ruff clean.
+
+- **N-01 · containers.py imports a repo from the tech package, not its `repositories` subpackage → mypy
+  `[attr-defined]`.** A name nested two `from .subpkg import *` hops deep is not statically resolvable when
+  the intermediate package's `__all__` is a computed concatenation (`a.__all__ + b.__all__`): mypy can't
+  evaluate it across the hop, so `from myapp.infrastructure.postgres import MeetingRepository` reports
+  "Module ... has no attribute MeetingRepository" (it works at runtime — green helpdesk4 imports from
+  `...postgres.repositories` and passes). **Fix:** import from the package that DIRECTLY re-exports the
+  symbol (one hop) — repos from `infrastructure/<store>/repositories`, not the `<store>` tech package.
+  Documented in `general-imports-conventions` (the "subpackage = immediate parent, never a grandparent"
+  rule) + `infra-di-provider` (the concrete repo-import note). Confirmed: editing `mm2`'s containers to
+  import repos from `.repositories` dropped 5 mypy errors → 0.
+- **N-02 · the `test-discovery-invariants` files break mypy on a newer FastAPI.** The discovery tests read
+  route INTERNALS (`route.dependant`, `route.responses`, `route.methods`); FastAPI **0.137** stopped
+  exposing `.dependant`/`.responses` to mypy on `APIRoute` (`[attr-defined]`) and types `.methods` as
+  `set[str] | None` (`[union-attr]` when iterated). The code is byte-identical to green helpdesk4 (FastAPI
+  0.136) — pure version fragility, and the pipeline pins latest (B8, no version pin). **Fix:** reach the
+  framework internals via `getattr(route, "dependant"/"responses", default)` (version-robust, not a
+  `# type: ignore` — block E) and guard the optional set with `route.methods or set()`. Done in
+  `test-discovery-invariants`; confirmed the 4 test-tree mypy errors → 0.
+
+The `mm2` tree (`examples/generated/mm2/`, the F-021 partial checkpoint) was used to verify both and is
+left in place; it is disposable/untracked.

@@ -126,6 +126,8 @@ create_foo_handler: providers.Provider[CreateFooHandler] = providers.Factory(
 
 This skill edits `containers.py` directly and does **not** touch any subpackage `__init__.py` — `containers.py` is a top-level module at the project root, not a package member. The classes the container imports (handlers, repositories, services, settings) are re-exported by their own subpackage `__init__.py` (managed by `general-python-package` in the producing skill). No additional package wiring step here.
 
+**Import each class from the package that DIRECTLY re-exports it — one `from .module import *` hop — never a grandparent** (`general-imports-conventions`). This bites the nested infra layout: a repository class lives in `infrastructure/<store>/repositories/<x>.py`, so import it from the **`repositories` subpackage** — `from myapp.infrastructure.postgres.repositories import MeetingRepository`, `from myapp.infrastructure.qdrant.repositories import MeetingSearchIndex` — **not** from the `<store>` tech package (`from myapp.infrastructure.postgres import MeetingRepository`). The tech-package form resolves at runtime but mypy reports `[attr-defined]` ("Module ... has no attribute MeetingRepository"), because the intermediate `repositories/__init__.py` has a computed `__all__` mypy can't evaluate across the `from .repositories import *` hop. Classes sitting directly under the tech package (the `engine` / `settings` modules, a capability adapter) are one hop away, so importing them from the tech package is correct.
+
 ## What never goes in the container
 
 - **No business logic.** The container only wires.

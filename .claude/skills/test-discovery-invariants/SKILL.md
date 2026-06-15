@@ -63,8 +63,15 @@ from myapp.restapi.dependencies import get_current_user
 def _is_protected(route: APIRoute) -> bool:
     """A route is protected iff its dependency tree includes `get_current_user`
     or `require_role`. Public routes (info, health, OpenAPI itself) are
-    naturally excluded."""
-    for dep in route.dependant.dependencies:
+    naturally excluded.
+
+    `dependant` is a FastAPI route INTERNAL — not part of the typed public
+    surface, and across FastAPI versions mypy may not see it on `APIRoute`
+    (0.137 stopped exposing `.dependant`/`.responses`). Reach it via `getattr`
+    so the test type-checks on whatever version `uv` pins; the attribute is
+    present at runtime on every version."""
+    dependant = getattr(route, "dependant", None)
+    for dep in getattr(dependant, "dependencies", []):
         if dep.call is get_current_user:
             return True
         if getattr(dep.call, "required_role", None) is not None:
@@ -78,7 +85,7 @@ def _protected_routes(app: FastAPI) -> list[tuple[str, str]]:
             continue
         if not _is_protected(route):
             continue
-        for method in route.methods:
+        for method in route.methods or set():  # Starlette types `methods` as set[str] | None
             if method == "HEAD":
                 continue
             out.append((method, route.path))
@@ -142,8 +149,11 @@ def _declared_codes(app: FastAPI) -> dict[tuple[str, str], set[int]]:
 
 def _expected_codes_from_route(route: APIRoute) -> set[int]:
     """The set of error codes the route's decorator advertised. FastAPI
-    stores them on `route.responses` as the dict produced by `error_responses(...)`."""
-    return {code for code in route.responses if isinstance(code, int) and code >= 400}
+    stores them on `route.responses` as the dict produced by `error_responses(...)`.
+    `responses` is a route internal mypy may not see on `APIRoute` (see
+    `_is_protected`'s note) — reach it via `getattr`; present at runtime."""
+    responses = getattr(route, "responses", {})
+    return {code for code in responses if isinstance(code, int) and code >= 400}
 
 async def test_every_route_advertises_what_its_decorator_declared(
     real_app: FastAPI,
@@ -154,7 +164,7 @@ async def test_every_route_advertises_what_its_decorator_declared(
     for route in real_app.routes:
         if not isinstance(route, APIRoute):
             continue
-        for method in route.methods:
+        for method in route.methods or set():  # Starlette types `methods` as set[str] | None
             if method == "HEAD":
                 continue
             spec_codes = declared.get((method, route.path), set())
