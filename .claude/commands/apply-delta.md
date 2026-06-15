@@ -14,8 +14,16 @@ and leaves filled bodies; `/verify` reconciles drift on the `NotImplementedError
 your job is to author the delta and review its blast radius.
 
 `$ARGUMENTS` is the change to apply — a UC id (`UC-NN`) or the epic slug it lands in. If empty, **ask**
-which change. The UC must be refined (no TBDs); if it still carries TBDs, stop and point at
-`/refine-usecases`.
+which change.
+
+**Refinement for a delta — elidable only when the UC is already TBD-free.** The invariant is that **no
+product TBD reaches the architect** (a TBD is a product question, the BA's to answer — never folded by the
+architect). So: if the delta's UC carries any TBD / "discuss with X" / open product choice, **stop and run
+`/refine-usecases`** (it produces the `UC-NN.refined.md` the architect reads). Refinement is *elidable* only
+for a delta whose UC is already unambiguous (no TBDs, product decisions already settled) — then the
+architect proceeds directly on the source UC. Eliding it for a UC that still has open product questions is
+the F-finding to avoid: do not fold product decisions inline here. (Architecture questions are different —
+those you DO resolve, in chat, step 2.)
 
 ## Steps
 

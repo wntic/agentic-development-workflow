@@ -222,6 +222,17 @@ already the skill's behaviour, now with the rationale so it can't regress). Doc-
 
 ## P3 — robustness / process / lint
 
+**STATUS — DONE (2026-06-15).** F-021 above (resumable scaffold). The rest: ruff `B006` added to the
+`conventions` block E select (+ scaffolder restatement) — mutable-default-arg now an error; ConflictError
+guidance → `architect.md` rule 9 (declare `ConflictError`/409 the first UC that inserts on a unique
+constraint, else a duplicate is HTTP 500 — earn-its-place, same for NotFound/Validation/InUse); corpus
+paths (F-001/F-002) → `meta-uc-author` hard-stop relaxed (only the `UC-NN-<slug>.md` FILENAME is
+load-bearing; the corpus root is configurable, default `specs/use-cases/`, so a sandbox like
+`specs/dryrun/` coexists — the pipeline commands already accept explicit paths in `$ARGUMENTS`, so the
+hard-coded `specs/...` are only discovery fallbacks); delta-refinement → `apply-delta.md` now states
+refinement is elidable for a delta ONLY when the UC is already TBD-free (a product TBD always routes to
+`/refine-usecases`, never folded inline by the architect).
+
 - **F-021 · scaffolder died mid-run on a long single-pass brownfield re-scaffold** (socket error after
   ~50 min; report + self-verify lost; left `main.py` imports unsorted — caught only by whole-tree ruff).
   *Fix:* a resumable/checkpointed scaffold for long re-scaffolds, or split the pass; AND `/scaffold`

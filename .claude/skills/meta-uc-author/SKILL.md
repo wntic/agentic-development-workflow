@@ -108,4 +108,4 @@ If the UC has a single main flow (no web/extension/admin variants), drop the par
 - Spec asks for a use case that exclusively documents UI styling, copywriting, or visual design → stop, those don't drive downstream design and shouldn't be UCs.
 - Spec asks to overwrite an existing `UC-NN-*.md` file → stop, that's an edit, not a new UC; either edit the file directly or pick the next free number.
 - Spec asks to write multiple UCs in one invocation → stop, one UC per invocation. Loop the skill instead.
-- Spec asks to write to a path other than `specs/use-cases/UC-NN-<slug>.md` → stop, the filename convention is load-bearing for every downstream agent.
+- Spec asks for a **filename** other than `UC-NN-<slug>.md` → stop, the filename convention is load-bearing for every downstream agent. The **directory**, however, is the corpus's `use-cases/` dir: `specs/use-cases/` by default, but a sandbox or a second project may set a different **corpus root** (e.g. `specs/dryrun/use-cases/`) — write `UC-NN-<slug>.md` under the corpus root the invocation names, defaulting to `specs/use-cases/`. Only the filename shape is fixed; the corpus root is configurable.

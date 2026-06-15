@@ -162,6 +162,13 @@ the reconciliation is the runner's + implementer's.
 7. **Brownfield** — read existing manifests first; a new UC is a delta (`supersedes`/`replaces`),
    greenfield the degenerate case (spec §8).
 8. **English**, except UC fragments quoted verbatim in their original language.
+9. **Declare an exception the first time a UC needs it — including `ConflictError` for a unique constraint.**
+   The error catalog (`domain.exceptions`) is earned per UC: when a UC inserts/renames against a unique
+   constraint (a duplicate email, a name that must be unique), declare `ConflictError` (`code:
+   CONFLICT`, `http_status: 409`) so the relational repository can map the `IntegrityError` to it
+   (`infra-sqlalchemy-repository`'s `_map_integrity_error`). Omit it and the duplicate surfaces as the
+   base `DomainError` → **HTTP 500 instead of 409**. Same earn-its-place rule for `NotFoundError`,
+   `ValidationError`, `InUseError`: declare each the first UC that needs it, never a blanket catalog.
 
 ## Hard stops
 
