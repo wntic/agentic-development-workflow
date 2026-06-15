@@ -320,3 +320,30 @@ the way (the F-021 resume's final self-verify exposed them on `mm2`). **Both FOU
 
 The `mm2` tree (`examples/generated/mm2/`, the F-021 partial checkpoint) was used to verify both and is
 left in place; it is disposable/untracked.
+
+---
+
+## §9 residual WEAK-assert queue — closed at the META layer (2026-06-15)
+
+The dry-run's adversarial pass left a named queue of WEAK manual-stub asserts + strengthening recipes
+(report's "residual review surface"). The asserts themselves live in the disposable `mm` tree, so the
+durable fix is to **encode the recipes as authoring guidance** so future manual-stub authoring writes
+STRONG asserts the first time (and the adversarial pass has a named checklist) — not to hand-edit a
+throwaway app. Done:
+- **`test-application-handler` — new "Assert strength" section** (7 recipes from the actual weak asserts):
+  pin PERSISTED state via the fake's `updated` log + read-back (not the mutated entity — leans on the
+  F-018 fix); test a drop/skip with a SURVIVOR present, never an empty set; exercise a non-boundary
+  tier/case; distinguish `total` from `len(items)` with page<matches; use ≥2 rows to prove scoping/joins;
+  pick a non-constant value for an echoed/derived field; assert NO side effect on a guard/reject path.
+- **`author-manual-tests` — step 2** has the author apply those recipes up front; **step 3** runs them as
+  the adversarial verifier's named refutation checklist.
+- **`test-fake-repository` rule 5** — a fake method MUST honour every filtering/scoping parameter it
+  declares (the QuotaPolicy "monthly vs all-time" was uncatchable because the fake ignored `since`).
+- **F-020 (anti-collusion ctor leak)** — the scaffolder now records the handler's CONSTRUCTOR SIGNATURE
+  in the manual-stub's `# CONTRACT —` comment, and `author-manual-tests` constructs the handler from it,
+  so a body-blind assert author never peeks at the body for `__init__` param names.
+
+Doc/guidance only. Proof (deferred, heavy): a re-run of `/author-manual-tests` on a green app should
+produce strong asserts with no/fewer WEAK flags. With this, **all of notes/14 (P0–P3) + the two new
+findings + the §9 residual track are closed** — only an actual `/author-manual-tests` re-run (and the
+deferred Docker integration) remain as exercises, not gaps.
