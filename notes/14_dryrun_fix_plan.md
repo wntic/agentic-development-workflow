@@ -171,6 +171,21 @@ also exposed that the committed Meeting manifest was itself un-generatable (now 
 
 ## P2 — skill / doc gaps (architect & implementer currently guess; friction + latent correctness)
 
+**STATUS — DONE (2026-06-15).** All eight documented: F-004 (auth-derived `workspace_id`/tenant stamping
+from `CurrentUser` — `application-command` + `application-query` DTO rule 2 + `restapi-auth-dependency`),
+F-015 (failure-state-then-re-raise sanctioned as the 2nd `try/except` in `application-command` rule 5),
+F-016 (`pattern-compensating-tx` rule 3 — the undo may be a dedicated `*_best_effort` OR the plain method
+wrapped in a call-site swallow), F-005 (`application-query` Result-DTO rule 4 — a read exposing a
+DB-managed audit column returns a domain READ-MODEL the repository projects, not the entity, not an
+application DTO), F-006 (`application-command` handler rule 3 — "mutate then show" is a command returning
+the id + a follow-up query, not a view-returning handler), F-019 (`test-application-handler` rule 10 +
+`test-fake-repository` Hard stop — a concrete domain-service dep is subclassed or injected via a Protocol,
+never `# type: ignore`/Mock), F-008 (`conventions` block A — the `<Stem>Tunable ← <Stem>Settings` stem
+match is ADVISORY; the DI wiring is the real binding, a mismatch like `LockoutTunable ← AuthSettings` is
+fine), F-013 (`test-integration-isolation` — explicit rule that the root `tests/conftest.py` stays empty
+and never imports `create_app`; the app fixture lives in the integration conftest with a deferred import —
+already the skill's behaviour, now with the rationale so it can't regress). Doc-only; no code.
+
 - **F-015 · persist-FAILED-then-re-raise is an unsanctioned 3rd try/except.** ProcessMeeting must set
   status FAILED, persist, then re-raise. `application-command` Rule 5 sanctions only the compensating-tx
   rollback. *Fix:* add this "failure-state transition then re-raise" pattern (write the state the caller

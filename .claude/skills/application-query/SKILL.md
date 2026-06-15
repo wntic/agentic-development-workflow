@@ -134,6 +134,7 @@ class ListFoosResult:
 
 1. **`@dataclass(frozen=True)`.** Always frozen.
 2. **`caller_id` only when the query is authorization-scoped.** Non-scoped reads omit it.
+   - **A tenant-scoped read also carries an auth-derived `workspace_id` / `tenant_id`.** In a multi-tenant app the query DTO carries the tenant the token names, stamped by the endpoint from `CurrentUser` (`workspace_id=user.workspace_id`, route binds `user: CurrentUser`) — never a request param (a client must not read another tenant's data). The handler scopes every repository call by it. Same rule as the command side (`application-command` DTO rule 2).
 3. **No methods.** Just data.
 4. **Domain filter records are passed by reference, not flattened.** Carry `filter: FooListFilter`, not loose `parent_ids` / `created_from` fields.
 
@@ -142,6 +143,7 @@ class ListFoosResult:
 1. **`@dataclass(frozen=True)`.** No methods.
 2. **Holds domain types only.** Never Pydantic models, never ORM rows.
 3. **`items: Sequence[Foo]`**, never `list[Foo]`. Pagination metadata (`total`, `next_cursor`) lives here too.
+4. **A read that must expose a DB-managed audit column (`created_at` / `updated_at`) returns a domain READ-MODEL, not the entity.** Audit timestamps are not entity fields (they live on the table, `PRINCIPLES.md` §E2) — but a read that displays or sorts by them needs them. Model that as a **read-model**: a `@dataclass(frozen=True)` in `domain/<subdomain>/` (e.g. `FooSummary` / `FooListRow`) that carries the displayed columns **including** the audit fields, which the **repository projects from the row** (the repository protocol method returns the read-model). Write model = the entity; read model = this projection. It stays a *domain* type so the domain repository returns it without importing `application` (a repo may never return an application/Pydantic DTO), and the entity stays audit-field-free. Don't reach for a heavyweight value object per read, and don't bolt audit fields onto the entity to make a read easier.
 
 ### Handler
 

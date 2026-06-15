@@ -193,6 +193,7 @@ The `puts` and `deletes` lists are the test-side observation surface. **No `fail
 
 ## Hard stops
 
+- Spec asks to fake a handler's **concrete domain-service** dependency (e.g. `QuotaPolicy`, injected as the class, not a Protocol) → stop, a structural fake won't type-check there; **subclass the service** (override the method under test, bypass `__init__`) or have the handler **inject via a Protocol**. This is the handler-test's call — see `test-application-handler` rule 10. Repository/capability fakes (this skill) are structural because their dependencies are Protocols.
 - Spec asks to register the fake with `@runtime_checkable` / `isinstance` → stop, type checking is enough.
 - Spec asks to add failure-injection flags to a repository fake → stop, use the inline-subclass pattern at the handler test module scope instead.
 - Spec asks to model `InUseError` in the default repository fake → stop, that's an inline subclass case at the test site (cross-aggregate references aren't modeled in-memory).

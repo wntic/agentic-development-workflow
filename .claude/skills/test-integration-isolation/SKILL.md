@@ -263,6 +263,8 @@ Leave empty:
 
 `pytest-asyncio` mode and plugin declarations belong in `pyproject.toml` under `[tool.pytest.ini_options]`, not here.
 
+**The root `tests/conftest.py` must NOT import `create_app` / `myapp.restapi.main` (nor define a `real_app` / `client` fixture).** pytest applies the root conftest to the WHOLE suite, so a *module-level* `from myapp.restapi.main import create_app` there makes every `tests/unit/**` collection pay the entire infrastructure import chain — and a domain-VO red→green is then blocked by an unfilled sibling (e.g. a column-less table) the unit test never touches (F-013). The app-construction fixture (`real_app`) lives in `tests/integration/conftest.py` and imports `create_app` **inside the fixture body** (deferred, as the template above does), so only the integration suite — which legitimately constructs the app — pays that import. Keep app construction out of any conftest a unit test inherits.
+
 ### Optional sub-template — reset captured Singletons (only if any exist)
 
 When `containers.py` has a `Singleton(...)` that captures settings or a sessionmaker by value at construction time, add an autouse function-scoped fixture inside `tests/integration/conftest.py`:
