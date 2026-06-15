@@ -220,6 +220,24 @@ also exposed that the committed Meeting manifest was itself un-generatable (now 
   no-progress watchdog) and states the resume contract (skip existing non-empty files, finish the tail,
   self-verify + freeze). The earlier P0 blind run stalled here (121 files, connection factories already
   complete, no baseline) — the exact case the resume loop now recovers.
+  **VERIFICATION (2026-06-15).** A second blind app-mode re-scaffold of the Meeting app stalled again at
+  the watchdog (~121 files written, "Now run mypy:" — died during self-verify, no baseline) — confirming
+  F-021 is real and reproducible. Drove step 3a manually: the partial tree was a COMPLETE checkpoint (all
+  glue + 55 test files + pyproject + venv present; connection factories 0 NIE — F-011 holds; polyglot
+  repos `meeting_repository.py` + `meeting_search_index.py` correct — F-009 holds); the `ruff format` +
+  `ruff check --fix` safety net ran CLEAN; the completion check correctly flagged it incomplete (no
+  `.scaffold/`). So the resume MECHANISM (checkpoint + safety-net + completion-check) is verified. The
+  resume's final self-verify (`mypy src tests`) then surfaced **9 reds the scaffolder must clear before
+  freeze**, which are SEPARATE from F-021 and look like skill/glue issues worth their own pass:
+  (a) src-only, 5×: `containers.py` cannot import the repo classes from `mm.infrastructure.postgres`/
+  `qdrant` — `[attr-defined]`, despite the re-export chain being structurally identical to green
+  helpdesk4; smells like mypy not resolving the computed `__all__ = a.__all__ + b.__all__` star re-export
+  for these packages (a re-export-resolution fragility, possibly polyglot-specific). (b) tests, 4×: the
+  `test-discovery-invariants` files access `APIRoute.dependant` / `.responses` (`[attr-defined]`) and
+  iterate a `set[str] | None` without a None-guard (`[union-attr]`) — discovery-test typing under the
+  current FastAPI. A full resume-to-green-frozen-baseline was DEFERRED (do not run an open-ended resume
+  chain unattended); the partial tree is at `examples/generated/mm2/` for the follow-up. NEW-FINDING
+  candidates (beyond F-001..F-025): the re-export `__all__` mypy resolution + the discovery-test typing.
 - **F-001 / F-002 · corpus path hard-coded.** Commands resolve `specs/use-cases/` + `specs/epics/`;
   `meta-uc-author` hard-stops outside `specs/use-cases/`. *Fix:* a `--corpus` / `--epics-dir` arg (or
   config knob) on the pipeline commands + relax the meta-uc-author hard-stop to a configured root, so a
