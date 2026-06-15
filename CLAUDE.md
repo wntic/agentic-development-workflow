@@ -60,7 +60,7 @@ Input is a set of BA use cases (PDF), or free text, or "prototype X". The flow (
 | 0. Ingestion → epics + backend filter | analyst agent | agent, interactive | `/ingest-usecases` — built |
 | 1. UC refinement (product questions → BA) | analyst agent | agent, file-channel | `/refine-usecases` — built |
 | 2. Manifest build / delta (architecture questions → you) | architect agent | agent, interactive chat | `/build-manifest` — built; `/apply-delta` — built (`.claude/commands/apply-delta.md`; delta procedure in `.claude/agents/architect.md`) |
-| — Manifest validation | stdlib graph check (no deps) | deterministic, no LLM | `/validate-manifest` *(planned wrapper)* — exists as `.claude/tools/validate_manifest.py` |
+| — Manifest validation | stdlib graph check (no deps) | deterministic, no LLM | `/validate-manifest` — built (`.claude/commands/validate-manifest.md` wraps `.claude/tools/validate_manifest.py`) |
 | 3. Scaffolding (declarative + glue + body scaffolds + red tests) | scaffolder agent | agent (role) | `/scaffold` — built (`.claude/commands/scaffold.md` + `.claude/agents/scaffolder.md`) |
 | 4. Scaffold tail (fill scaffolded bodies behind contracts) | implementer agent | agent, parallel by DAG | `.claude/agents/implementer.md` + `/verify` (dispatch) |
 | — Verification loop (mypy / ruff / behavioural tests, TDD mode) | runner + implementer | code + agent in a loop | `/verify` — exists (`.claude/commands/verify.md` + thin runner `.claude/tools/plan_implementation.py` + `.claude/tools/scaffold_snapshot.py` for baseline/diff attribution) |
@@ -136,7 +136,7 @@ subpackages). Proven end-to-end: the Tickets context (epic 02) scaffolded into h
 `get_by_id` delta fully reconciled with its real use-site, `mypy src tests` + ruff clean over 94 files,
 both routers in OpenAPI (`/auth/login` + `/tickets`), worklist drained. See `notes/12_cross_epic.txt`.
 
-**Still to build / known frontiers.** The `/validate-manifest` wrapper (the validator itself exists).
+**Still to build / known frontiers.**
 Drift detection catches both halves now — **method-presence** (a body missing a declared method) **and
 same-name signature drift** (a renamed/added parameter or changed type), detected structurally by the
 runner (`plan_implementation.py` canonicalizes the manifest signature and the body `def`, comparing by
@@ -248,11 +248,11 @@ agentic path: `uv run pytest tests/` and `uv run python examples/generate.py <ma
 catching contract drift on scaffolded bodies.
 
 Pipeline slash-commands: the full chain is **built** — `/ingest-usecases`, `/refine-usecases`,
-`/build-manifest`, `/apply-delta`, `/scaffold`, `/verify` (under `.claude/commands/`, driven by the
-analyst/architect/scaffolder/implementer agents + the runner `.claude/tools/plan_implementation.py`). The
-only unbuilt command is the `/validate-manifest` wrapper (the validator itself exists). See the stage
-table above, `notes/6_build_plan.txt`, and `notes/11_delta_path.txt` (the delta path + the cross-epic
-scaffolding frontier).
+`/build-manifest`, `/apply-delta`, `/validate-manifest`, `/scaffold`, `/verify` (under `.claude/commands/`,
+driven by the analyst/architect/scaffolder/implementer agents + the runner
+`.claude/tools/plan_implementation.py`; `/validate-manifest` wraps the stdlib validator as the §6 gate).
+See the stage table above, `notes/6_build_plan.txt`, and `notes/11_delta_path.txt` (the delta path + the
+cross-epic scaffolding frontier).
 
 ## Conventions when extending the pipeline
 
