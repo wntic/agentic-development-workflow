@@ -67,8 +67,8 @@ def _is_protected(route: APIRoute) -> bool:
     for dep in route.dependant.dependencies:
         if dep.call is get_current_user:
             return True
-        if getattr(dep.call, "__wrapped_role__", None) is not None:
-            return True  # require_role(Role.X) marker (see restapi-auth-dependency)
+        if getattr(dep.call, "required_role", None) is not None:
+            return True  # a _RoleDependency from require_role(Role.X) (see restapi-auth-dependency)
     return False
 
 def _protected_routes(app: FastAPI) -> list[tuple[str, str]]:

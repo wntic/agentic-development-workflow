@@ -56,6 +56,46 @@ def test_label_fixture_is_clean() -> None:
     assert report.warnings == []
 
 
+# ── field order (F-024 — un-generatable @dataclass) ─────────────────────────────
+
+
+def test_field_order_non_default_after_default_in_entity() -> None:
+    # Label's fields end with defaulted ones; appending a non-default field makes the dataclass
+    # un-generatable (TypeError at class definition). The validator must catch it (F-024).
+    def mutate(d: dict) -> None:
+        d["domain"]["entities"][0]["fields"].append({"name": "trailing", "type": "str"})
+
+    report = vm.validate(_data(mutate))
+    assert not report.ok
+    assert _has(report, "field_order", "trailing")
+
+
+def test_field_order_non_default_after_default_in_command_input() -> None:
+    def mutate(d: dict) -> None:
+        cmd = _command(d, "DeleteLabel")
+        cmd["input"] = [
+            {"name": "actor_id", "type": "UUID", "default": '"None"'},
+            {"name": "label_id", "type": "UUID"},  # no default after a defaulted field
+        ]
+
+    report = vm.validate(_data(mutate))
+    assert not report.ok
+    assert _has(report, "field_order", "label_id")
+
+
+def test_field_order_all_defaults_last_is_clean() -> None:
+    # the same fields in a valid order (non-defaults first) must NOT trip the gate
+    def mutate(d: dict) -> None:
+        cmd = _command(d, "DeleteLabel")
+        cmd["input"] = [
+            {"name": "label_id", "type": "UUID"},
+            {"name": "actor_id", "type": "UUID", "default": '"None"'},
+        ]
+
+    report = vm.validate(_data(mutate))
+    assert not _has(report, "field_order")
+
+
 # ── graph integrity (rule #2) ──────────────────────────────────────────────────
 
 

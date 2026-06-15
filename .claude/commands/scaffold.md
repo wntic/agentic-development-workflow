@@ -56,6 +56,26 @@ step freezes the scaffold baseline** (`scaffold_snapshot.py snapshot <output>` �
 so `/verify` can later attribute every implementer edit. Do not fill any body to clear a red — that is
 the implementer's, and it breaks anti-collusion (§9).
 
+## 3a. Completion safety net + resume (a long single pass can die mid-run — F-021)
+
+A whole-tree scaffold is one long agent turn; on a large/multi-context app it can be **killed mid-run**
+(a socket drop, a stream-watchdog stall) **before** it self-verifies and freezes the baseline — leaving
+a partial tree, no `.scaffold/`, and scaffolder-owned glue the per-file `/verify` gate never checks
+(e.g. `main.py` imports left unsorted). The **partial tree is the checkpoint** — every file already
+written persists — so always run this after the scaffolder returns (or reports a failure):
+
+1. **Whole-tree lint safety net (deterministic, no agent).** From the output root: `uv run ruff format
+   <output>` then `uv run ruff check --fix <output>`. This sweeps up scaffolder-owned glue the
+   implementer per-file gate doesn't cover (import order in `main.py`/`__init__.py`, trivial lint).
+2. **Completion check.** The run is complete iff (a) the scaffolder returned a report AND (b) the
+   baseline `<output>.scaffold/` exists. If either is missing, the pass did **not** finish.
+3. **Resume (≤2 attempts), don't restart from scratch.** Re-dispatch **one** `scaffolder` on the SAME
+   partial tree with a **resume** instruction: treat every existing non-empty file as done (skip it),
+   emit only the missing files + whole-graph glue, then self-verify and freeze the baseline. Because the
+   partial tree is the checkpoint, each resume does strictly less work than the last and converges. After
+   each resume, re-run the safety net + completion check. If still incomplete after 2 resumes, **stop and
+   report** the partial state — do not hand-fill anything (that is not the orchestrator's job).
+
 ## 4. Report + next step
 
 Relay the scaffolder's report (files written, body scaffolds, flat vs manual tests, any
@@ -71,7 +91,9 @@ green. `/verify` is also where a single body is exercised in isolation: `/verify
 ## Notes
 
 - One scaffolder, one pass — it is **not** parallelized (glue needs the whole-graph view, §3/§11);
-  parallelism is the implementers' inside `/verify`.
+  parallelism is the implementers' inside `/verify`. A pass that dies mid-run is **resumed**, not
+  restarted (step 3a): the partial tree is the checkpoint, and a resume dispatch skips the files already
+  written. Resuming stays sequential — it does not violate the no-parallel-scaffold rule.
 - The scaffolder is the **only** role that creates files. If it stops on a presence-gap / coverage-gap
   (an uncovered `kind`, a node that fits no skill), that is a human-gated skill-authoring step
   (`meta-skill-author`, §16), not something to improvise around.

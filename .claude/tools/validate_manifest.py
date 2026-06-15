@@ -951,6 +951,46 @@ def load_yaml(path: Path) -> object:
     return yaml.safe_load(path.read_text())
 
 
+def _check_field_order(m: dict, report: Report) -> None:
+    """A dataclass field without a default may not follow one WITH a default (Python raises
+    `TypeError: non-default argument follows default argument` at class definition). The form check
+    validates field SHAPE but not this ordering, so a structurally un-generatable entity / VO / DTO
+    would pass and the scaffolder would silently reorder it — the generated order then differs from
+    the manifest invisibly (F-024). Pydantic models (REST schemas, pydantic-settings) are exempt —
+    field order is irrelevant there. A field 'has a default' iff its `default` is not None (the
+    Python `None` literal is written `"None"`); `optional: true` alone does not grant one."""
+
+    def check(fields: object, where: str) -> None:
+        seen_default = False
+        for f in fields if isinstance(fields, list) else []:
+            if not isinstance(f, dict):
+                continue
+            has_default = f.get("default") is not None
+            if seen_default and not has_default:
+                report.add(
+                    "error",
+                    "field_order",
+                    f"{where}: field {f.get('name', '?')!r} has no default but follows a defaulted "
+                    f"field — an invalid @dataclass order (move every defaulted field last)",
+                )
+            seen_default = seen_default or has_default
+
+    for e in _section_list(m, "domain.entities"):
+        check(e.get("fields"), f"entity {e.get('name', '?')}")
+    for vo in _section_list(m, "domain.value_objects"):
+        check(vo.get("fields"), f"value_object {vo.get('name', '?')}")
+    for fl in _section_list(m, "domain.filters"):
+        check(fl.get("fields"), f"filter {fl.get('name', '?')}")
+    for c in _section_list(m, "application.commands"):
+        check(c.get("input"), f"command {c.get('name', '?')} input")
+    for q in _section_list(m, "application.queries"):
+        check(q.get("input"), f"query {q.get('name', '?')} input")
+        check(q.get("result_fields"), f"query {q.get('name', '?')} result")
+        for dto in q.get("result_dtos") if isinstance(q.get("result_dtos"), list) else []:
+            if isinstance(dto, dict):
+                check(dto.get("fields"), f"result_dto {dto.get('name', '?')}")
+
+
 def validate(data: object, uc_dir: Path | None = None, siblings: list[dict] | None = None) -> Report:
     """Validate an already-parsed manifest (a plain dict). Pure stdlib — no YAML, no I/O
     except optional `sources` resolution against `uc_dir`. When `siblings` (other parsed manifests
@@ -959,6 +999,7 @@ def validate(data: object, uc_dir: Path | None = None, siblings: list[dict] | No
     report = Report()
     m = _check_mapping(data, "Manifest", "", report)
     _check_graph(m, report, build_cross_index(siblings) if siblings else None)
+    _check_field_order(m, report)
     _check_skill_coverage(m, report)
     _check_degradation(m, report)
     if uc_dir is not None:

@@ -72,7 +72,18 @@ That trailing call is normal cleanup, not compensation — it runs only on succe
 
 1. **The `try/except Exception` block is the ONLY `try/except` allowed in a handler.** If you need another, the design is wrong — push the catch into infrastructure or remove it.
 2. **Catch `Exception`, not specific exceptions.** Compensation must run regardless of failure cause.
-3. **The compensation must call a best-effort method** (`*_best_effort`) defined on the domain capability protocol. Never call the regular `delete` / `revert` — if that raises, the original error is lost.
+3. **The compensation must never let its OWN failure mask the original error** — the undo is best-effort. Two sanctioned shapes, the architect's choice (do not assume one):
+   - a dedicated **`*_best_effort` method** on the protocol (e.g. `delete_many_best_effort`) that swallows its internal errors — call it directly, as the templates show; **or**
+   - the **plain protocol method** (`delete` / `revert`) wrapped in a nested swallow at the call site when no `*_best_effort` variant is modelled:
+     ```python
+     except Exception:
+         try:
+             await self._storage.delete(storage_key)
+         except Exception:
+             pass  # best-effort — the undo's own failure must not mask the original error
+         raise
+     ```
+   Never call a raising `delete` / `revert` *unguarded* in the `except` — if it raises, the original error is lost. If the undo is called often enough to deserve a first-class name, the architect models a `*_best_effort` method; until then the call-site swallow is correct and needs no new protocol method.
 4. **Bare `raise` at the end of `except`.** Never `raise NewException(...)`, never `raise ... from exc`. The original exception propagates unchanged.
 5. **No logging inside `except`.** The central error handler logs once.
 6. **The side effect runs *outside* the `try`.** Only the fallible *next* step is inside.

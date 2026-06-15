@@ -30,6 +30,7 @@ src/<root>/infrastructure/<adapter>/    # <adapter> = the external tech: s3, jwt
 
 ```python
 from collections.abc import Mapping
+from typing import cast
 
 import aioboto3
 from botocore.exceptions import ClientError
@@ -79,6 +80,17 @@ class S3FooStorage:
         try:
             async with self._session.client("s3", endpoint_url=self._endpoint_url) as s3:
                 await s3.delete_object(Bucket=self._bucket, Key=key)
+        except ClientError as exc:
+            raise _map_client_error(exc, key=key) from exc
+
+    async def download(self, key: str) -> bytes:
+        try:
+            async with self._session.client("s3", endpoint_url=self._endpoint_url) as s3:
+                response = await s3.get_object(Bucket=self._bucket, Key=key)
+                # `Body.read()` is typed `Any` by the SDK. Narrow it to the protocol's `bytes`
+                # return with `cast` AT THE BOUNDARY — never an inline `# type: ignore[no-any-return]`
+                # (conventions block E; the no-silenced-types gate forbids it).
+                return cast(bytes, await response["Body"].read())
         except ClientError as exc:
             raise _map_client_error(exc, key=key) from exc
 ```
@@ -207,6 +219,7 @@ class PyJwtBarTokenVerifier:
 - Domain imports absolute (`from myapp.domain.bars import BarToken` — the entities/VOs the signatures name). **Never import the capability protocol the adapter satisfies** (`ICanStoreFoos`, `ICanFetchBarToken`, …) — structural subtyping needs no import (Rule 2); importing it is a dead F401. Sibling modules within the same `infrastructure/<adapter>/` package use relative imports (`from .settings import BlobsSettings`).
 - No `from __future__ import annotations`. Full annotations on every method.
 - `X | None` over `Optional`. `Mapping[K, V]` / `Sequence[T]` (from `collections.abc`) for read-only views.
+- **A raw SDK value typed `Any` is narrowed with `cast`, never silenced.** An SDK return that mypy sees as `Any` (`response["Body"].read()`, an untyped client method) flowing into a typed protocol return is a `[no-any-return]`/`[return-value]` error — fix it with `cast(<protocol-return-type>, …)` at the boundary, the same way `restapi/dependencies.py` casts the DI-resolved verifier. An inline `# type: ignore[...]` on the adapter body is never sanctioned (`conventions` block E; the `/verify` no-silenced-types gate greps for it).
 - SDK types stay inside the adapter; method signatures use domain types or primitives only.
 - No `Any` except at the immediate raw-SDK-payload boundary (e.g. `payload: dict[str, Any] = response.json()` — convert to the domain type on the next line).
 

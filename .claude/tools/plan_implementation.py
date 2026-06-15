@@ -34,6 +34,8 @@ canonical test + its kind (flat | manual | none → the §9 acceptance seam), an
 
 Usage:
   uv run .claude/tools/plan_implementation.py <manifest.yaml> <generated-package-root> [--node X] [--json]
+  # multi-context (block F) — union the worklist over every sibling context so none is UNMAPPED:
+  uv run .claude/tools/plan_implementation.py <one-manifest.yaml> <tree> --app <epics-dir> [--json]
 """
 
 import argparse
@@ -64,6 +66,20 @@ def pluralize(name: str) -> str:
     if re.search(r"(s|x|z|ch|sh)$", name):
         return name + "es"
     return name + "s"
+
+
+def repo_file_stem(repo: dict, store_kind: str | None) -> str:
+    """The filename stem the scaffolder wrote for a repository node (conventions block A).
+
+    A relational (bootstrap) store repo → `<snake(backs)>_repository`; a client-style store repo →
+    the PROTOCOL-derived stem (strip the leading `I` from `implements`, then snake). The protocol
+    form is what keeps POLYGLOT persistence unambiguous: two repositories backing ONE aggregate (a
+    Postgres `IMeetingRepository` + a Qdrant `IMeetingSearchIndex`, both `backs: Meeting`) collide
+    on the backs-derived name, so the client side keys off its own protocol instead
+    (`IMeetingSearchIndex` → `meeting_search_index`). One rule, read by both scaffolder and runner."""
+    if store_kind is None or store_kind in BOOTSTRAP_STORE_KINDS:
+        return f"{snake(repo.get('backs', ''))}_repository"
+    return snake(re.sub(r"^I", "", str(repo.get("implements", ""))))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,7 +177,7 @@ def build_registry(m: dict) -> dict[str, dict]:
         store_name = r.get("store")
         store_kind = store_kind_by_name.get(store_name) if store_name else None  # None ⇒ implicit postgres
         put(
-            f"{s}_repository",
+            repo_file_stem(r, store_kind),  # polyglot-safe: backs-derived (relational) or protocol-derived (client)
             kind="infrastructure.repositories",
             skill=repository_skill(store_kind),  # store-aware: SQLAlchemy vs store skill (block B/C)
             label=f"{r.get('implements', s)} impl",
@@ -253,6 +269,19 @@ def _wire_deps(m: dict, reg: dict[str, dict]) -> None:
             hkey = f"{snake(h)}_handler|" if h else None
             if hkey and hkey in reg and reg[hkey]["label"] not in reg[key]["deps"]:
                 reg[key]["deps"].append(reg[hkey]["label"])
+    # a relational repository's body SELECTs its aggregate's table columns, so the write-once table
+    # must be filled FIRST — no manifest edge spans the two infra sections, so synthesize a
+    # repo→table edge (F-025) and the DAG places the table one level below its repo (spec §11).
+    store_kind_by_name = {d["name"]: d.get("kind") for d in _section_list(m, "infrastructure.datastores")}
+    labels = {v["label"] for v in reg.values()}
+    for r in _section_list(m, "infrastructure.repositories"):
+        store_kind = store_kind_by_name.get(r.get("store")) if r.get("store") else None
+        if store_kind is not None and store_kind not in BOOTSTRAP_STORE_KINDS:
+            continue  # client-style store has no SQLAlchemy table
+        repo_key = repo_file_stem(r, store_kind) + "|repositories"
+        table_label = f"{r.get('backs', '')} table"
+        if repo_key in reg and table_label in labels and table_label not in reg[repo_key]["deps"]:
+            reg[repo_key]["deps"].append(table_label)
 
 
 def _dag_level(reg: dict[str, dict]) -> dict[str, int]:
@@ -332,6 +361,7 @@ def drifted_files(m: dict, pkg_src: Path, already: set[Path]) -> dict[Path, list
     structurally against the manifest; files already pending (NIE / column-less) are skipped."""
     repo_protocols = {p["name"]: p for p in _section_list(m, "domain.repository_protocols")}
     cap_protocols = {c["name"]: c for c in _section_list(m, "domain.capability_protocols")}
+    store_kind_by_name = {d["name"]: d.get("kind") for d in _section_list(m, "infrastructure.datastores")}
     out: dict[Path, list[str]] = {}
 
     def check(stem: str, declared: set[str]) -> None:
@@ -345,7 +375,8 @@ def drifted_files(m: dict, pkg_src: Path, already: set[Path]) -> dict[Path, list
     for r in _section_list(m, "infrastructure.repositories"):
         proto = repo_protocols.get(r.get("implements", ""))
         if proto:
-            check(f"{snake(r.get('backs', ''))}_repository", _decl_method_names(proto.get("methods")))
+            store_kind = store_kind_by_name.get(r.get("store")) if r.get("store") else None
+            check(repo_file_stem(r, store_kind), _decl_method_names(proto.get("methods")))
 
     for cap in _section_list(m, "infrastructure.capabilities"):
         proto = cap_protocols.get(cap.get("implements", ""))
@@ -391,11 +422,20 @@ def _find_test(tests_dir: Path, test_base: str | None) -> tuple[str | None, str]
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def plan(manifest: Path, root: Path, only_node: str | None) -> list[dict]:
-    m = load_yaml(manifest)
-    if not isinstance(m, dict):
-        sys.exit(f"error: {manifest} did not parse to a mapping")
-    reg = build_registry(m)
+def plan(manifests: list[Path], root: Path, only_node: str | None) -> list[dict]:
+    """Build the implementer worklist for a scaffolded tree. In single-context mode `manifests` is
+    one path; in app-mode (block F) it is the target plus its sibling context manifests, so the
+    registry is the UNION over every context — no other context's body is left UNMAPPED (F-010)."""
+    loaded: list[dict] = []
+    for mp in manifests:
+        m = load_yaml(mp)
+        if not isinstance(m, dict):
+            sys.exit(f"error: {mp} did not parse to a mapping")
+        loaded.append(m)
+    reg: dict[str, dict] = {}
+    for m in loaded:
+        for k, v in build_registry(m).items():
+            reg.setdefault(k, v)  # first context wins on a shared-substrate node (deduped, block F)
     levels = _dag_level(reg)
     label_to_key = {v["label"]: k for k, v in reg.items()}
     pkg_src = _package_src(root)
@@ -443,8 +483,13 @@ def plan(manifest: Path, root: Path, only_node: str | None) -> list[dict]:
             }
         )
 
-    # second trigger half — contract drift (a protocol-implementer missing a declared method)
-    for f, missing in drifted_files(m, pkg_src, set(pending)).items():
+    # second trigger half — contract drift (a protocol-implementer missing a declared method),
+    # merged across every in-scope context (app-mode unions the drift the same way as the registry)
+    drift: dict[Path, list[str]] = {}
+    for m in loaded:
+        for f, missing in drifted_files(m, pkg_src, set(pending)).items():
+            drift.setdefault(f, missing)
+    for f, missing in drift.items():
         meta = _match(pkg_src, f, reg)
         if meta is None:
             continue
@@ -479,6 +524,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("manifest", type=Path)
     ap.add_argument("root", type=Path, help="the generated package root (e.g. examples/generated/helpdesk5)")
     ap.add_argument("--node", default=None, help="filter to one node/file (substring of label or path)")
+    ap.add_argument(
+        "--app",
+        type=Path,
+        default=None,
+        help="multi-context (block F): also union the registry over the sibling manifests under this "
+        "dir (globs <dir>/*/manifest.yaml, excluding the target) so no other context's body is UNMAPPED",
+    )
     ap.add_argument("--json", action="store_true", help="emit JSON for /verify to consume")
     args = ap.parse_args(argv)
 
@@ -487,7 +539,12 @@ def main(argv: list[str] | None = None) -> int:
     if not args.root.is_dir():
         sys.exit(f"error: package root not found: {args.root}")
 
-    items = plan(args.manifest, args.root, args.node)
+    manifests = [args.manifest]
+    if args.app is not None:
+        target = args.manifest.resolve()
+        manifests += [p for p in sorted(args.app.glob("*/manifest.yaml")) if p.resolve() != target]
+
+    items = plan(manifests, args.root, args.node)
 
     if args.json:
         print(json.dumps({"root": str(args.root), "count": len(items), "items": items}, indent=2))

@@ -38,6 +38,8 @@ A reference rule for choosing the right auth dependency on each route. Both depe
 
 Don't bind to `user` and leave it unused — code review will read it as "did the author forget to pass caller_id?".
 
+**All auth-derived fields come from `CurrentUser`, never the request.** In a multi-tenant app the token also carries the tenant — stamp it from the bound user (`workspace_id=user.workspace_id`, `tenant_id=user.tenant_id`), exactly like `caller_id=user.id`, and bind `user` (not `_`). A tenant id must never be read from the path/query/body — that would let a client choose another tenant's scope. The command/query DTO carries the field (`application-command` / `application-query` DTO rule 2); the route stamps it here.
+
 ```python
 # read — no caller_id needed
 async def list_foos(

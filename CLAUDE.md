@@ -142,9 +142,18 @@ to the final whole-tree mypy gate, not the per-node worklist. Cross-epic resolut
 (one package); per-context deployables / separate packages (model B, §15 marketplace) are not built.
 Orphan GC + rename-with-body-transfer (spec §4/§14) remain the unbuilt brownfield frontier.
 Deferred (spec §13 «потом»): the brownfield frontier (orphan GC + rename-with-body-transfer), plugin
-packaging + multi-language, and removing the `src/codegen` archive. Open seams: a Docker-backed
-integration run (testcontainers), and the §9 review tail (manual-stub assert authorship + adversarial
-verifier). See the work order in `codegen_workflow_spec.md` (§13) and `notes/6_build_plan.txt`.
+packaging + multi-language, and removing the `src/codegen` archive. Open seam: a Docker-backed
+integration run (testcontainers).
+
+**Done — the §9 trust tail.** Manual-stub assert authorship + the adversarial verifier are **built**
+(`/author-manual-tests`, `.claude/commands/author-manual-tests.md`) and **run on helpdesk4**: every
+`_manual` stub now carries a real, green assert authored in a context **separate from the body author**
+(anti-collusion, D3 — the orchestrator must not author them), then adversarially verified. pytest went
+25-passed/16-skipped → **42-passed/0-skipped**. The residual is now a **small, explicit, named** review
+surface (the WEAK asserts the adversarial pass found, with strengthening recipes) instead of a blanket
+skip — §9's irreducible minimum. See `notes/13_sec9_trust_tail.txt`. Strengthening the WEAK asserts (an
+ADMIN-rejection policy test, the auth state-machine persist/reset pins) is the optional next increment.
+See the work order in `codegen_workflow_spec.md` (§13) and `notes/6_build_plan.txt`.
 
 ## Repository map
 

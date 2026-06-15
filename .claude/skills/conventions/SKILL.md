@@ -33,7 +33,7 @@ All paths below are relative to the target package root `src/<package>/` (e.g. `
 | `application.queries[*]` | `name: ListTickets` | `ListTicketsQuery` + `ListTicketsHandler` + `ListTicketsResult` | `application/support/list_tickets_query.py` + `_handler.py` + `_result.py` |
 | `infrastructure.datastores[*]` | `name: vectors`, `kind: qdrant` | — (a configured resource, no class) | `infrastructure/qdrant/connection.py` (scaffolded `create_vectors_client`) |
 | `infrastructure.settings[*]` | `name: OpenaiSettings` | `OpenaiSettings` | `infrastructure/openai/settings.py` — subpackage = the consuming tech (see below); the module is always `settings.py` (one settings class per subpackage, as `infra-settings` and every importer expect) |
-| `infrastructure.repositories[*]` | `implements: IUserRepository`, `backs: User`, `store: main` | `UserRepository` | `infrastructure/<store-kind>/repositories/user_repository.py` (+ a write-once Table SCAFFOLD at `infrastructure/<store-kind>/tables/users.py` for a relational store) |
+| `infrastructure.repositories[*]` | `implements: IUserRepository`, `backs: User`, `store: main` | `UserRepository` | `infrastructure/<store-kind>/repositories/<repo-stem>.py` (+ a write-once Table SCAFFOLD at `infrastructure/<store-kind>/tables/users.py` for a relational store) |
 | `infrastructure.capabilities[*]` | `implements: ICanEmbedText`, `adapter: openai`, `role: TextEmbedder` | `OpenaiTextEmbedder` | `infrastructure/openai/openai_text_embedder.py` |
 | `restapi.schemas[*]` | `name: LoginRequest`, `resource: auth` | `LoginRequest` | grouped into `restapi/schemas/auth.py` |
 | `restapi.endpoints[*]` | `method`, `path`, `resource: auth` | endpoint function (name from method+path) | grouped into `restapi/routers/auth.py` |
@@ -41,7 +41,7 @@ All paths below are relative to the target package root `src/<package>/` (e.g. `
 
 **Application subdomain is derived, not declared.** Commands and queries carry no `subdomain` field. The subdomain is the subdomain of the first `handler.dependencies` entry that names a `repository_protocol` (a repository protocol carries its own `subdomain`); when the handler has no repository dependency, fall back to the first domain entity's subdomain. So `CreateTicket` with `handler.dependencies: [ITicketRepository]` (whose protocol is `subdomain: support`) lands in `application/support/`.
 
-**A value object in a dependency list is a tunable VO, and its DI is derived.** A `value_object` is normally built inline at its use site, but when its name appears in a `handler.dependencies` or a service's `dependencies`, it is the **tunable variant** (`domain-value-object`, the config-knob view of an env threshold). It is then DI-wired as a `providers.Singleton` constructed field-by-field from its settings — the settings class with the matching stem, `<Stem>Tunable` ← `<Stem>Settings` (e.g. `LockoutTunable` ← `LockoutSettings`, `LockoutTunable(max_attempts=lockout_settings.provided.max_attempts, …)`) — not from an inline literal. This is how an env-tunable domain threshold (lockout numbers, quotas, retention) reaches a domain service without the domain importing `pydantic-settings`. `infra-di-provider` owns the wiring; the manifest carries only the VO node, its settings node, and the dependency edge.
+**A value object in a dependency list is a tunable VO, and its DI is derived.** A `value_object` is normally built inline at its use site, but when its name appears in a `handler.dependencies` or a service's `dependencies`, it is the **tunable variant** (`domain-value-object`, the config-knob view of an env threshold). It is then DI-wired as a `providers.Singleton` constructed field-by-field from a settings class — not from an inline literal. The stem pairing `<Stem>Tunable` ← `<Stem>Settings` (e.g. `LockoutTunable` ← `LockoutSettings`) is an **advisory default, not load-bearing**: the real binding is the DI wiring (`infra-di-provider`), which sources the tunable from whichever settings node's fields match — a stem mismatch is fine (`LockoutTunable(max_attempts=auth_settings.provided.max_attempts, …)` from a single `AuthSettings` is correct). Name them to match when a dedicated settings node exists; reuse a broader settings class (and let the stems differ) when the knobs naturally live there. The field-by-field construction (`<tunable>(field=<settings>.provided.field, …)`) is the invariant; the stem is just the default guess at which settings. This is how an env-tunable domain threshold (lockout numbers, quotas, retention) reaches a domain service without the domain importing `pydantic-settings`. `infra-di-provider` owns the wiring; the manifest carries only the VO node, its settings node, and the dependency edge.
 
 **Infrastructure groups by external TECH, never by a domain subdomain and never under a catch-all `db/`** (spec §3; CLAUDE.md "grouped by external tech"). The tech token is:
 - a repository's **store kind** — the `kind` of the `datastore` its `store` names; absent `store` ⇒ the implicit single `postgres` store. Relational repos, their write-once table scaffold, and the shared SQLAlchemy engine/`session_factory`/`metadata.py` bootstrap all sit under `infrastructure/postgres/` (`repositories/`, `tables/`).
@@ -50,6 +50,12 @@ All paths below are relative to the target package root `src/<package>/` (e.g. `
 - a settings node's **consuming tech** — the `adapter` of the capability that names it, or the `kind` of the datastore that names it; an orphan settings falls back to its own snake name.
 
 **Capability adapter class** = `<AdapterPascal><Suffix>`, where `Suffix` is the capability's `role` agent-noun when present (`adapter: jwt`, `role: TokenManager` → `JwtTokenManager`) and otherwise the protocol name minus its `ICan` prefix (`adapter: jwt`, `implements: ICanManageTokens`, no role → `JwtManageTokens`). The `role` is carried in the manifest precisely because the agent-noun is not mechanically derivable from the verb (the `log_event` precedent).
+
+**Repository file stem — backs-derived for a relational store, protocol-derived for a client store.** The repository class is always `<Aggregate>Repository` (`backs: User` → `UserRepository`), but its **file stem** depends on the store profile (block C), because **polyglot** persistence lets two repositories back ONE aggregate:
+- a **relational (bootstrap) store** repo → `<snake(backs)>_repository.py` (`Meeting` on `main` → `meeting_repository.py`).
+- a **client-style store** repo → the **protocol-derived** stem: the `implements` name minus its leading `I`, snaked (`IMeetingSearchIndex` on `vectors` → `meeting_search_index.py`).
+
+So a `Meeting` aggregate backed by both a Postgres `IMeetingRepository` and a Qdrant `IMeetingSearchIndex` lands two distinct files (`postgres/repositories/meeting_repository.py` + `qdrant/repositories/meeting_search_index.py`) — a backs-only stem would collide. This is **one rule, two readers**: the scaffolder writes the file and the runner (`plan_implementation.py`'s `repo_file_stem`) attaches the skill + drift check to it — they must agree on the stem.
 
 **Imports and package mechanics are not restated here** — see block F. Imports are graph edges in Python syntax (a referenced type resolves to its owning module): same-subdomain domain types use a relative `.module` import, cross-subdomain a relative `..subdomain`, cross-layer an absolute `<package>.domain.<subdomain>` import, stdlib its canonical import, builtins none. `general-imports-conventions` owns the rules; `general-python-package` owns `__all__` + the `from .module import *` re-export contract that the collapsed import form depends on.
 
@@ -105,9 +111,33 @@ A datastore's `kind` is a free token (not a closed enum — a fixed list is the 
 | *(unknown)* | `client` / `client` | `object` | — | `generic` | no |
 
 - `uses_bootstrap` **also selects the repository producer skill** (registry B): `yes` → `infra-sqlalchemy-repository`; `no` → `infra-store-repository`. So adding a client-style backend is one row here — it routes to the existing vendor-agnostic skill, no new skill.
-- `uses_bootstrap: yes` → the repository reuses the shared SQLAlchemy engine + `session_factory` bootstrap under `infrastructure/postgres/` (postgres is the only profile with the flag today), and gets a write-once `Table` scaffold under `infrastructure/postgres/tables/`. `no` → the scaffolder lays a write-once `create_<store>_client(settings)` connection factory in `infrastructure/<kind>/connection.py` that the DI container injects as a `Singleton` into every repository on that store, and there is **no** SQLAlchemy table (the store persists through its own client).
+- `uses_bootstrap: yes` → the repository reuses the shared SQLAlchemy engine + `session_factory` bootstrap under `infrastructure/postgres/` (postgres is the only profile with the flag today), and gets a write-once `Table` scaffold under `infrastructure/postgres/tables/`. `no` → the scaffolder lays a `create_<store>_client(settings)` connection factory in `infrastructure/<kind>/connection.py` that the DI container injects as a `Singleton` into every repository on that store, and there is **no** SQLAlchemy table (the store persists through its own client).
 - The `method contract` (`sql` / `collection` / `generic`) only sets the **wording** of the repository scaffold's contract-comment.
 - An **unknown** kind degrades to a generic untyped `object` client plus a loud contract comment — the fail-loud-not-crash invariant that the table scaffold also follows. Adding a backend is **one row here**, never a tooling change.
+
+**The connection factory is COMPLETE glue, not a body scaffold.** For a **known** profile kind the connection/engine factory carries zero judgment — it is a fixed function of the settings shape — so the scaffolder renders it in **full** (no `raise NotImplementedError`), exactly like `__init__` re-exports or `containers.py`. It is therefore declarative/glue (regenerated every run, scaffolder-owned), never a worklist body the runner dispatches — leaving it as a `NotImplementedError` scaffold would map to no manifest node and die UNMAPPED, then crash the DI container at app construct while mypy/ruff/tests stay green (the A4 hazard, `PRINCIPLES.md` §A4). The canonical complete forms:
+
+```python
+# infrastructure/postgres/engine.py  (the bootstrap-store engine + session factory — complete)
+def create_engine(settings: DbSettings) -> AsyncEngine:
+    dsn = (
+        f"postgresql+asyncpg://{settings.user}:{settings.password.get_secret_value()}"
+        f"@{settings.host}:{settings.port}/{settings.name}"
+    )
+    return create_async_engine(dsn)
+
+def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(engine, expire_on_commit=False)
+```
+```python
+# infrastructure/qdrant/connection.py  (a client-store connection factory — complete; redis is analogous)
+def create_vectors_client(settings: QdrantSettings) -> AsyncQdrantClient:
+    return AsyncQdrantClient(
+        url=settings.url,
+        api_key=settings.api_key.get_secret_value() if settings.api_key else None,
+    )
+```
+The factory name is `create_<datastore-name>_client` (the datastore's `name`, not its kind — `create_vectors_client` for a datastore named `vectors`); the resource type + import come from the profile table above. Only a **genuinely unknown** kind (the degraded `object` row) cannot be rendered complete — there alone the scaffolder leaves a `NotImplementedError` connection factory plus a loud comment, and that one case is the runner's documented residual.
 
 ## D. Stack substrate (library NAMES, no versions)
 
@@ -130,7 +160,7 @@ Determinism in the redesign lives in verification, not authoring (spec §0 princ
 
 - type-check: `uv run mypy src tests` — **both trees**, at parity with ruff. mypy and ruff cover the same surface so a defect never hides in whichever the other skips; the test skills' "full annotations on every fixture/helper" rule is what keeps `tests` green (a fixture consuming the app types it `real_app: FastAPI`, a yielding fixture annotates `-> AsyncIterator[T]`, a parametrize hook `metafunc: pytest.Metafunc`).
 - lint / format: `uv run ruff check src tests` · `uv run ruff format src tests`
-- **ruff lint config** (emitted into `pyproject.toml`): `[tool.ruff.lint]` `select = ["E", "F", "I", "B904"]`, plus `[tool.ruff.lint.per-file-ignores]` `"**/__init__.py" = ["F403", "F405"]`. `B904` makes a bare `raise X` inside an `except` an error: chain the cause with `raise X(...) from exc`, or deliberately suppress it with `from None` (e.g. translating a lookup-miss to an auth error without leaking the internal cause). The `__init__.py` F403/F405 ignore is the **only** sanctioned ruff suppression — never an inline `# noqa` on a content module.
+- **ruff lint config** (emitted into `pyproject.toml`): `[tool.ruff.lint]` `select = ["E", "F", "I", "B006", "B904"]`, plus `[tool.ruff.lint.per-file-ignores]` `"**/__init__.py" = ["F403", "F405"]`. `B904` makes a bare `raise X` inside an `except` an error: chain the cause with `raise X(...) from exc`, or deliberately suppress it with `from None` (e.g. translating a lookup-miss to an auth error without leaking the internal cause). `B006` flags a **mutable default argument** (`def f(x: list = [])`) — a shared-state bug; use `x: tuple = ()` / `x: <T> | None = None` and build inside. (Both are individual `flake8-bugbear` rules, not the whole `B` family — keep the select narrow.) The `__init__.py` F403/F405 ignore is the **only** sanctioned ruff suppression — never an inline `# noqa` on a content module.
 - **mypy config** (emitted into `pyproject.toml`): `[tool.mypy]` `strict = true`, `python_version = "3.12"`, `plugins = ["pydantic.mypy"]`. Third-party packages that ship **no type stubs / `py.typed` marker** get one `[[tool.mypy.overrides]]` block with `ignore_missing_imports = true` — list every such package in the graph's substrate ∪ `requires_packages` ∪ dev deps. Today that set is `dependency_injector.*`, `testcontainers.*` (a dev dep imported by the integration suite, now inside the gate), and any stub-less SDK the manifest pulls in (e.g. `argon2.*`). This is the **only** sanctioned way to silence a missing-stub error — never an inline `# type: ignore` on a content module.
 - tests: `uv run pytest`
 - pin a substrate / SDK package at scaffold time: `uv add <lib>` (dev: `uv add --dev <lib>`)

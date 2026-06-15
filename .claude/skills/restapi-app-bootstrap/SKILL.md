@@ -174,7 +174,6 @@ def register_error_handlers(app: FastAPI) -> None:
 `dependencies.py` is FastAPI's home for shared route dependencies; in this catalog its only current content is the auth pair, so today the file is emitted **only** for an app that declares auth. An auth-less app (every endpoint `anonymous`, no token-verifier capability) has no `get_current_user`/`require_role`, no `CurrentUser`/`Role` import, and routes attach no auth dependency (see `restapi-auth-dependency`) — hence no `dependencies.py`. Emit the file below when the graph carries auth (a non-auth shared route dependency, if ever added, would belong here too, independent of auth):
 
 ```python
-from collections.abc import Callable
 from typing import cast
 
 from fastapi import Depends, Request
@@ -198,23 +197,28 @@ def get_current_user(
     # so the function honours its `-> CurrentUser` contract under strict mypy.
     return cast(CurrentUser, verifier.verify(creds.credentials))
 
-def require_role(required: Role) -> Callable[..., CurrentUser]:
-    def _dep(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-        if not user.role.satisfies(required):
+class _RoleDependency:
+    """A role-gated route dependency. A callable CLASS, not a closure, so the gated role is a
+    TYPED attribute (`required_role`) rather than a `# type: ignore`-stashed function attribute —
+    test-discovery-invariants detects a role-gated route by reading `required_role` off the
+    dependency (see restapi-auth-dependency). FastAPI inspects `__call__` like any callable."""
+
+    def __init__(self, required: Role) -> None:
+        self.required_role = required
+
+    def __call__(self, user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if not user.role.satisfies(self.required_role):
             raise ForbiddenError(
                 "Insufficient role",
-                {"required": required.value, "actual": user.role.value},
+                {"required": self.required_role.value, "actual": user.role.value},
             )
         return user
 
-    # Marker so test-discovery-invariants can detect role-gated routes via
-    # introspecting the dependency tree without re-implementing FastAPI's
-    # closure layout.
-    _dep.__wrapped_role__ = required  # type: ignore[attr-defined]
-    return _dep
+def require_role(required: Role) -> _RoleDependency:
+    return _RoleDependency(required)
 ```
 
-The bearer scheme is declared **once** at module level. `get_current_user` resolves the verifier via the DI container — never instantiate verifiers in routes or dependencies. See `restapi-auth-dependency` for how routes consume these.
+The bearer scheme is declared **once** at module level. `get_current_user` resolves the verifier via the DI container — never instantiate verifiers in routes or dependencies. `require_role` returns a `_RoleDependency` instance — a callable class so the gated role rides as a typed attribute (no inline `# type: ignore`, `conventions` block E). See `restapi-auth-dependency` for how routes consume these.
 
 ### `restapi/schemas/errors.py`
 
