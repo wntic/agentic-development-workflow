@@ -35,14 +35,17 @@ The sets below assume an **authenticated** route. `401` and `403` are auth codes
 
 | Operation | `error_responses(...)` (authenticated route) |
 |-----------|------------------------|
-| Read (auth-only) | `401` |
-| Read by id | `401, 404` |
-| Create | `401, 403, 409` (+ `422` for input validation) |
-| Update | `401, 403, 404, 409` (+ `422`) |
-| Delete | `401, 403, 404, 409` (`409` covers in-use) |
+| Read, parameterless (no path/query param) | `401` (+ `404` if it can not-find) |
+| Read by id (`{id}` path param) | `401, 404, 422` |
+| List / browse (filter or pagination query params) | `401, 422` |
+| Create (body) | `401, 403, 409, 422` |
+| Update (`{id}` + body) | `401, 403, 404, 409, 422` |
+| Delete (`{id}` path param) | `401, 403, 404, 409, 422` (`409` covers in-use) |
 | Reorder | `401, 403, 422` |
 | Lookup / detect (read with input) | `401, 404, 422` |
 | Multipart upload | add `413` to whichever set applies |
+
+**Advertise `422` on every route that carries ANY validated input** — a path param (`{id}`), query / filter / pagination params, OR a request body. FastAPI auto-injects a `422` (request-validation) response into the OpenAPI for *every* such operation, and the `test_openapi_advertises_error_codes` discovery invariant (`test-discovery-invariants`) requires the route decorator to match the OpenAPI spec **exactly** — so a route that omits `422` while carrying a param fails the gate with an *extra* `422` in the spec. This is why `Read by id` and `Delete` carry `422` despite having no body: the `{id}` path param alone produces it. Only a **parameterless, body-less** route (e.g. an authenticated `GET /me`) omits `422`. (`422` resolves through the catalog's `ValidationError` / `http_status=422`, present in any app whose inputs validate — the same class entity `__post_init__` invariants raise.) The trap is reading `422` as "body validation": it is *any-input* validation. *(Surfaced when mm's first real integration run flagged `GET /meetings`, `GET /meetings/{id}`, and a path-param command that followed the old body-only reading.)*
 
 **List a code only if the route can actually produce it.** Don't list `401` on a public/unauthenticated route (or in an auth-less app — it would raise `ValueError`), don't list `403` on a route that is not role-gated, don't list `409` on a read.
 
