@@ -45,7 +45,7 @@ A self-contained, disposable, git-ignored project under the output root:
 │   └── restapi/…              # routers (endpoint scaffolds), schemas, main.py, error_handler.py, dependencies.py
 └── tests/
     ├── unit/…                 # red handler/domain tests + fakes
-    └── integration/…          # discovery-invariant + isolation bootstrap (emitted; exercised once deps are installed)
+    └── integration/…          # discovery-invariant + isolation bootstrap, postgres/ repo-contract + api/<resource>/ endpoint tests (Docker-gated: emitted, run under testcontainers, not in the /verify loop)
 ```
 
 - **Declarative/glue files** are rendered in full and are yours forever (regenerated every run).
@@ -124,7 +124,9 @@ Fixed rules, no latitude: ASCII `->` (never the unicode `→`); the line order i
    **DI** → `containers.py`
    **restapi** → per-resource schemas → middleware body scaffolds (`restapi/middleware/<snake>.py`, per `restapi-middleware`) → routers (endpoint scaffolds) → register routes + wire middlewares in `main.py`
    **dependency manifest** → `pyproject.toml`
-   **tests** → fakes → handler tests → domain tests
+   **tests** → fakes → handler tests → domain tests → **repository-contract tests** (one per repository: `test-repository-contract` for a relational `uses_bootstrap` store → `tests/integration/postgres/test_<aggregate>_repository.py`, `test-store-repository-contract` for a client-style store) → **REST-endpoint tests** (one per resource: `test-restapi-endpoint` → `tests/integration/api/<resource>/test_<verb>_<noun>.py` + the per-resource `conftest.py`)
+
+   **The repository-contract + REST-endpoint tiers are Docker-gated integration tests** (real Postgres via testcontainers / real app over ASGI), so they are **emitted but not run by the scaffolder or the Docker-less `/verify` loop** — exactly like the `test-discovery-invariants` files. They complete the pyramid (`test-principles`) and pin the repository body (CRUD round-trip + the `IntegrityError`→domain-exception constraint-name map) and the full HTTP→handler→repo→DB path, which otherwise have NO executable test (the repository / endpoint stay review-tail in the per-node verify loop — the planner keeps `test_base=None` for them). Author them from the **contract**, never the body (anti-collusion, §9): the protocol + the table's `naming_convention` (the constraint-name asserts) for a repository, the endpoint's `behaviour` + advertised `error_responses` for a route. They go green when a Docker run executes the suite after the bodies are filled — do not expect them green at scaffold time.
 
    **Stream progress + resume (a long pass can be killed — F-021).** This walk is long; emit a one-line
    progress marker as each layer / subdomain / context completes (e.g. `scaffolded domain/meetings (12

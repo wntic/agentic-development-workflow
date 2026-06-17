@@ -99,6 +99,13 @@ package root:
 - `uv run mypy src tests` · `uv run ruff check src tests` · `uv run ruff format src tests` ·
   `uv run pytest` (flat tests green; `_manual` stubs stay skipped — expected, their asserts are a
   deferred step, §9).
+  - **The testcontainers integration suite is Docker-gated.** `tests/integration/` (the discovery
+    invariants, the `postgres/` repository-contract tests, and the `api/<resource>/` REST-endpoint tests)
+    needs a running Docker daemon; without one those tests **error with `DockerException` — expected, not
+    a failure** of this Docker-less loop. Run `uv run pytest tests/unit` for the loop's green bar, and run
+    the full `tests/integration/` suite under a daemon (a session event loop is configured — F-D) as the
+    deeper gate: it is the only layer that exercises the real SQL round-trip, the `IntegrityError`→domain
+    constraint-name map, and the full HTTP→handler→repo→DB path (all review-tail in the Docker-less loop).
   - **App-construction smoke is part of this `pytest` run.** `tests/unit/restapi/test_app_constructs.py`
     (from `test-discovery-invariants`) constructs `create_app(container=Container())` and renders
     `app.openapi()` with no database. It is the only gate that catches **construct-time** failures the
