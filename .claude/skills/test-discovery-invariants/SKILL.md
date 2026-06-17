@@ -1,6 +1,6 @@
 ---
 name: test-discovery-invariants
-description: Apply once per project to install the cross-cutting integration tests that derive their inputs from the running FastAPI app instead of from hand-maintained registries. Produces four or five test files under `tests/integration/api/` — `test_unauth_returns_401.py` (emitted **only when the app declares auth**: every authenticated route, discovered via `app.routes`, returns 401 with the documented `code` and `WWW-Authenticate` header when called with no token), `test_openapi_advertises_error_codes.py` (every operation in `app.openapi()` declares all the error codes the route can produce, derived from the `error_responses(...)` decorator), `test_cors.py`, `test_request_size_limit.py` (`413` when exceeding `MaxRequestSizeMiddleware`), and `test_info.py` (or `test_health.py`) — plus one unit-level smoke `tests/unit/restapi/test_app_constructs.py` that constructs the app (no database) so a construct-time failure the toolchain otherwise misses (a missing framework dependency like `python-multipart`, broken middleware wiring, a route whose schema won't build) reds the gate. Adding a new endpoint never requires editing any of these files — discovery handles it. Does not produce per-endpoint tests (use `test-restapi-endpoint`), the rollback fixture (use `test-integration-isolation`), the `authed_client` factory (use `test-integration-authed-client`), or any registry-style table.
+description: Apply once per project to install the cross-cutting integration tests that derive their inputs from the running FastAPI app instead of from hand-maintained registries. Produces four or five test files under `tests/integration/api/` — `test_unauth_returns_401.py` (emitted **only when the app declares auth**: every authenticated route, discovered via `app.routes`, returns 401 with the documented `code` and `WWW-Authenticate` header when called with no token), `test_openapi_advertises_error_codes.py` (every operation in `app.openapi()` declares all the error codes the route can produce, derived from the `error_responses(...)` decorator), `test_cors.py`, `test_request_size_limit.py` (`413` when exceeding `MaxRequestSizeMiddleware` — emitted **only when a size-cap middleware is declared**), and `test_info.py` (or `test_health.py`) (emitted **only when the manifest declares an info/health endpoint** — the REST bootstrap produces none, so by default it is NOT emitted; an `/info` test on an app without that route is a frozen-source-app artifact, §C6) — plus one unit-level smoke `tests/unit/restapi/test_app_constructs.py` that constructs the app (no database) so a construct-time failure the toolchain otherwise misses (a missing framework dependency like `python-multipart`, broken middleware wiring, a route whose schema won't build) reds the gate. Adding a new endpoint never requires editing any of these files — discovery handles it. Does not produce per-endpoint tests (use `test-restapi-endpoint`), the rollback fixture (use `test-integration-isolation`), the `authed_client` factory (use `test-integration-authed-client`), or any registry-style table.
 ---
 
 # Test — Discovery Invariants
@@ -19,13 +19,13 @@ One-shot per project. Four or five integration files under `tests/integration/ap
 
 ```
 tests/integration/api/
-├── test_unauth_returns_401.py            # auth apps only (Rule 11)
-├── test_openapi_advertises_error_codes.py
-├── test_cors.py
-├── test_request_size_limit.py
-└── test_info.py
+├── test_openapi_advertises_error_codes.py   # always
+├── test_cors.py                             # always
+├── test_unauth_returns_401.py               # auth apps only (Rule 11)
+├── test_request_size_limit.py               # only if a size-cap middleware is declared (Hard stops)
+└── test_info.py                             # only if an info/health endpoint is declared (Rule 11)
 tests/unit/restapi/
-└── test_app_constructs.py                # unit-level construct smoke, no DB (Rule 12)
+└── test_app_constructs.py                   # always — unit-level construct smoke, no DB (Rule 12)
 ```
 
 ### `tests/unit/restapi/test_app_constructs.py`

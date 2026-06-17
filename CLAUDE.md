@@ -145,8 +145,16 @@ whole-tree mypy gate. Cross-epic resolution today is model A
 (one package); per-context deployables / separate packages (model B, §15 marketplace) are not built.
 Orphan GC + rename-with-body-transfer (spec §4/§14) remain the unbuilt brownfield frontier.
 Deferred (spec §13 «потом»): the brownfield frontier (orphan GC + rename-with-body-transfer), plugin
-packaging + multi-language, and removing the `src/codegen` archive. Open seam: a Docker-backed
-integration run (testcontainers).
+packaging + multi-language, and removing the `src/codegen` archive. The **Docker-backed integration tier
+now runs green** (helpdesk4, live testcontainer Postgres): a real run surfaced + fixed two A4-class
+meta-gaps invisible to mypy/ruff/unit/construct — the pipeline never scaffolded the **Alembic bootstrap**
+(`alembic.ini` + `migrations/env.py` + a write-once `0001_initial` baseline; the integration conftest
+hard-depends on `alembic upgrade head`), now `conventions` block C + the scaffolder emit it on a
+`uses_bootstrap` store; and `test_info.py` was emitted for apps with no `/info` route (a frozen
+source-app feature, §C6), now graph-gated on a declared info/health endpoint. Open seam: the **repository
+round-trip** layer (`test-repository-contract`) has still not been exercised against live Postgres — the
+api-discovery + schema-build + construct layers are proven, repo SELECT/INSERT against the migrated
+schema is the next thing to run.
 
 **Done — the §9 trust tail.** Manual-stub assert authorship + the adversarial verifier are **built**
 (`/author-manual-tests`, `.claude/commands/author-manual-tests.md`) and **run on helpdesk4**: every

@@ -139,6 +139,73 @@ def create_vectors_client(settings: QdrantSettings) -> AsyncQdrantClient:
 ```
 The factory name is `create_<datastore-name>_client` (the datastore's `name`, not its kind — `create_vectors_client` for a datastore named `vectors`); the resource type + import come from the profile table above. Only a **genuinely unknown** kind (the degraded `object` row) cannot be rendered complete — there alone the scaffolder leaves a `NotImplementedError` connection factory plus a loud comment, and that one case is the runner's documented residual.
 
+**Relational migrations bootstrap (Alembic) — scaffolder-complete config + write-once baseline.** Emitted **only when a `uses_bootstrap` store backs a repository** (the same trigger as the Postgres substrate / table scaffold). Alembic owns the revision chain (spec §3 — migrations are never *hand-generated as logic*), but the chain cannot start, and `alembic upgrade head` cannot run, without two things the scaffolder must lay: the Alembic **config** (pure glue, regenerated every run) and an **initial baseline revision** (write-once, like a body scaffold). Without these the integration suite dies at setup (`test-integration-isolation`'s session-autouse `_migrated_db` runs `alembic upgrade head`; no `script_location` → `No 'script_location' key found`) — invisible to mypy/ruff/unit/construct, the A4 hazard, surfaced only by a real Docker run.
+
+The three config files are **scaffolder-complete glue** (regenerated, no judgment) at the tree root + `migrations/`:
+
+```ini
+# alembic.ini  (tree root)
+[alembic]
+script_location = migrations
+prepend_sys_path = src
+```
+```python
+# migrations/env.py  (async, wired to the project's shared MetaData — online mode only:
+# the app is always migrated against a live connection, and `alembic revision --autogenerate`
+# also runs online)
+import asyncio
+
+from alembic import context
+
+import myapp.infrastructure.postgres.tables  # noqa: F401  — registers every Table on the shared metadata
+from myapp.infrastructure.postgres.engine import create_engine
+from myapp.infrastructure.postgres.metadata import metadata
+from myapp.infrastructure.postgres.settings import DbSettings
+
+target_metadata = metadata
+
+
+def _run(connection) -> None:  # MigrationContext drives this inside run_sync
+    context.configure(connection=connection, target_metadata=target_metadata)
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def _run_online() -> None:
+    engine = create_engine(DbSettings())  # DSN from the *_DB_* env the caller sets (e.g. the testcontainer)
+    async with engine.connect() as connection:
+        await connection.run_sync(_run)
+    await engine.dispose()
+
+
+asyncio.run(_run_online())
+```
+`migrations/script.py.mako` is Alembic's standard revision template (`${message}` / `${up_revision}` / `${down_revision}` / `upgrade()` / `downgrade()`); emit it verbatim so `alembic revision` can author later deltas.
+
+The **baseline revision** is **write-once** (emit `migrations/versions/0001_initial.py` only when `migrations/versions/` carries no `*.py` yet — never clobber a chain that already has brownfield deltas, exactly the body-scaffold lifecycle, spec §4):
+
+```python
+# migrations/versions/0001_initial.py
+import myapp.infrastructure.postgres.tables  # noqa: F401  — registers every Table on the shared metadata
+from alembic import op
+from myapp.infrastructure.postgres.metadata import metadata
+
+revision = "0001"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    metadata.create_all(op.get_bind())
+
+
+def downgrade() -> None:
+    metadata.drop_all(op.get_bind())
+```
+
+The baseline is a derived glue **snapshot** of the just-scaffolded tables (≈ `containers.py`), not a hand-authored logic delta — it does not violate §3's "no generated migrations" (which forbids a logic-DSL / generated business migrations); it is the desired-schema snapshot §3 keeps in the manifest, materialized once so the chain can start. **Every subsequent migration is a real Alembic revision authored in the verification loop** (`uv run alembic revision --autogenerate -m "<change>"`, driven by the schema-drift trigger, block E) — the baseline is the only one the scaffolder emits. `migrations/` lives at the tree root (outside `src`/`tests`), so it is not in the `mypy src tests` / `ruff check src tests` gate; its correctness is exercised by `alembic upgrade head` in the integration suite.
+
 ## D. Stack substrate (library NAMES, no versions)
 
 The dependency manifest (`pyproject.toml`) is regenerated glue: the framework substrate ∪ the union of every infra node's `requires_packages` over the graph (spec §10). The scaffolder derives it from the graph; it is never "an agent recalling a package".
