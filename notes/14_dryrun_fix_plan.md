@@ -323,6 +323,29 @@ left in place; it is disposable/untracked.
 
 ---
 
+## New finding (post-PR) — `from __future__ import annotations` is ungated
+
+Surfaced hand-checking a fresh greenfield scaffold of the MeetingMind Accounts epic (`mm1`). **FOUND +
+FIXED (2026-06-19).**
+
+- **N-03 · the scaffolder emits `from __future__ import annotations` against its own skill, and no gate
+  catches it.** A freshly scaffolded `domain/exceptions.py` opened with `from __future__ import
+  annotations` — a rule violation: both `general-typing-conventions` (line 118: "runtime annotation
+  introspection — Pydantic, `dependency-injector`, dataclass `__post_init__` — breaks silently with
+  stringified annotations") and `domain-exception` (line 115: "No `from __future__ import annotations`")
+  ban it project-wide. **Root cause:** reflexive modern-module-header boilerplate from the corpus — the
+  agent overrode an explicit skill instruction with habit; the skill template is correct. **Why it
+  survives:** it is an A4-class invisible violation — the ruff select (`E, F, I, B006, B904`) has no rule
+  for it, `/verify` + the scaffolder self-verify grep only `# noqa: F401` and `# type: ignore` (F-023),
+  and in a runtime-harmless module (exception classes are not introspected like Pydantic models)
+  mypy/ruff/unit/construct all stay green. So the rule was convention-only with zero enforcement.
+  **Fix (mirrors the F-023 type-ignore gate exactly):** a deterministic grep gate
+  `grep -rn "from __future__ import annotations" src` must return nothing — added to `/verify`
+  (`verify.md`) and the scaffolder self-verify (`scaffolder.md` step 7). Any hit on a content module is a
+  glue defect to delete at the source, never keep.
+
+---
+
 ## §9 residual WEAK-assert queue — closed at the META layer (2026-06-15)
 
 The dry-run's adversarial pass left a named queue of WEAK manual-stub asserts + strengthening recipes

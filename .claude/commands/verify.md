@@ -128,6 +128,15 @@ package root:
   stashed function attribute), a `[no-any-return]` is a raw-boundary value (`cast(<type>, …)` at the
   boundary). `tests/` may keep a narrowly-scoped ignore only where a fake deliberately violates a
   Protocol — never `src`.
+- **No-future-annotations gate (deterministic).** `grep -rn "from __future__ import annotations" src`
+  must return **nothing**. `general-typing-conventions` forbids it project-wide: this stack introspects
+  annotations at runtime (Pydantic / pydantic-settings, `dependency-injector`, dataclass `__post_init__`,
+  FastAPI), and PEP 563 stringifies them so that introspection breaks silently. The toolchain does **not**
+  catch it — the ruff select (`E, F, I, B006, B904`) has no rule for it, and in a runtime-harmless module
+  (e.g. `domain/exceptions.py`) mypy/ruff/unit/construct all stay green, so the violation is invisible
+  without this grep. A hit is almost always the scaffolder reflexively emitting the modern-module header
+  against its own skill instruction (`domain-exception` / `general-typing-conventions` both ban it) —
+  surface it as a defect and delete the line at the source, never keep it.
 
 Then produce the **attribution diff** against the scaffold baseline the scaffolder froze:
 - `uv run .claude/tools/scaffold_snapshot.py diff <package-root>`. Every changed file is implementer
