@@ -343,6 +343,19 @@ FIXED (2026-06-19).**
   `grep -rn "from __future__ import annotations" src` must return nothing — added to `/verify`
   (`verify.md`) and the scaffolder self-verify (`scaffolder.md` step 7). Any hit on a content module is a
   glue defect to delete at the source, never keep.
+- **N-04 · settings `env_prefix` stemmed on the epic, not the app.** The Accounts manifest declared
+  `ACCOUNTS_DB_` / `ACCOUNTS_JWT_` / `ACCOUNTS_THROTTLE_` — the bounded-context name, not the app. Every
+  fixture and the `infra-settings` skill use the **product** stem (`HELPDESK_DB_`, `VRAG_DB_`, template
+  `MYAPP_<DOMAIN>_`), because env vars are an app-level deployment concern. **Root cause:** the architect
+  built the epic in isolation and stemmed on the only salient name (the epic); `env_prefix` is a free
+  authored string (the validator only checks `str`), and the skill said `MYAPP_<DOMAIN>_` but never
+  explicitly forbade the epic name. **Doubly wrong under app-mode:** a `DbSettings` under the shared
+  `datastore` collapses to one across contexts (`conventions` block F), so `ACCOUNTS_DB_HOST` on a DB both
+  contexts share is incoherent the moment Meetings joins. **Fix:** corrected the Accounts manifest to
+  `MM_DB_` / `MM_JWT_` / `MM_THROTTLE_`; tightened `infra-settings` (line 20) and `architect.md` (rule 10)
+  to state the stem is the app/product, never the bounded context, with the app-mode shared-substrate
+  rationale. No gate added — `env_prefix` is a product namespace (a human-review string, not a derivable);
+  the durable fix is the explicit rule, not a lint.
 
 ---
 

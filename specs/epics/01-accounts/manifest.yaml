@@ -231,7 +231,7 @@ infrastructure:
 
   settings:
     - name: DbSettings
-      env_prefix: ACCOUNTS_DB_
+      env_prefix: MM_DB_            # stem = the MeetingMind app, never the epic — shared-substrate DB under app-mode
       fields:
         - {name: host, type: str, default: '"localhost"'}
         - {name: port, type: int, default: "5432"}
@@ -241,7 +241,7 @@ infrastructure:
       sources: ["UC-10", "UC-11"]
 
     - name: JwtSettings
-      env_prefix: ACCOUNTS_JWT_
+      env_prefix: MM_JWT_
       fields:
         - {name: secret, type: SecretStr, secret: true}
         - {name: algorithm, type: str, default: '"HS256"'}
@@ -249,7 +249,7 @@ infrastructure:
       sources: ["UC-10"]
 
     - name: ThrottleSettings
-      env_prefix: ACCOUNTS_THROTTLE_
+      env_prefix: MM_THROTTLE_
       fields:
         - {name: redis_url, type: str, default: '"redis://localhost:6379/0"'}
         - {name: max_attempts, type: int, default: "5"}      # UC-10 A3 — config, not hard-coded

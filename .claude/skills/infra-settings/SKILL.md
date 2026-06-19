@@ -17,7 +17,7 @@ Produces one settings class per external integration. The class is the **only** 
 
 - Path: `src/<root>/infrastructure/<subpackage>/settings.py` — always named `settings.py`.
 - Class: `<Concept>Settings`. Not `Config`, not `Options`.
-- Env prefix: `MYAPP_<DOMAIN>_` (uppercase, short noun 3–8 chars, terminal underscore). Never reuse a prefix across two classes.
+- Env prefix: `MYAPP_<DOMAIN>_` (uppercase, short noun 3–8 chars, terminal underscore). Never reuse a prefix across two classes. **The stem (`MYAPP_`) is the application / product, NEVER a bounded context / epic name.** Env vars are an app-level deployment concern: a `DbSettings` declared in the `accounts` epic still serves the whole process, so its prefix is `MM_DB_` (the MeetingMind app), not `ACCOUNTS_DB_`. This matters doubly for shared-substrate settings — under app-mode a `DbSettings` backing the shared `datastore` collapses to one across contexts (`conventions` block F), so a context-named prefix on it is incoherent the moment a second context joins (operators would set `ACCOUNTS_DB_HOST` for a DB both contexts share). When you author a single epic's manifest in isolation, the salient name is the epic — resist it; stem on the app.
 
 ## Template — relational database (one integration kind among many)
 

@@ -169,6 +169,12 @@ the reconciliation is the runner's + implementer's.
    (`infra-sqlalchemy-repository`'s `_map_integrity_error`). Omit it and the duplicate surfaces as the
    base `DomainError` → **HTTP 500 instead of 409**. Same earn-its-place rule for `NotFoundError`,
    `ValidationError`, `InUseError`: declare each the first UC that needs it, never a blanket catalog.
+10. **A settings `env_prefix` stems on the APP/product, never the epic** (`infra-settings`). Env vars are
+   an app-level deployment concern, so write `MM_DB_` (the MeetingMind app), never `ACCOUNTS_DB_` (the
+   bounded context you happen to be authoring). When you build one epic in isolation the salient name is
+   the epic — resist it. This is doubly load-bearing for a shared-substrate setting: a `DbSettings` under
+   the shared `datastore` collapses to one across contexts under app-mode (`conventions` block F), so a
+   context-named prefix breaks the moment a second context joins.
 
 ## Hard stops
 
