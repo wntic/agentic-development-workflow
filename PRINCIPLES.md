@@ -99,9 +99,16 @@ package, or you're writing the dependency manifest. *Do:* pure domain/applicatio
 deps; third-party deps attach only to infra nodes (`requires_packages`) ∪ the stack substrate, and the
 dependency manifest (`pyproject.toml`) is derived glue = substrate ∪ graph `requires_packages`, gated on
 presence (a `multipart` endpoint pulls `python-multipart`, the way a relational store pulls the Postgres
-substrate). Versions are never hardcoded — the package manager pins latest-compatible at scaffold time.
-*Why:* hardcoded version pins were the generator's chief rot, and a forgotten graph-derived dep
-type-checks green but breaks at app construction. `spec §10`
+substrate). Versions are never hardcoded — the scaffolder renders names only and `uv lock`/`uv sync`
+resolves latest-compatible into `uv.lock`, the **only** home for a concrete pin. A `requires_packages`
+floor (`>=`) is the lone exception, allowed **only** when it marks a *known breaking-version boundary*
+(an API the code relies on landed/changed there) — written at that boundary as a knowledge-stable fact
+(the major: `pyjwt>=2`, never an agent-recalled recent patch like `>=2.8`) and carrying *why* in a
+comment. No justified break → no floor; let the resolver pick. **An agent never emits a version number
+from memory** — its knowledge is frozen at a cutoff, so it states the *contract* ("needs v2, where
+`encode` returns `str`"), never the *release*. *Why:* hardcoded version pins were the generator's chief
+rot; a forgotten graph-derived dep type-checks green but breaks at app construction; and a recency-padded
+floor is just stale agent memory masquerading as a constraint. `spec §10`
 
 ---
 

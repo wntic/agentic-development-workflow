@@ -1,0 +1,373 @@
+# Epic 01 — Accounts (Identity & Workspace) — the MeetingMind sign-in + workspace context.
+#
+# One bounded context, two subdomains:
+#   * auth      — User, Role, Email, CurrentUser, IUserRepository, the SignIn query, and the
+#                 three auth infra ports: JWT bearer (ICanManageTokens), argon2id password
+#                 hashing (ICanHashPasswords), and the failed-login throttle (ICanThrottleLogins).
+#   * workspace — Workspace + Plan and the read-only GetMyWorkspace panel.
+#
+# Architecture decisions folded in (build-manifest chat):
+#   - Failed-login lockout is a Redis-backed capability ICanThrottleLogins (NOT fields on User
+#     and NOT an orphan datastore — a capability rides its settings, like the JWT port). The
+#     5-attempts / 10-min-window / 15-min-lock numbers are ThrottleSettings config defaults.
+#   - argon2id is a capability ICanHashPasswords (hash/verify); the dummy-hash timing
+#     equalization on unknown email is a SignIn note.
+#   - The workspace panel returns identity + plan + role only — no usage meter (deferred to a
+#     Meetings-owned surface; resolves the epic.md architect question). No Meetings dependency.
+#   - CurrentUser + the JWT claims carry workspace_id (single-workspace tenant scoping, UC-10).
+#
+# Cross-epic edge OUT (consumed by the forthcoming Meetings manifest, not declared here):
+#   accounts:IWorkspaceRepository.get_by_id — UC-12 quota reads Workspace.plan.
+
+meta:
+  epic: 01-accounts
+  name: "MeetingMind Accounts — sign-in with JWT bearer + workspace panel"
+  sources: ["UC-10", "UC-11"]
+
+domain:
+
+  enums:
+    - name: Role
+      subdomain: auth
+      base: StrEnum
+      members:
+        - {name: MEMBER, value: MEMBER}
+        - {name: ADMIN, value: ADMIN}
+      # No `satisfies` rank method: this epic gates no endpoint on role (both routes are
+      # anonymous / any-authenticated). Role is carried in the token + echoed by the panel.
+      sources: ["UC-10", "UC-11"]
+
+    - name: Plan
+      subdomain: workspace
+      base: StrEnum
+      members:
+        - {name: FREE, value: FREE}
+        - {name: PRO, value: PRO}
+        - {name: ENTERPRISE, value: ENTERPRISE}
+      sources: ["UC-11"]
+
+  value_objects:
+    - name: Email
+      subdomain: auth
+      fields:
+        - {name: value, type: str}
+      invariants:
+        - rule: "RFC 5322 shape; normalized to lowercase (sign-in matches case-insensitively)"
+          field: value
+          source: spec
+      sources: ["UC-10"]
+
+    - name: CurrentUser            # the authenticated principal ICanManageTokens.verify returns
+      subdomain: auth
+      fields:
+        - {name: id, type: UUID}
+        - {name: role, type: Role}
+        - {name: workspace_id, type: UUID}   # tenant-scoping claim — every read derives the tenant from this
+      sources: ["UC-10"]
+
+  entities:
+    - name: User
+      subdomain: auth
+      fields:
+        - {name: id, type: UUID}
+        - {name: email, type: Email}
+        - {name: role, type: Role}
+        - {name: workspace_id, type: UUID}
+        - {name: password_hash, type: str}
+        - {name: is_active, type: bool, default: "True"}
+      # No lockout fields — throttle state lives behind ICanThrottleLogins (Redis), not the aggregate.
+      invariants: []
+      sources: ["UC-10"]
+
+    - name: Workspace
+      subdomain: workspace
+      fields:
+        - {name: id, type: UUID}
+        - {name: name, type: str}
+        - {name: plan, type: Plan}
+      invariants: []
+      sources: ["UC-11"]
+
+  repository_protocols:
+    - name: IUserRepository
+      subdomain: auth
+      aggregate: User
+      methods:
+        # Only what SignIn needs this epic (earn-its-place). get_by_email returns None when
+        # absent — SignIn turns that into the generic UnauthorizedError after a dummy hash.
+        - "async def get_by_email(self, email: Email) -> User | None"
+      raises: []
+      sources: ["UC-10"]
+
+    - name: IWorkspaceRepository
+      subdomain: workspace
+      aggregate: Workspace
+      methods:
+        - "async def get_by_id(self, workspace_id: UUID) -> Workspace"
+      raises: [NotFoundError]
+      sources: ["UC-11"]
+
+  capability_protocols:
+    - name: ICanManageTokens         # JWT bearer mint/verify
+      subdomain: auth
+      methods:                       # sync — pure CPU (sign/verify), no IO
+        - "def issue(self, principal: CurrentUser) -> str"
+        - signature: "def verify(self, token: str) -> CurrentUser"
+          notes: "Decode + validate; reject expired/tampered tokens; map claims (sub, role, workspace_id) back to CurrentUser."
+      notes: "A stateless bearer-token mint/verify pair carrying id, role, and workspace_id; issue and verify are inverse."
+      sources: ["UC-10"]
+
+    - name: ICanHashPasswords        # argon2id hash + verify
+      subdomain: auth
+      methods:                       # sync — pure CPU
+        - "def hash(self, plain: str) -> str"
+        - signature: "def verify(self, plain: str, hashed: str) -> bool"
+          notes: "Return True iff plain matches the stored hash; never raise on mismatch (return False)."
+      notes: "A stateless argon2id hash/verify pair. Expose a dummy-verify path so SignIn can equalize timing on unknown email."
+      sources: ["UC-10"]
+
+    - name: ICanThrottleLogins       # failed-login lockout (rolling window)
+      subdomain: auth
+      methods:                       # async — backed by Redis IO
+        - signature: "async def is_locked(self, email: Email) -> bool"
+          notes: "True when the email is currently within a lock window."
+        - signature: "async def register_failure(self, email: Email) -> None"
+          notes: "Record one failed attempt; trip the lock once the windowed count reaches the threshold."
+        - "async def reset(self, email: Email) -> None"
+      notes: |
+        A rolling-window login throttle keyed by email. The threshold (attempts), the window,
+        and the lock duration are config (ThrottleSettings), never hard-coded. A successful
+        sign-in calls reset; the lock itself must be invisible to the caller (SignIn maps a
+        locked email to the same generic error as a bad password).
+      sources: ["UC-10"]
+
+  # Earned per UC (no blanket catalog). UnauthorizedError = the generic A1/A3 + missing-token
+  # (UC-11 401). InactiveAccountError = the distinct A2 signal. ValidationError = the Email VO
+  # invariant. NotFoundError = the workspace lookup. No ConflictError (this epic inserts nothing
+  # against a unique constraint); no ForbiddenError (no role-gated route).
+  exceptions:
+    - {name: UnauthorizedError, code: UNAUTHORIZED, http_status: 401, sources: ["UC-10", "UC-11"]}
+    - {name: InactiveAccountError, code: ACCOUNT_INACTIVE, http_status: 403, sources: ["UC-10"]}
+    - {name: ValidationError, code: VALIDATION_ERROR, http_status: 422, sources: ["UC-10"]}
+    - {name: NotFoundError, code: NOT_FOUND, http_status: 404, sources: ["UC-11"]}
+
+application:
+
+  queries:
+    - name: SignIn                   # email + password → a signed bearer token
+      input:
+        - {name: email, type: Email}
+        - {name: password, type: str}
+      output: SignInResult
+      result_fields:
+        - {name: token, type: str}
+      handler: {dependencies: [IUserRepository, ICanHashPasswords, ICanManageTokens, ICanThrottleLogins]}
+      raises: [UnauthorizedError, InactiveAccountError]
+      notes: |
+        Orchestration (multi-dependency; the canonical scenarios are in the manual stub):
+          1. If ICanThrottleLogins.is_locked(email) → raise UnauthorizedError (the generic A1
+             error — never signal "locked").
+          2. Load the user by lower-cased email. If absent → run a dummy ICanHashPasswords
+             verify to equalize timing, then raise UnauthorizedError.
+          3. Verify password against user.password_hash via ICanHashPasswords. On mismatch →
+             ICanThrottleLogins.register_failure(email), then raise UnauthorizedError.
+          4. If not user.is_active → raise InactiveAccountError (the distinct A2 signal).
+          5. Success: ICanThrottleLogins.reset(email); issue a token via ICanManageTokens
+             (claims: id, role, workspace_id); return SignInResult(token).
+        Unknown-email, wrong-password, and locked MUST be the same generic error (no existence
+        leak); only inactive (A2) is distinct.
+      behaviour:                     # multi-dep → all scenarios are manual-stub (given/then only)
+        - given: "an active user whose password matches"
+          when: execute
+          then: {returns: SignInResult}
+          source: spec
+        - given: "no user with that email"
+          when: execute
+          then: {raises: UnauthorizedError}
+          source: spec
+        - given: "a user whose password does not match"
+          when: execute
+          then: {raises: UnauthorizedError}
+          source: spec
+        - given: "a deactivated user whose password matches"
+          when: execute
+          then: {raises: InactiveAccountError}
+          source: spec
+        - given: "an email currently locked out"
+          when: execute
+          then: {raises: UnauthorizedError}
+          source: spec
+      sources: ["UC-10"]
+
+    - name: GetMyWorkspace           # the read-only workspace panel (UC-11)
+      input:
+        - {name: workspace_id, type: UUID}
+      output: WorkspaceView
+      result_fields:
+        - {name: name, type: str}
+        - {name: plan, type: Plan}
+      handler: {dependencies: [IWorkspaceRepository]}
+      raises: [NotFoundError]
+      notes: |
+        Load the workspace by the id taken from the caller's token (never a request parameter)
+        and project name + plan into WorkspaceView. The caller's role is NOT read here — the
+        endpoint stitches it in from CurrentUser (the panel shows identity + plan + role only;
+        no usage meter).
+      behaviour:
+        - given: "the caller's workspace exists"
+          when: execute
+          arrange: [{entity: Workspace, fields: {id: "11111111-1111-1111-1111-111111111111"}}]
+          act: {workspace_id: "11111111-1111-1111-1111-111111111111"}
+          then: {returns: WorkspaceView}
+          source: spec
+        - given: "no workspace with that id"
+          when: execute
+          act: {workspace_id: "22222222-2222-2222-2222-222222222222"}
+          then: {raises: NotFoundError}
+          source: spec
+      sources: ["UC-11"]
+
+infrastructure:
+
+  settings:
+    - name: DbSettings
+      env_prefix: ACCOUNTS_DB_
+      fields:
+        - {name: host, type: str, default: '"localhost"'}
+        - {name: port, type: int, default: "5432"}
+        - {name: user, type: str, default: '"postgres"'}
+        - {name: password, type: SecretStr, secret: true}
+        - {name: name, type: str, default: '"accounts"'}
+      sources: ["UC-10", "UC-11"]
+
+    - name: JwtSettings
+      env_prefix: ACCOUNTS_JWT_
+      fields:
+        - {name: secret, type: SecretStr, secret: true}
+        - {name: algorithm, type: str, default: '"HS256"'}
+        - {name: ttl_seconds, type: int, default: "3600"}   # 1h (UC-10 Q3), tunable per env
+      sources: ["UC-10"]
+
+    - name: ThrottleSettings
+      env_prefix: ACCOUNTS_THROTTLE_
+      fields:
+        - {name: redis_url, type: str, default: '"redis://localhost:6379/0"'}
+        - {name: max_attempts, type: int, default: "5"}      # UC-10 A3 — config, not hard-coded
+        - {name: window_seconds, type: int, default: "600"}  # 10-minute rolling window
+        - {name: lock_seconds, type: int, default: "900"}    # 15-minute lock
+      sources: ["UC-10"]
+
+  capabilities:
+    - implements: ICanManageTokens
+      adapter: jwt
+      role: TokenManager       # → JwtTokenManager
+      settings: JwtSettings
+      requires_packages: ["pyjwt>=2"]   # floor at the v2 break: jwt.encode returns str (not bytes) since 2.0
+      notes: |
+        PyJWT, HS256. issue: jwt.encode({"sub": str(principal.id), "role": principal.role,
+        "workspace_id": str(principal.workspace_id), "exp": now + settings.ttl_seconds},
+        settings.secret.get_secret_value(), algorithm=settings.algorithm). verify: jwt.decode(...);
+        map jwt.ExpiredSignatureError and jwt.InvalidTokenError → UnauthorizedError; rebuild
+        CurrentUser(id, role, workspace_id) from the claims.
+      sources: ["UC-10"]
+
+    - implements: ICanHashPasswords
+      adapter: argon2
+      role: PasswordHasher     # → Argon2PasswordHasher
+      requires_packages: ["argon2-cffi"]   # no floor: the PasswordHasher hash/verify API is long-stable, no known break
+      notes: |
+        argon2-cffi PasswordHasher with defaults (argon2id). hash: ph.hash(plain). verify:
+        ph.verify(hashed, plain) returning True, catching argon2.exceptions.VerifyMismatchError
+        (and InvalidHash) → False (never raise on mismatch). Hold one precomputed dummy hash so
+        SignIn can verify against it on unknown email to equalize timing.
+      sources: ["UC-10"]
+
+    - implements: ICanThrottleLogins
+      adapter: redis
+      role: LoginThrottle      # → RedisLoginThrottle
+      settings: ThrottleSettings
+      requires_packages: ["redis>=4.2"]   # floor where redis.asyncio merged in (4.2); before that async was the separate aioredis
+      notes: |
+        redis.asyncio client built from settings.redis_url. Key the rolling window by email
+        (e.g. f"login:fail:{email}"): register_failure INCRs the counter with an
+        EXPIRE(window_seconds) on first failure, and when it reaches max_attempts sets a lock
+        key with EXPIRE(lock_seconds). is_locked checks the lock key. reset deletes both keys.
+        All three numbers come from ThrottleSettings — never hard-coded.
+      sources: ["UC-10"]
+
+  datastores:
+    - name: main
+      kind: postgres
+      settings: DbSettings
+      sources: ["UC-10", "UC-11"]
+
+  repositories:
+    - implements: IUserRepository
+      backs: User
+      store: main
+      notes: "Look up by the lower-cased email value (sign-in matches case-insensitively)."
+      sources: ["UC-10"]
+    - implements: IWorkspaceRepository
+      backs: Workspace
+      store: main
+      sources: ["UC-11"]
+
+restapi:
+
+  schemas:
+    - name: SignInRequest
+      resource: auth
+      kind: request
+      fields:
+        - {name: email, type: str}
+        - {name: password, type: str}
+      sources: ["UC-10"]
+    - name: TokenResponse
+      resource: auth
+      kind: response
+      fields:
+        - {name: access_token, type: str}
+        - {name: token_type, type: str}
+      sources: ["UC-10"]
+
+    - name: WorkspaceResponse
+      resource: workspace
+      kind: response
+      fields:
+        - {name: name, type: str}
+        - {name: plan, type: str}
+        - {name: role, type: str}
+      sources: ["UC-11"]
+
+  endpoints:
+    - method: POST
+      path: /auth/sign-in
+      resource: auth
+      auth: anonymous
+      request: SignInRequest
+      response: TokenResponse
+      handler: SignIn
+      notes: |
+        Build Email(request.email) and pass request.password into SignIn. Map the result:
+        access_token = result.token; token_type = "bearer". (Min-8 password length is a
+        SignInRequest schema constraint.)
+      sources: ["UC-10"]
+
+    - method: GET
+      path: /workspace
+      resource: workspace
+      auth: authenticated
+      response: WorkspaceResponse
+      handler: GetMyWorkspace
+      notes: |
+        Pass current_user.workspace_id into GetMyWorkspace. Map name/plan from the result and
+        role = current_user.role (the role comes from the token, not the workspace row).
+      sources: ["UC-11"]
+
+tests:
+  architecture_rules:
+    - name: test_no_print_outside_entrypoints
+      pattern: '\bprint\('
+      paths: [domain/, application/, infrastructure/]
+      allow_list: []
+      sources: []
