@@ -221,3 +221,6 @@ __marimo__/
 .claude/worktrees
 
 .DS_Store
+
+# gate.py run artifacts (junit, verdict, caches) — workflow v3
+.gate/
