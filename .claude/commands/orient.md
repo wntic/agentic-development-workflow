@@ -1,40 +1,43 @@
 ---
-description: "Session bootstrap — orient on this project: read the design doc + key files, then summarize state and the next step"
+description: "Session bootstrap — orient on the v3 workflow: read the design canon + task index, then summarize state and the next task"
 ---
 
-Привет! Я строю **агентный воркфлоу для генерации кода** — систему ИИ-агентов, которая превращает use
-cases от бизнес-аналитика в бэкенд (первый стек — Python, гексагональная архитектура) и сопровождает его
-через изменения.
+You are joining work on **workflow v3** — a spec-driven agentic development cycle: living Markdown
+specs per bounded context, a change cycle (red tests → code → run → criteria check → iterate), and
+deterministic gates that hold the trust. The target application lives **in this repository**
+(`src/`, `tests/`, `specs/<context>/`) and is maintained through the change cycle: one change =
+one branch, `main` always green.
 
-Что важно понять сразу:
+Before proposing or writing anything, **read and assemble the current picture** (in this order):
 
-- Это **не приложение, а тулинг пайплайна**. Он живёт в `.claude/` (скиллы = знание, агенты = процессы,
-  команды) + схема манифеста. Целевое приложение генерируется из манифеста и в репо не коммитится.
-- **Курс (важно):** мы отошли от детерминированного скрипт-генератора (`src/codegen/`, сейчас снимается)
-  к чисто **агентному** пайплайну. Детерминизм держит **верификатор** (валидатор графа + тулчейн языка +
-  каноничные тесты), а код пишут **агент-скаффолдер** (раскладывает файлы + каркасы + контракт-комменты)
-  и **агент-имплементер** (заполняет тела). Работа идёт в отдельной ветке — сверься с `git status` / `git log`.
+1. `workflow_v3_spec.md` — THE design doc and source of truth for v3, written as a build order.
+   Read it **in full**. (`notes/15_v3_design_review.md` is the adversarial-review register behind
+   its S8/S9 hardening; both are design canon — never edited by agents.)
+2. `PRINCIPLES.md` — the decision checklist (*trigger → litmus → why → §*); it is already in
+   context via `CLAUDE.md`, but confirm you hold the S-series (S1–S9).
+3. `tasks/INDEX.md` — **the source of truth for build-out state**: which of T01–T11 are checked
+   `[x]`, which are open, and the dependency order. Nothing marked *planned (TNN)* exists until
+   its checkbox is ticked. Cross-check with `git status` / `git log` on the current branch.
 
-Прежде чем что-то предлагать или писать код, **прочитай и собери актуальную картину** (в этом порядке):
+Keep in mind:
 
-1. `codegen_workflow_spec.md` — ГЛАВНЫЙ дизайн-док и источник правды (почему пайплайн устроен именно так).
-   Читай **целиком**.
-2. `notes/5_drop_codegen.txt` — лог решений по уходу от генератора (контекст пивота).
-3. Контракт манифеста = **валидатор** `.claude/tools/validate_manifest.py` (`SCHEMAS` — исполняемая
-   форма, источник правды) + сгенерённый из него скелет `.claude/templates/manifest.template.yaml`
-   (НЕ редактировать руками — `gen_template.py`) + валидные фикстуры `.claude/tools/fixtures/`.
-   `.claude/templates/MANIFEST_SCHEMA.md` — **устаревшая проза, не источник правды** (ждёт rewrite;
-   при расхождении побеждает валидатор).
+- **Status: v3 is being built.** The build-out is decomposed into `tasks/` and executed one task
+  per `v3-builder` dispatch via `/build-task tasks/TNN-<slug>.md`.
+- The trust anchors are two scripts: `gate.py` ("is it green", T04) and `accept.py` ("may it
+  merge", T05); hooks are ergonomics — trust is the post-hoc check against the git baseline (S8).
+- This command's drift-check — comparing capability files against the observable surface (OpenAPI
+  routes) and listing `main` src-commits not tied to change tags (spec §5.5) — is *planned
+  (T05/T10)*: it arrives with `accept.py` and `/accept-change`; until then, skip that step.
+- v2 is archived in the git history of `main` (tag `v2-archive`); its files were purged in T02 —
+  recover them only from git history, never by rewriting. `codegen_workflow_spec.md` is kept for
+  the rationale of what survived.
 
-`CLAUDE.md` и твоя **память проекта** (`MEMORY.md` + связанные заметки) уже в контексте — **сверься с ними**
-(в `CLAUDE.md` описание генератора пока относится к снимаемому `src/codegen/`). Опционально —
-`codegen_pipeline_v2_with_ingestion.svg`, диаграмма стадий.
+After reading:
 
-После чтения:
-
-- **Коротко (3–5 строк)** перескажи текущее состояние и **следующий шаг по §13** спеки — чтобы я видел,
-  что ты в курсе.
-- **Не лезь в код и не предлагай правок, пока мы не подтвердим направление.** Сначала обсуждаем идеи,
-  потом действуем.
-- Диалог со мной — **на русском**; всё, что ложится в репо, — **на английском** (исключение — use cases в
-  `specs/use-cases/`: язык оригинала, не переводить).
+- **Briefly (3–5 lines)** summarize the current build-out state and name **the next task per
+  `tasks/INDEX.md`** (respecting the dependency order) — so the human sees you are up to date.
+- **Do not touch code or propose edits until the direction is confirmed.** Discuss first, act
+  second.
+- Dialogue with the human is in **Russian**; everything that lands in the repo is in **English**
+  (exceptions per `CLAUDE.md`: verbatim use cases, the living spec corpus under `specs/<context>/`,
+  the design docs).
