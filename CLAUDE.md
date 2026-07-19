@@ -6,269 +6,251 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Dialogue with the user is in **Russian** (English technical terms are fine and expected).
 Everything that lands in the repo — skills, agents, commands, templates, code, comments,
-commit messages — is written in **English**. The one exception is the BA's source material:
-use cases under `specs/use-cases/` stay in their original language verbatim — never translate them.
+commit messages — is written in **English**. Exceptions: the BA's source material
+(`specs/use-cases/` stays in its original language verbatim — never translate it); the living
+spec corpus under `specs/<context>/` is written in the dialogue language (Russian) — it is input
+for the human, not for the machine (v3 §6); and the design docs (`workflow_v3_spec.md`,
+`codegen_workflow_spec.md`, `notes/`) are Russian.
 
 ## What this repository is
 
-This is **not** a normal application. It is the **tooling for an agentic code-generation
-pipeline**: a system of AI agents that turn business analyst (BA) use cases into a Python
-backend and then maintain it through change. Read `codegen_workflow_spec.md` (Russian) for the
-full design rationale — it is the source of truth for *why* the pipeline is shaped the way it
-is, and `codegen_pipeline_v2_with_ingestion.svg` for the diagram.
+This is **not** a normal application. It is the **tooling for a spec-driven agentic development
+workflow (v3)**: living Markdown specs per bounded context, a change cycle
+(red tests → code → run → criteria check → iterate), and deterministic gates that hold the trust.
+Read **`workflow_v3_spec.md`** (Russian) first — it is the source of truth for v3 and is written
+as a build order; `notes/15_v3_design_review.md` is the adversarial-review register behind its
+hardening (S8/S9). Both are design canon — never edited by agents.
 
-There are two layers, and they must not be confused:
+Two layers, not to be confused:
 
-| Layer | Where | What it is | Status |
-|---|---|---|---|
-| **Meta** (the pipeline) | `.claude/` (skills, agents, commands, conventions, the stdlib validator, templates), `specs/`, `examples/`, `*.svg`, `*spec.md` | The skills, agents, commands, conventions, and validator that *drive the agents* which generate code | This is the actual work |
-| **Target** (the generated app) | `examples/generated/` (git-ignored, disposable) | The hexagonal backend the **scaffolder + implementer agents** produce from a manifest | Produced from manifests, never hand-edited |
+| Layer | Where | What it is |
+|---|---|---|
+| **Meta** (the workflow) | `.claude/` (skills, agents, commands, `gate.py`/`accept.py`, hooks, templates), `tasks/`, the design docs | The knowledge + enforcement + orchestration that drive the agents |
+| **Target** (the app) | `src/`, `tests/`, `specs/<context>/` | The hexagonal Python backend built and maintained **in this repo** through the change cycle — one change = one branch, `main` always green |
 
-`src/codegen/` is the **retired deterministic generator**, kept only as a read-only **archive** (its
-tests still pass; do not extend it). The pipeline no longer renders code — see "the spine" below.
+The v2→v3 shift in one line: v2 emitted a disposable app from a YAML manifest into a git-ignored
+directory; v3 maintains the app in-repo under branch-per-change, and the spec compounds into living
+documentation instead of being rendered from a schema.
 
-When the user asks to "write a skill / agent / command," they mean the **meta** layer.
-The target backend is never committed — it is the *output* of the agents, produced into
-`examples/generated/` from a manifest rather than hand-edited.
+**Status: v3 is being built.** The build-out is decomposed into `tasks/` (T01–T11, status in
+`tasks/INDEX.md`), executed one task per `v3-builder` dispatch via `/build-task`. Anything marked
+*planned (TNN)* below does not exist yet — check the INDEX before assuming a tool is available.
 
-**How the pipeline is exercised (no committed target app).** There is no checked-in backend. The
-deterministic core that exists today — the **stdlib manifest validator** — is exercised on the example
-manifests under `.claude/tools/fixtures/` (`helpdesk`, `vector_rag`, `label`):
-`uv run .claude/tools/validate_manifest.py <manifest.yaml>`. The agentic forward path
-(validate → scaffold → implement → verify) will emit a backend into `examples/generated/<pkg>/`
-(disposable, git-ignored) once the scaffolder/implementer agents exist (spec §13 steps 3–5).
+## The three layers of v3 (spec §1)
+
+| Layer | What it is | Where it lives |
+|---|---|---|
+| **Knowledge** | how to write an artifact (house style) | `.claude/skills/` (44 skills now → ~13 after T08) |
+| **Specification** | what to do and how to verify it | `specs/` — sectioned free Markdown |
+| **Enforcement + orchestration** | who does what, what is forbidden, when it is "done" | `.claude/agents/`, `.claude/commands/`, `gate.py`/`accept.py` + hooks |
+
+A fact lives in exactly one layer. The enforcement layer is **first of all two scripts** —
+`gate.py` ("is it green") and `accept.py` ("may it merge") — and only secondarily hook ergonomics.
+There is deliberately **no machine-readable index**: blast-radius questions are answered by
+grep/agent over specs and code (earn-its-place if that ever hurts). Directory placement is pinned:
+`.claude/skills/` = knowledge (auto-invocation by `description`/`when_to_use` is fine),
+`.claude/commands/` = orchestration (explicit human launch only) — never merge them.
 
 ## Design principles — read these first
 
-Every cross-cutting decision rule for building and extending this pipeline lives in **`PRINCIPLES.md`**
-(`@`-included below), as a checklist in *trigger → litmus → why → `spec §`* form — it is the single home
-for those rules, so before a load-bearing choice (adding a manifest field, editing a skill, spawning an
-agent) consult the matching rule rather than reasoning from scratch. The spine, in one breath: **three
-layers never mix** (knowledge = skills · spec = manifest · orchestration = runner/agents), the
-**manifest is canonical for the graph, not the code**, and **determinism lives in verification, not
-authoring** (no render-generator; the toolchain + tests + graph validator hold consistency). Full
-rationale: `codegen_workflow_spec.md §0`.
+Every cross-cutting decision rule lives in **`PRINCIPLES.md`** (`@`-included below) as a checklist
+in *trigger → litmus → why → `§`* form — consult the matching rule before a load-bearing choice
+instead of reasoning from scratch. The spine, in one breath: **the spec is free Markdown for the
+human and for agent orientation; acceptance criteria are a checklist agents can only tick with
+machine-checkable proof; every must-hold rule is a deterministic gate, and trust is held by
+`gate.py` checking the result against the git baseline (S8); one change = one branch, `main` is
+always green (S9)**. Full rationale: `workflow_v3_spec.md §0`.
 
 @PRINCIPLES.md
 
-## The pipeline stages
-
-Input is a set of BA use cases (PDF), or free text, or "prototype X". The flow (spec §1):
-
-| Stage | Executor | Type | Command |
-|---|---|---|---|
-| 0. Ingestion → epics + backend filter | analyst agent | agent, interactive | `/ingest-usecases` — built |
-| 1. UC refinement (product questions → BA) | analyst agent | agent, file-channel | `/refine-usecases` — built |
-| 2. Manifest build / delta (architecture questions → you) | architect agent | agent, interactive chat | `/build-manifest` — built; `/apply-delta` — built (`.claude/commands/apply-delta.md`; delta procedure in `.claude/agents/architect.md`) |
-| — Manifest validation | stdlib graph check (no deps) | deterministic, no LLM | `/validate-manifest` — built (`.claude/commands/validate-manifest.md` wraps `.claude/tools/validate_manifest.py`) |
-| 3. Scaffolding (declarative + glue + body scaffolds + red tests) | scaffolder agent | agent (role) | `/scaffold` — built (`.claude/commands/scaffold.md` + `.claude/agents/scaffolder.md`) |
-| 4. Scaffold tail (fill scaffolded bodies behind contracts) | implementer agent | agent, parallel by DAG | `.claude/agents/implementer.md` + `/verify` (dispatch) |
-| — Verification loop (mypy / ruff / behavioural tests, TDD mode) | runner + implementer | code + agent in a loop | `/verify` — exists (`.claude/commands/verify.md` + thin runner `.claude/tools/plan_implementation.py` + `.claude/tools/scaffold_snapshot.py` for baseline/diff attribution) |
-
-**Only four agent roles exist** (analyst, architect, scaffolder, implementer) — *not* one persona per
-component type. Scaffolders/implementers are differentiated by **context** (which skill is loaded + which
-slice of the manifest is fed), not by forking the prompt. Proliferating per-component agent prompts was
-the chief mistake of the first prototype; do not reintroduce it.
-
-**The implementer is triggered by the runner, not by you.** Detection is deterministic
-(graph marks a node touched → `NotImplementedError` present in a scaffold, or mypy red on a scaffolded
-body after contract drift); the fix is the agent's. Parallelism falls out of the manifest DAG for free
-— only body-bearing (scaffolded) nodes are parallelized, never declarative/glue code.
-
-### Current state vs. planned
-
-**Done (spec §13 steps 1–2).** The **stdlib manifest validator** (`.claude/tools/validate_manifest.py`,
-§6 — zero third-party deps but PyYAML, replaces the old Pydantic schema/validator): form + graph
-integrity + behaviour-consistency + loud degradation + the §16 **skill-coverage gate** (`KIND_TO_SKILL`).
-The **knowledge layer**: the **skill catalog** (`.claude/skills/`, 44 component-narrow skills) + the
-**`conventions` reference skill** (`.claude/skills/conventions/SKILL.md`) — the single home for mechanical
-derivation (kind→path/class/suffix, the kind→skill registry, store profiles, the stack substrate as a
-*list of libraries without versions*, toolchain commands), absorbing what the generator's
-`naming.py`/`store_profiles.py`/constants used to hold. Plus the `uc-extractor` input-prep agent +
-`/extract-ucs`, and the manifest shape (the validator's `SCHEMAS` is canonical; `manifest.template.yaml` is
-generated from it; `MANIFEST_SCHEMA.md` is stale prose pending rewrite).
-
-**Schema facts the manifest carries** (auth is manifest-declared, not hardcoded): domain
-`enums`/`value_objects`/`entities`/`services`/`filters`/`capability_protocols`; infra
-`settings`/`datastores`/`repositories`/`capabilities`. Storage is **polyglot** — a `datastore` node
-(free-token `kind`) + a `repository.store` edge; the relational **table is a write-once scaffold**
-(column types are the implementer's judgment) and **migrations are Alembic-native** (not generated). Infra
-groups by **tech** (`infrastructure/<kind|adapter>/` — `postgres`/`qdrant`/`openai`/`jwt`), not a domain
-subdomain; capability adapters take an optional agent-noun `role`. `domain.filters` is a first-class
-section (read-side filter object + sort enum + pagination). The contract carried to the implementer has
-three channels — `behaviour`/`then.with` (verify) · `notes` (guide, node + per-method, domain-semantic vs
-infra-tech) · `sources` (provenance); the validator emits loud-degradation warnings. Primary fixture is
-**Helpdesk** (`.claude/tools/fixtures/helpdesk_manifest.yaml` — auth + tickets); `vector_rag` is the
-non-CRUD/polyglot probe, `label` the small CRUD parse fixture.
-
-**`src/codegen/` is the retired generator (archive only).** Its Pydantic schema, the scaffold-first Jinja
-generator, store profiles, and drift check still exist and their tests still pass, but they are no longer
-the path and **must not be extended** (removal is deferred to §13's "потом", after the agentic path is
-proven on an epic; `main` stays the generator archive — this branch is not merged there).
-
-**Done (spec §13 steps 3–5) — the agentic forward path is proven.** The **scaffolder** agent
-(`.claude/agents/scaffolder.md`) + `/scaffold` (`.claude/commands/scaffold.md`); the rewritten
-**implementer** agent (`.claude/agents/implementer.md` — body-fill only, file-as-unit, strict §9
-anti-collusion) + the verification loop `/verify` (`.claude/commands/verify.md`) driven by the thin
-stdlib runner `.claude/tools/plan_implementation.py` (deterministic trigger — both halves of spec §4:
-`NotImplementedError`/column-less-table **and** structural contract drift, i.e. a protocol-implementing
-body missing a method its protocol declares — + DAG-level worklist, reusing the validator). Step 5 drove
-the full path end-to-end on helpdesk + vector_rag into `examples/generated/` — validator → scaffolder →
-implementer (by DAG) → verify — mypy/ruff clean, unit tests green, the app constructs with full OpenAPI.
-
-**Done — the upstream bundle + the brownfield delta path.** The **analyst** agent + `/ingest-usecases` +
-`/refine-usecases`; the **architect** agent + `/build-manifest` + `/apply-delta`. The forward path is
-brownfield-safe (re-`/scaffold` regenerates declarative/glue, leaves filled bodies; `/verify` reconciles
-drift via the two-half trigger). The delta path was proven end-to-end on a real delta (`IUserRepository`
-grows `get_by_id`, a UC-02 cross-epic exposure on the 01-identity manifest): architect mutate + validate →
-brownfield re-scaffold (protocol/fake regenerated, filled bodies untouched) → runner drift trigger →
-implementer reconciles → `mypy src tests` + ruff green. See `notes/11_delta_path.txt`.
-
-**Done — multi-context (cross-epic) scaffolding.** The cross-epic frontier is **built and proven**
-(model A — monolith, contexts as sibling subpackages of one package, shared substrate). The validator
-**resolves** cross-epic refs (`<subdomain>:<Name>`) against sibling manifests (`validate_manifest.py
---app <epics-dir>` → resolve or error; no siblings → the legacy warning); `conventions` block F carries
-the cross-epic→import derivation (a cross-epic ref is just a cross-subdomain reference) + the
-shared-substrate-from-the-union rules; the scaffolder runs **app-mode** (a set of context manifests →
-one package, per-context nodes + substrate emitted once from the union, cross-epic refs imported across
-subpackages). Proven end-to-end: the Tickets context (epic 02) scaffolded into helpdesk4 alongside auth —
-`TicketAssignmentPolicy` calls auth's `get_by_id` + `Role` (the cross-epic consumer compiles), the
-`get_by_id` delta fully reconciled with its real use-site, `mypy src tests` + ruff clean over 94 files,
-both routers in OpenAPI (`/auth/login` + `/tickets`), worklist drained. See `notes/12_cross_epic.txt`.
-
-**Still to build / known frontiers.**
-Drift detection catches both halves now — **method-presence** (a body missing a declared method) **and
-same-name signature drift** (a renamed/added parameter or changed type), detected structurally by the
-runner (`plan_implementation.py` canonicalizes the manifest signature and the body `def`, comparing by
-equality since the house style is exact-match) so it lands on the per-node worklist, not only the final
-whole-tree mypy gate. Cross-epic resolution today is model A
-(one package); per-context deployables / separate packages (model B, §15 marketplace) are not built.
-Orphan GC + rename-with-body-transfer (spec §4/§14) remain the unbuilt brownfield frontier.
-Deferred (spec §13 «потом»): the brownfield frontier (orphan GC + rename-with-body-transfer), plugin
-packaging + multi-language, and removing the `src/codegen` archive. The **Docker-backed integration tier
-now runs green** (helpdesk4, live testcontainer Postgres): a real run surfaced + fixed two A4-class
-meta-gaps invisible to mypy/ruff/unit/construct — the pipeline never scaffolded the **Alembic bootstrap**
-(`alembic.ini` + `migrations/env.py` + a write-once `0001_initial` baseline; the integration conftest
-hard-depends on `alembic upgrade head`), now `conventions` block C + the scaffolder emit it on a
-`uses_bootstrap` store; and `test_info.py` was emitted for apps with no `/info` route (a frozen
-source-app feature, §C6), now graph-gated on a declared info/health endpoint. Open seam: the **repository
-round-trip** layer (`test-repository-contract`) has still not been exercised against live Postgres — the
-api-discovery + schema-build + construct layers are proven, repo SELECT/INSERT against the migrated
-schema is the next thing to run.
-
-**Done — the §9 trust tail.** Manual-stub assert authorship + the adversarial verifier are **built**
-(`/author-manual-tests`, `.claude/commands/author-manual-tests.md`) and **run on helpdesk4**: every
-`_manual` stub now carries a real, green assert authored in a context **separate from the body author**
-(anti-collusion, D3 — the orchestrator must not author them), then adversarially verified. pytest went
-25-passed/16-skipped → **42-passed/0-skipped**. The residual is now a **small, explicit, named** review
-surface (the WEAK asserts the adversarial pass found, with strengthening recipes) instead of a blanket
-skip — §9's irreducible minimum. See `notes/13_sec9_trust_tail.txt`. Strengthening the WEAK asserts (an
-ADMIN-rejection policy test, the auth state-machine persist/reset pins) is the optional next increment.
-See the work order in `codegen_workflow_spec.md` (§13) and `notes/6_build_plan.txt`.
-
-## Repository map
+## The spec store (spec §2)
 
 ```
-codegen_workflow_spec.md          # THE design doc (Russian) — read first
-codegen_pipeline_v2_with_ingestion.svg  # the pipeline diagram
-.claude/
-  skills/                         # the knowledge layer — one artifact-kind per skill
-    CONVENTIONS.md                # catalog index + shared vocabulary + the four-section format
-    conventions/SKILL.md          # the derivation registry (kind→path/class, kind→skill, store profiles, substrate)
-    <prefix>-<name>/SKILL.md      # e.g. domain-entity, application-command, restapi-endpoint
-  tools/                          # the stdlib manifest validator (validate_manifest.py — SCHEMAS is the
-                                  # CANONICAL manifest shape) + gen_template.py + its tests + fixtures/
-  agents/                         # uc-extractor, scaffolder, implementer (done); analyst/architect to build
-  commands/                       # slash-commands: extract-ucs, scaffold, verify, brainstorm, commit (upstream pipeline commands to be built)
-  templates/
-    MANIFEST_SCHEMA.md            # STALE prose, not the contract — pending a thin rewrite (validator wins on conflict)
-    manifest.template.yaml        # the manifest shape skeleton — GENERATED from validate_manifest.SCHEMAS (gen_template.py), never hand-edited
-src/codegen/                      # RETIRED generator — archive only, do not extend (its tests still pass)
-tests/                            # the archived generator's own test suite + fixtures
 specs/
-  use-cases/UC-NN-*.md            # example BA use cases — the pipeline input
-  epics/<NN>-slug/manifest.yaml   # per-epic manifest (architect output, Phase 2; gated on review)
-examples/                         # example manifests + generate.py (the archived generator's entrypoint)
+  <context>/                      # bounded context = folder (ownership boundary, mirrors a code subpackage)
+    overview.md                   # context map: purpose, capability list, cross-cutting invariants, integrations
+    <capability>.md               # LIVING spec of one capability, 50–300 lines — compounds over time;
+                                  #   invariants carry provenance: (verified by: <test-id>) / (MANUAL)
+    changes/
+      NNN-<slug>/                 # one change = one delta spec, living on ITS OWN branch change/<context>-NNN
+        change.md                 # Class / Context / Task / Interface sketch / Acceptance criteria / Verification
+        criteria.md               # the checklist agents can only flip with junit-backed proof (§3.3)
+        verdict.md                # the evaluator's report (written by the cycle)
+  use-cases/                      # BA sources — verbatim, input material for /spec
+```
+
+- A change's lifecycle (`draft → in-progress → done → merged | abandoned`) is the branch position +
+  the state of `criteria.md`; there is **no status field** (no process state in the spec).
+- **Acceptance** merges the criteria into capability files as invariants and **deletes** the change
+  directory — the archive is git history + the tag `change/<context>-NNN`. There is no `archive/`.
+- Cutting rules (spec §2.1): context = "doesn't change together"; capability = cohesion-of-change;
+  a file past ~300 lines gets cut; re-cutting is a `/spec` right and rewrites in-flight `Affects:`.
+- Cross-context deltas are paired changes linked by `Companion:` — `accept.py` takes both or neither.
+
+## The change cycle (spec §6)
+
+Three commands plus `/abandon` — all *planned*, see `tasks/INDEX.md`:
+
+| Command | What it does | Status |
+|---|---|---|
+| `/spec` | interview with the human → `change.md` + `criteria.md` (+ Interface sketch for M/L), criteria lint, branch `change/<context>-NNN`; `--retro` for hotfix legalisation | planned (T03) |
+| `/implement <context>/NNN` | the cycle on the change branch: test-author (red tests, baseline commit) → implementer (to green `gate.py`) → fresh evaluator (flips criteria, writes `verdict.md`) → adversarial pass (M/L + first change of a capability); 3 full passes → `ESCALATE` file | planned (T09) |
+| `/accept-change <context>/NNN` | wrapper over `accept.py`: gates → human reviews the merge diff → merge to `main` + tag + delete change dir | planned (T10) |
+| `/abandon <context>/NNN` | delete the change branch (red tests never touched `main`), reason in tag `abandoned/<context>-NNN` | planned (T09) |
+
+Change **classes**: `behavioral` (default; removal flavour makes the test-author owner of obsolete
+tests), `bugfix` (code diverged from a recorded invariant), `invisible` (refactor/deps/perf — proof
+is a green gate + empty OpenAPI diff). Change **depths**: S (Task + 1–3 AC, evaluator fast-lane) ·
+M (+ Context, Out of scope, Interface sketch, Verification) · L (+ non-binding Design notes). A new
+context's first change is a **vertical slice** — one end-to-end observable AC, substrate on the way.
+At most one change per context is in `/implement` at a time.
+
+## Roles (spec §4) — few, differentiated by context
+
+| Role | Who | Does | Cannot (enforced via `disallowedTools`) |
+|---|---|---|---|
+| **spec-author** | human + main session (`/spec`) | interview → change.md + criteria.md + Interface sketch; capability (re-)cutting | write code or tests |
+| **test-author** | subagent, own context | red tests with `@pytest.mark.ac("AC-n")` markers from spec + Interface sketch; removes obsolete tests in removal changes; redness confirmed by script; red commit = baseline | write `src/**`, criteria.md, verdict.md |
+| **implementer** | subagent | code to a green `gate.py`; owns the Alembic revision; blocked contract → **contract-change protocol** (back to test-author), never a silent workaround | write `tests/**`, `specs/**`, `.claude/**`, `pyproject.toml`; SubagentStop holds it while the gate is red |
+| **evaluator** | subagent, **fresh context** | full `gate.py` + live checks where Verification provisioned an environment; flips `[ ]`↔`[x]` both ways; writes verdict.md | write `src/**`, `tests/**` |
+
+The Interface sketch (change.md, M/L) is the one published contract test-author and implementer
+share — it kills the "who owns the names" seam. Agent definitions for these roles are planned (T09).
+
+## Enforcement (spec §5) — gate.py and accept.py are the trust anchors
+
+**`gate.py`** *(planned, T04)* — the single point of truth for "green", stdlib-only, machine-readable
+verdict + junit-xml + git SHA. Inventory (§5.1, every check traces to a paid-for finding): toolchain
+(mypy / ruff / pytest with **pinned config living inside gate.py**); grep-gates (`# type: ignore`,
+`from __future__ import annotations`, `# noqa: F401`, `raise NotImplementedError` in `src/**`);
+construct-smoke (`create_app()` + `app.openapi()`, table-metadata import); Docker tier
+(testcontainers + `alembic upgrade head`, loud `DOCKER SKIPPED` otherwise); `--criteria` (every
+`[x]` must be backed by a **passed** `ac`-marked test in this run's junit); and **integrity against
+the red-commit baseline** — protected-tree diff (criteria.md legal flips only, change.md hash,
+`.claude/tools|hooks`, settings, `pyproject.toml`), test inventory ⊇ baseline (a missing/skipped/
+xfailed baseline test is RED), self-hash of gate.py + toolchain config. **S8 in one breath: hooks
+are ergonomics — trust is the post-hoc check against the git baseline; bypassing a hook only gets
+your result invalidated at the gate.**
+
+**`accept.py`** *(planned, T05)* — acceptance preconditions as a script, not command prose: all
+criteria `[x]`/`[m]` and junit-backed at the verdict's SHA; gate GREEN; no `ESCALATE` file;
+`Companion:` accepted together; Affects-intersection flags for in-flight changes; merge-fidelity
+pre-check (every AC findable in the capability-file diff); spec-lint; orphan sweep for removals.
+Then: criteria → invariants with provenance, merge to `main`, tag, delete the change dir. **S9 in
+one breath: one change = one branch — red tests, code and verdict live on the change branch, and
+`main` only ever receives green merges through `accept.py`.**
+
+Hook ergonomics + stop-gates *(planned, T06)*: criteria-guard (disk-diff on Write), bash-guard,
+path canonicalisation, SubagentStop blocking the implementer while the gate is red, and a
+**hook-written** `ESCALATE` file at the iteration ceiling (`accept.py` denies while it exists;
+only the human removes it). Hotfixes past the workflow are legal but not silent: `/spec --retro`
++ the drift-check in `accept.py`/`/orient` (§5.5).
+
+## v2 — archived
+
+v2 (YAML manifest + stdlib validator + scaffolder/implementer over the manifest DAG) was **proven
+end-to-end** — full forward path, brownfield delta, cross-context scaffolding, Docker integration
+tier, the §9 trust tail — and is archived in the git history of **`main`** (up to commit `6824289`,
+the tip at this branch's fork point; no separate archive directory). Its design doc
+`codegen_workflow_spec.md` is kept for rationale, and `notes/` keep the decision history
+(`notes/pipeline_dryrun_feedback.md` is the honesty benchmark for defect logs). v2 files still
+present on this branch — `src/codegen/`, the validator/runner under `.claude/tools/`, the v2
+agents/commands — are **harvested then purged in T02**; do not extend or invoke them.
+
+## Repository map (as it will be — planned items marked)
+
+```
+workflow_v3_spec.md               # THE v3 design doc (Russian) — read first; design canon
+notes/15_v3_design_review.md      # the 5-probe adversarial review register — design canon
+codegen_workflow_spec.md          # v2 rationale — archive, kept for the "why" of what survived
+tasks/                            # v3 build-out: INDEX.md (status) + one file per task (T01–T11)
+.claude/
+  skills/                         # knowledge layer — 44 skills now, merged to ~13 (T08) after the
+                                  #   paid-fixes inventory + test-principles rewrite (T07)
+  tools/
+    gate.py                       # "is it green" — the trust anchor            (planned, T04)
+    accept.py                     # "may it merge" — acceptance preconditions   (planned, T05)
+  hooks/                          # criteria-guard, bash-guard, stop-gates      (planned, T06)
+  agents/                         # v3-builder (build-out executor); test-author / implementer /
+                                  #   evaluator (planned, T09); v2 agents purged in T02
+  commands/                       # orient, commit, brainstorm, build-task; /spec (T03),
+                                  #   /implement + /abandon (T09), /accept-change (T10);
+                                  #   v2 commands purged in T02
+  templates/                      # change.md / criteria.md / verdict.md / overview / capability
+                                  #   skeletons (planned, T03); v2 manifest templates purged in T02
+specs/
+  use-cases/UC-NN-*.md            # BA corpus, verbatim — the input material for /spec
+  <context>/                      # living spec of one bounded context (created by /spec)
+src/ tests/                       # the target app, maintained through the change cycle
+                                  #   (src/codegen + v2 fixtures still present until T02 purges them)
 ```
 
 ## How skills work (read before authoring or editing one)
 
-A skill is **knowledge injected into context, not an executor**. It is consumed by *two kinds* of
-reader: the **scaffolder/implementer** agents (read `Template(s)` + `Rules` — how to write the
-artifact) and the **analyst/architect** agents (read `When to use` / `Hard stops` as classification
-rules). Same document, different sections, different consumers.
+A skill is **knowledge injected into context, not an executor**. Skills auto-invoke via frontmatter
+`description` + `when_to_use` (1536-char listing cap; auto-invocation works in subagents too) — the
+test-author/implementer read `Template(s)` + `Rules`, the `/spec` session reads `When to use` /
+`Hard stops` as classification rules. Same document, different sections, different consumers.
 
-Every skill is **component-narrow** — produces exactly one kind of artifact — and follows the
-four-section body (see `CONVENTIONS.md`): *When to use vs. neighbours · Template(s) · Rules ·
-Hard stops*. Use the `meta-skill-author` skill to add one.
+Every skill follows the four-section body (see `.claude/skills/CONVENTIONS.md`): *When to use vs.
+neighbours · Template(s) · Rules · Hard stops*. Use `meta-skill-author` to add one. Purity rules
+(a skill must not know what invokes it; every must-hold rule needs a gate, not prose) live in
+`PRINCIPLES.md` sections C and S4. Mechanical derivation (paths, naming, store profiles, substrate)
+has one home: the `conventions` skill — toolchain commands live in `gate.py`, which `conventions`
+cites, never restates.
 
-The rules that govern skill purity and what the manifest may carry — *a skill must not know what
-invokes it* (the human-onboarding test), *the manifest carries identifiers only, everything else is
-derived* — live in `PRINCIPLES.md` (sections C and B). The derivation table itself (kind → path / class
-/ suffix) lives in the **`conventions` skill**.
+## The target app's architecture (what the workflow produces)
 
-## The target app's architecture (what the pipeline produces)
+A strict **hexagonal / four-layer** Python backend; the skills encode this house style:
 
-The generated backend is a strict **hexagonal / four-layer** Python backend; the skills encode this house style:
-
-- `domain/` — pure Python, zero third-party deps. Entities (mutable `@dataclass`, identity equality),
-  value objects (`frozen`, value equality), enums (`StrEnum`), repository **protocols**
-  (`IFooRepository`), capability **protocols** (`ICan<Verb>`), a single `exceptions.py` error catalog.
-  Domain entities carry **domain state only** — audit timestamps (`created_at`/`updated_at`) are a
-  DB-managed table convention (added to every aggregate table; reserved names the validator forbids on an
-  entity), never domain fields. A read that must display/filter them returns a **read-model DTO** projected
-  from the row (write model = entity; read model = whatever the API needs), not the aggregate.
-- `application/` — CQRS: thin command/query handlers over frozen DTOs; success-only structured logging;
-  the only sanctioned `try/except` is the compensating-transaction pattern.
-- `infrastructure/` — grouped by external **tech** (`infrastructure/<kind|adapter>/`: `postgres`/`qdrant`/
-  `openai`/`jwt`), not by domain subdomain. Relational repositories use SQLAlchemy **Core** (never ORM); other
-  stores use their own client (a `datastore`'s `kind` picks the profile). Capability adapters wrap SDKs
-  (boto3/httpx/PyJWT), `pydantic-settings` (one class per module, no `subpackage` field), the
-  `dependency-injector` container in `containers.py`. Persistence is **polyglot** — a manifest can target
-  Postgres + Qdrant + Redis at once; the table schema is a write-once scaffold, migrations are Alembic-native.
-- `restapi/` — FastAPI; thin routers, Pydantic schemas, a central `DomainError` handler. No business
-  logic in routes.
+- `domain/` — pure Python, zero third-party deps. Entities (mutable `@dataclass`, identity
+  equality), value objects (`frozen`, value equality), enums (`StrEnum`), repository **protocols**
+  (`IFooRepository`), capability **protocols** (`ICan<Verb>`), a single `exceptions.py` catalog.
+  Audit timestamps are a DB-managed table convention, never domain fields — reads that need them
+  return a read-model DTO projected from the row.
+- `application/` — CQRS: thin command/query handlers over frozen DTOs; success-only structured
+  logging; the only sanctioned `try/except` is the compensating-transaction pattern.
+- `infrastructure/` — grouped by external **tech** (`postgres`/`qdrant`/`openai`/`jwt`), not by
+  domain subdomain. Relational repositories use SQLAlchemy **Core** (never ORM); other stores use
+  their own client (store profiles live in the `conventions` skill). Capability adapters wrap SDKs,
+  `pydantic-settings`, the `dependency-injector` container in `containers.py`. Persistence is
+  **polyglot**; the table schema is written once, migrations are Alembic-native and owned by the
+  implementer.
+- `restapi/` — FastAPI; thin routers, Pydantic schemas, a central `DomainError` handler. No
+  business logic in routes.
 
 Dependency direction points **inward** to the domain; ports live in the domain, adapters in
-infrastructure. `general-layered-architecture` and the `test-architecture-rule` grep-firewall enforce
-this. Tests follow a no-mocks pyramid: unit tests use in-memory fakes; integration tests run real
-Postgres/MinIO via testcontainers with per-test transaction rollback.
+infrastructure — the architecture skills + the architecture-rule test firewall enforce this. Tests
+follow a no-mocks pyramid: unit tests use in-memory fakes, integration tests run real backends via
+testcontainers; every acceptance criterion is pinned by an `@pytest.mark.ac("AC-n")`-marked test.
 
 ## Common commands
 
 The project uses **uv** and targets **Python 3.12**.
 
 ```bash
-# validate a manifest (stdlib validator, self-contained via PEP 723):
-uv run .claude/tools/validate_manifest.py .claude/tools/fixtures/helpdesk_manifest.yaml
+# the single point of truth for "green" (planned, T04 — does not exist yet):
+uv run .claude/tools/gate.py            # add --criteria to cross-check criteria.md flips
 
-# the validator's own test suite (lives next to it, outside the default tests/ path):
-uv run pytest .claude/tools/test_validate_manifest.py
+# acceptance preconditions (planned, T05):
+uv run .claude/tools/accept.py <context>/NNN
 
-# the generated target backend uses the verification loop (spec §12), run inside
-# examples/generated/<pkg>/: uv run mypy src tests / ruff check src tests / ruff format src tests / pytest
+# the build-out itself: execute ONE task with the v3-builder agent
+/build-task tasks/TNN-<slug>.md         # tick tasks/INDEX.md only on green verification
 ```
 
-The **archived generator** (`src/codegen/`) keeps its own green suite for reference, not part of the
-agentic path: `uv run pytest tests/` and `uv run python examples/generate.py <manifest> --package <pkg>`.
+`mypy` stays load-bearing (contract drift shows up as type errors), but the command you run is
+`gate.py` — the toolchain config lives inside it, so there is exactly one definition of "green".
+Until T04 lands, there is **no validator to run**: `validate_manifest.py` is v2 machinery awaiting
+the T02 purge.
 
-`mypy` is part of the *designed* verification loop (spec §12) — type-correctness is load-bearing for
-catching contract drift on scaffolded bodies.
+## Conventions when extending the workflow
 
-Pipeline slash-commands: the full chain is **built** — `/ingest-usecases`, `/refine-usecases`,
-`/build-manifest`, `/apply-delta`, `/validate-manifest`, `/scaffold`, `/verify` (under `.claude/commands/`,
-driven by the analyst/architect/scaffolder/implementer agents + the runner
-`.claude/tools/plan_implementation.py`; `/validate-manifest` wraps the stdlib validator as the §6 gate).
-See the stage table above, `notes/6_build_plan.txt`, and `notes/11_delta_path.txt` (the delta path + the
-cross-epic scaffolding frontier).
+Consult `PRINCIPLES.md` before a load-bearing choice — notably: S1 (behaviour, not construction, in
+specs), S3 (criteria are observable behaviour; append-only for agents), S4 (a must-hold rule lives
+in a gate, not prose), S8 (hooks are ergonomics; trust is the baseline check), S9 (branch per
+change), C-section for skills, D-section for roles and file ownership (tests vs src).
 
-## Conventions when extending the pipeline
-
-The decision rules for extending the pipeline — earn-its-place and the anticipation litmus before
-*any* manifest field, no control-flow/process-state in the manifest, no generate-vs-scaffold field
-(derived from node category), cross-refs by identifier, value-object vs primitive vs entity
-`__post_init__`, brownfield-first — all live in **`PRINCIPLES.md`** (sections B, E, F). Consult it
-before adding a field, editing the schema, or modeling a value; don't reason from scratch.
-
-Two placement facts not covered there: a new skill goes in `.claude/skills/<prefix>-<name>/SKILL.md`
-via `meta-skill-author`; a new use case goes in `specs/use-cases/` via `meta-uc-author`.
+Placement facts: a new skill goes in `.claude/skills/` via `meta-skill-author`; a new use case goes
+in `specs/use-cases/` via `meta-uc-author`; a new must-hold rule goes into `gate.py`/`accept.py`
+with a test, or is consciously demoted to advice.

@@ -1,12 +1,14 @@
 # Design principles — the decision checklist
 
-The cross-cutting rules that decide *how this pipeline is built and extended*. This file is the
+The cross-cutting rules that decide *how this workflow is built and extended*. This file is the
 **single home** for those rules; it is `@`-included by `CLAUDE.md`, so it loads into every session.
 
-How the three documents divide labour — keep them in their lanes, never duplicate:
+How the documents divide labour — keep them in their lanes, never duplicate:
 
-- **`codegen_workflow_spec.md`** is the **why** (rationale, source of truth). Every rule here cites a
-  `spec §`; read the section when you need the argument, not the verdict.
+- **`workflow_v3_spec.md`** is the **why** (rationale, source of truth for v3). Every rule here cites
+  it as `v3 §N`; read the section when you need the argument, not the verdict.
+  (`codegen_workflow_spec.md` is the archived v2 rationale; `notes/15_v3_design_review.md` is the
+  adversarial-review register behind the S8/S9 inversions.)
 - **This file** is the **decision verdict** — *when X is tempting → apply this litmus → do Y*. No prose
   rationale beyond one line; that lives in the spec.
 - **Skills** (`.claude/skills/`) are the **how-to-write-a-component** knowledge. House-style for a given
@@ -22,21 +24,27 @@ Each rule: **Trigger → Litmus / do → why (`§`)**.
 ## A. The three layers never mix (the spine)
 
 **A1 · Layer separation.** *Trigger:* deciding where a fact belongs. *Do:* sort it into exactly one of
-*knowledge* (how to write a component → **skills**), *specification* (what the specific component is →
-the **manifest**), *orchestration* (who runs what, when → the **runner/agents**). *Why:* most bugs are
-one layer leaking into another. `spec §0.1`
+*knowledge* (how to write an artifact → **skills**), *specification* (what to do and how to verify it →
+**`specs/` Markdown**), *enforcement + orchestration* (who does what, what is forbidden, when it is
+"done" → **agents/commands + `gate.py`/`accept.py` + hooks**). *Why:* most bugs are one layer leaking
+into another; the enforcement layer is first of all two scripts, and only then hook ergonomics. `v3 §1`
 
-**A2 · Manifest is canonical for the graph, not the code.** *Trigger:* asking "where is aggregate X
-used / what's the blast radius?" *Do:* answer it as a query against the manifest graph, not from memory
-or by grepping code — code is derived and regenerable. *Why:* the manifest is the single source of
-truth for the graph; completeness is required of the *graph*, not of generated bodies. `spec §0.2`
+**A2 · Spec files are canonical for intent, code for implementation, the verdict for conformance.**
+*Trigger:* asking "what should the system do?", "how does it do it?", or "is it done?" *Do:* answer
+each from its own canon — intent from `overview.md` + capability files + the change's `change.md`;
+implementation from the code itself (Design notes are non-binding; on divergence the code wins);
+conformance from `verdict.md` backed by a `gate.py --criteria` run pinned to a git SHA. Never let one
+document answer another's question. *Why:* v2 kept one canonical graph the code was derived from; v3
+splits canonicity by question, so no document pretends to govern a lane it cannot verify. `v3 §2, §3.1`
 
 **A3 · Determinism lives in verification, not authoring.** *Trigger:* tempted to make some step
-"correct by construction" via a code-rendering generator. *Do:* don't — agents write the code (glue and
-bodies); correctness is held by deterministic *verifiers* (graph validator + target-language toolchain
-compile/type-check/lint + canonical behavioural tests). *Why:* a render-generator has partial coverage
-by construction and breaks on the unforeseen manifest; verification catches drift even inside an
-already-written body. `spec §0.3`
+"correct by construction" via a code-rendering generator or a rigid spec schema. *Do:* don't — agents
+write the code and the spec stays free Markdown; correctness is held by deterministic *verifiers*
+(`gate.py`: toolchain type-check/lint/tests + grep-gates + construct-smoke + criteria cross-check).
+And the verification verifies the integrity of its own inputs (baseline diff, test inventory,
+self-hash) — v3's completion of the rule. *Why:* a render-generator has partial coverage by
+construction and breaks on the unforeseen app; verification catches drift even inside an
+already-written body. `v3 §0, §5`
 
 **A4 · The gate must exercise the real failure mode.** *Trigger:* relying on the toolchain to catch a
 class of defect. *Litmus:* does the gate actually *construct / run* the artifact, or only type-check and
@@ -44,152 +52,153 @@ lint it? A defect that surfaces only at construct/run time (a missing framework 
 imports at `create_app()`, broken middleware wiring, an unbuildable route schema) passes green until
 something exercises it — add that exercise (the app-construction smoke test). Corollary: no silent
 no-op — an under-specified body fails loud, it does not pass quietly. *Why:* mypy, ruff, and the unit
-tests all stayed green while `create_app()` raised. `spec §0.3, §6`
+tests all stayed green while `create_app()` raised. `v3 §0, §3.1, §5.1`
 
 ---
 
-## B. The manifest — what it carries, what it never does
+## S. The spec, the criteria, the gates (replaces the v2 B-series)
 
-**B1 · Earn-its-place.** *Trigger:* about to add any manifest field. *Litmus:* a field lives only if it
-carries a decision that is **(a) NOT derivable** from the graph/signatures/behaviour **AND (b)** one a
-human architect must review. Fails either test → derive it or push it into a body, don't store it. *Why:*
-as scaffold-first matures the schema should *shrink*, not grow. `spec §5`
+Copied **verbatim** from `workflow_v3_spec.md §11` (the spec is Russian; the wording survived a
+5-probe adversarial review and is kept word-for-word — do not paraphrase it here).
 
-**B2 · Anticipation litmus.** *Trigger:* adding a field because the example in front of you needs it.
-*Litmus:* "Am I adding X because I know the app I'm building *right now* needs it?" Yes → **do not add
-it.** *Why:* shaping the schema around one partial-coverage manifest is the v1 disease — it breaks on the
-next unforeseen manifest. *Precedent (removed for failing this):* `body`/`operation`/`sets`,
-`guards`/`condition`, `lifecycle`, `archive_flag`, `list_order`, the whole `tables`/`Alembic` block,
-`Settings.subpackage`. *Earned it (rare):* `datastore.kind`/`store`, capability `role`,
-`requires_packages`, `log_event`, the `domain.filters` shape. `spec §5`
+**S1 · Спека описывает поведение, не устройство.** *Trigger:* тянет записать в спеку имя
+класса, путь, тип колонки. *Litmus:* это проверяемо снаружи работающей системы? Нет →
+это Design notes (non-binding) или решение implementer'а. *Исключение с владельцем:*
+Interface sketch — binding-контракт цикла, меняемый только протоколом §6. *Why:* устройство —
+производная; но у имён, которые разделяют test-author и implementer, обязан быть один хозяин.
 
-**B3 · Identifiers only; everything else is derived.** *Trigger:* feeling the urge to add `module:`,
-`class_name:`, a path, or an import to a node. *Do:* don't — the manifest carries identifiers (entity
-name, protocol name, command base-name) and edges; module paths, class-name suffixes
-(`Command`/`Handler`/`<Aggregate>Repository`), table pluralization, imports, DI wiring, the infra
-subpackage, and `__init__` re-exports are all derived at dispatch time (the derivation registry is the
-`conventions` skill). *Why:* a stored derivable creates two sources of truth. *Lone exception:* a
-capability's optional `role` agent-noun (non-derivable English morphology, like `log_event`). `spec §5`
+**S2 · Один формат, три глубины; ceremony по размеру diff'а.** *Trigger:* хочется сделать
+секцию обязательной. *Litmus:* нужна ли она S-спеке из одного предложения? Нет → опциональна.
+*Why:* обязательные секции — это обязательные поля v2 в новой одежде.
 
-**B4 · No control flow or process state in the manifest.** *Trigger:* wanting a `status: draft/approved`,
-`auto: true`, `bootstrap`, or an "informational" comment on the manifest. *Do:* drop it — process state
-("this delta was reviewed → the scaffolder ran") is a runner *event*, not manifest *data*. *Why:* the
-manifest is a state snapshot, not a process log. `spec §5`
+**S3 · Критерий — наблюдаемое поведение; чеклист append-only для агентов.** *Trigger:*
+критерий формулируется про код («используется паттерн X») или агент хочет уточнить пункт.
+*Do:* переформулировать через запуск системы; правка текста — только человеком; flip только
+с junit-обеспечением. *Узаконенные исключения:* класс invisible (AC = «поведение не
+изменилось», доказательство — gate + OpenAPI-diff) и `[m]` (принято человеком, с причиной).
+*Why:* A4 + «ни один сценарий не выпадает молча» — то, ради чего жил манифест.
 
-**B5 · No generate-vs-scaffold field.** *Trigger:* wanting to mark a node as "generated" vs
-"scaffolded/LLM-filled" (a `kind`/`operation`/`body` axis, a thin-vs-thick handler flag). *Do:* don't —
-it is **derived from the artifact category** (declarative + glue regenerate; every body + the relational
-table are scaffolded once). *Why:* the architect decides nothing here; the old thin/thick-handler pain
-dissolved. `spec §3, §5`
+**S4 · Must-hold правило живёт в гейте, не в прозе.** *Trigger:* в скилл/спеку/команду
+пишется «никогда не делай X» или «Y делает только Z». *Litmus:* что физически произойдёт,
+когда агент всё-таки сделает X? Если ответ «ничего» — правило не существует; добавь
+grep-гейт/integrity-сверку/disallowedTools или сознательно понизь до совета. *Why:* провал 2
+обоих прошлых поколений; на дизайн-ревью этот литмус завалил четыре правила самого v3.
 
-**B6 · Cross-references by identifier, never by path or class name.** *Trigger:* writing an edge between
-nodes. *Do:* reference the target by identifier; a cross-epic edge needs explicit notation (working
-hypothesis `auth:IUserRepository`) and is a validator *warning*, not an error. *Why:* paths/class names
-are derived and would re-introduce a second source of truth. `spec §5, §6`
+**S5 · Вердикт выносит не автор.** *Trigger:* агент, писавший код, отчитывается «критерии
+выполнены». *Do:* вердикт валиден только из свежего контекста evaluator'а + `gate.py
+--criteria`; сила тестов для M/L проверяется адверсариальным проходом. *Why:*
+self-evaluation bias — самый задокументированный провал агентских циклов.
 
-**B7 · Logic is a body, not a field.** *Trigger:* tempted to encode filter application, ordering, a
-conditional check, or a timestamp write into the manifest. *Do:* leave it as a body the implementer fills
-from `behaviour` + signatures; when in doubt, scaffold + LLM, never grow the schema. *Caveat — object vs
-logic:* the read-side filter *object* (filterable fields + sort enum) IS declarative and earns
-`domain.filters`; only the WHERE-clause/`order_by` logic that consumes it is a body. *Why:* a logic
-mini-language in YAML is a Turing-complete spec-DSL — the thing the redesign exists to avoid. `spec §0.3, §5`
+**S6 · Дельта вливается, спека компаундится.** *Trigger:* change принят. *Do:* критерии →
+инварианты capability-файлов (с provenance-пометкой), merge — немедленно, ревьюированно;
+каталог change'а удаляется — история только в git. *Why:* одноразовые спеки — главное
+архитектурное сожаление Spec Kit; вторая копия истории отравляет grep.
 
-**B8 · Dependencies are derived from the graph, never hardcoded.** *Trigger:* a node needs a third-party
-package, or you're writing the dependency manifest. *Do:* pure domain/application carry zero third-party
-deps; third-party deps attach only to infra nodes (`requires_packages`) ∪ the stack substrate, and the
-dependency manifest (`pyproject.toml`) is derived glue = substrate ∪ graph `requires_packages`, gated on
-presence (a `multipart` endpoint pulls `python-multipart`, the way a relational store pulls the Postgres
-substrate). Versions are never hardcoded — the scaffolder renders names only and `uv lock`/`uv sync`
-resolves latest-compatible into `uv.lock`, the **only** home for a concrete pin. A `requires_packages`
-floor (`>=`) is the lone exception, allowed **only** when it marks a *known breaking-version boundary*
-(an API the code relies on landed/changed there) — written at that boundary as a knowledge-stable fact
-(the major: `pyjwt>=2`, never an agent-recalled recent patch like `>=2.8`) and carrying *why* in a
-comment. No justified break → no floor; let the resolver pick. **An agent never emits a version number
-from memory** — its knowledge is frozen at a cutoff, so it states the *contract* ("needs v2, where
-`encode` returns `str`"), never the *release*. *Why:* hardcoded version pins were the generator's chief
-rot; a forgotten graph-derived dep type-checks green but breaks at app construction; and a recency-padded
-floor is just stale agent memory masquerading as a constraint. `spec §10`
+**S7 · Capability режется по cohesion-of-change.** *Trigger:* решается, где живёт кусок
+спеки, или файл растёт (включая overview.md). *Litmus:* меняется вместе с этой способностью →
+в её файл; видят ≥2 capability сейчас → в overview; файл >~300 строк → резать; каждая вторая
+дельта трогает одну и ту же пару файлов → слить. *Why:* локальность merge — то, что делает
+LLM-вливание дельты ревьюируемым; монолитная спека контекста его убивает. `§2.1`
+
+**S8 · Хук — эргономика; доверие — post-hoc сверка с baseline.** *Trigger:* хочется
+защитить инвариант prevention-хуком и успокоиться. *Litmus:* что увидит `gate.py`, если
+агент обойдёт хук через Bash/Write/conftest/правку самого гейта? Если «ничего» — инвариант
+не защищён: добавь его в integrity-инвентарь §5.1 (diff защищённых деревьев, инвентарь
+тестов, junit-кросс-чек, self-hash). *Why:* prevention дыряв по построению; обесценивание
+результата обхода — нет. `notes/15, тема 1`
+
+**S9 · Один change = одна ветка; main всегда зелёный.** *Trigger:* красные тесты просятся
+в общее дерево, или два change'а хотят работать одновременно. *Do:* красные тесты, код и
+вердикт живут на ветке change'а; main получает только зелёные merge через accept.py;
+брошенный change = удалённая ветка. *Why:* закоммиченные красные тесты одного change'а
+дедлочат гейт всех остальных; поток изменений нуждается в детерминизме не меньше, чем
+один change. `notes/15, тема 2`
 
 ---
 
 ## C. Skills — the knowledge layer
 
 **C1 · A skill is knowledge, not an executor.** *Trigger:* writing or editing a `SKILL.md`. *Litmus:* the
-skill must not know what invokes it — no mention of agents, the manifest, use cases, the runner, or
-"report to the coordinator". *Why:* a skill is consumed by two different readers (scaffolder/implementer
-vs analyst/architect); coupling it to one orchestration leaks a layer. `spec §3`
+skill must not know what invokes it — no mention of agents, the change cycle, criteria files, or
+"report to the coordinator". *Why:* a skill is consumed by different readers (test-author/implementer
+vs the `/spec` session); coupling it to one orchestration leaks a layer. `v3 §7`
 
-**C2 · Component-narrow.** *Trigger:* a skill is being stretched to cover an adjacent artifact. *Litmus:*
-if its hard-stops fire, the spec asked for the wrong artifact — switch to the right skill, don't stretch
-this one. *Why:* one artifact-kind per skill keeps dispatch a deterministic `kind→skill` map. *Exceptions
-(deliberate):* `pattern-` (span layers), bootstrap (run-once), reference (always consulted). `CONVENTIONS.md`
+**C2 · One theme per skill.** *Trigger:* a skill is being stretched to cover an adjacent artifact or
+layer. *Litmus:* a skill covers one coherent theme an agent can pick by its `description` /
+`when_to_use` (post-merge granularity: `domain-model`, `restapi`, `testing-unit`, …); if its hard
+stops fire, the task asked for the wrong artifact — switch to the right skill, don't stretch this one.
+*Why:* narrow, non-overlapping scope is what makes auto-invocation load the right knowledge. `v3 §7`
 
 **C3 · The human-onboarding purity test.** *Trigger:* any line in a skill. *Litmus:* would a new human
-developer read this as onboarding docs? If they'd trip over it (it talks about the manifest, the runner,
+developer read this as onboarding docs? If they'd trip over it (it talks about the runner, a manifest,
 what the skill returns), it's a leaked layer — cut it. *Why:* the purity test is what drove removing the
-`Inputs the spec must supply` and `Report to the coordinator` sections from every skill. `spec §3`
+`Inputs the spec must supply` and `Report to the coordinator` sections from every skill. `v3 §7`
 
 **C4 · Skills describe artifacts; agents describe processes.** *Trigger:* deciding whether new content is
-a skill or an agent. *Do:* artifact-shaped → a skill in `.claude/skills/<prefix>-<name>/` (via
-`meta-skill-author`), four-section body, no orchestration/manifest-input sections; process-shaped → an
-agent in `.claude/agents/`. *Why:* keeping the lanes apart is what stops per-component prompt
-proliferation (see D1). `CONVENTIONS.md`
+a skill or an agent/command. *Do:* artifact-shaped → a skill in `.claude/skills/` (via
+`meta-skill-author`), four-section body, no orchestration sections; process-shaped → an agent in
+`.claude/agents/` or a command in `.claude/commands/`. The directories stay separate on purpose:
+skills auto-invoke, commands run only on explicit human launch. *Why:* keeping the lanes apart is what
+stops per-component prompt proliferation (see D1). `v3 §1, §7`
 
-**C5 · Skill-gap is gated, never self-minted.** *Trigger:* a manifest declares a `kind` with no skill in
-the `kind→skill` registry. *Do:* it's a deterministic **presence-gap** → pre-flight stop (like a broken
-edge) → `meta-skill-author` drafts → **human accepts** (~5-line review), then scaffolding. A
-**coverage-gap** (skill exists but doesn't fit the case) → the agent stops and escalates, never extends
-the skill silently. *Why:* a skill is canonical knowledge governing all future generation; silent
-self-mint poisons the canon, breeds duplicates, and revives per-component prompts. `spec §16`
+**C5 · Skill-gap is gated, never self-minted.** *Trigger:* a diff touches a layer
+(`domain/`, `application/`, `infrastructure/<tech>/`, `restapi/`, `tests/`) with no matching skill
+reported loaded, or a new `infrastructure/<tech>` subdirectory appears with no skill for it. *Do:*
+enforced via the §7.5 coverage surrogate — an empty skill∩layer intersection is a loud warning in the
+verdict; a new tech directory without a skill is a **STOP** → `meta-skill-author` drafts → **human
+accepts**, then work resumes. A **coverage-gap** (skill exists but doesn't fit the case) → the agent
+stops and escalates, never extends the skill silently. *Why:* a skill is canonical knowledge governing
+all future generation; silent self-mint poisons the canon, breeds duplicates, and revives
+per-component prompts. `v3 §7.5`
 
 **C6 · No scope-overclaim (altitude).** *Trigger:* a skill template or rule bakes in a feature one app
 happens to have — auth, a relational store, multipart, multi-tenancy / cross-org, a specific role
 ladder, a `realm` / hostname / port literal. *Litmus:* is this feature universal to every app the pack
-targets, or contingent on the manifest graph? Contingent → make the template conditional on graph-derived
-presence (the two-sub-template idiom), never freeze the source app's choice as universal. *Why:* skills
-froze one source app's features as universal — the largest bug class in the catalog (three audit rounds,
-80+ findings); the knowledge layer's altitude is the language/stack, not one application. `spec §3`
+targets, or contingent on the app being built? Contingent → make the template conditional on the
+feature's actual presence (the two-sub-template idiom), never freeze the source app's choice as
+universal. *Why:* skills froze one source app's features as universal — the largest bug class in the
+catalog (three audit rounds, 80+ findings); the knowledge layer's altitude is the language/stack, not
+one application. `v3 §0, §7`
 
-**C7 · Derivation has one home.** *Trigger:* stating a derived name, path, or mapping in a skill, an
-agent, or the catalog index. *Litmus:* the derivation registry (the `conventions` skill) is the single
-source — every other document *cites* it, never restates the rule. *Why:* a restated derivation drifts
-out of sync (the catalog index naming `auth_mode` after the field was removed; conventions saying
-`openai_settings.py` while every consumer uses `settings.py`). This is the no-two-sources-of-truth
-meta-rule (this file's header) made enforceable. `spec §0.1`
+**C7 · Derivation has one home.** *Trigger:* stating a derived name, path, mapping, or toolchain
+command in a skill, an agent, or the catalog index. *Litmus:* the `conventions` skill is the single
+source for naming/paths/store-profiles/substrate — and toolchain commands live **in `gate.py`**,
+which `conventions` cites, never restates. Every other document *cites* the home, never copies the
+rule. *Why:* a restated derivation drifts out of sync; this is the no-two-sources-of-truth meta-rule
+(this file's header) made enforceable. `v3 §5, §7`
 
 ---
 
 ## D. Agents and orchestration
 
-**D1 · Only four agent roles.** *Trigger:* wanting a new agent for a new component type. *Do:* don't —
-the four roles (analyst, architect, scaffolder, implementer) are differentiated by **context** (which
-skill is loaded + which manifest slice is fed), never by a forked per-component prompt. *Why:*
-proliferating per-component personas was the chief mistake of the first prototype. `spec §2`
+**D1 · Few roles, differentiated by context.** *Trigger:* wanting a new agent for a new component or
+task type. *Do:* don't — the roles are **spec-author** (human + main session), **test-author**,
+**implementer**, **evaluator**, differentiated by context (which skills auto-load + which spec slice
+is fed) and by `disallowedTools`, never by a forked per-component prompt. *Why:* proliferating
+per-component personas was the chief mistake of the first prototype. `v3 §4`
 
-**D2 · The implementer is triggered by the runner, not by you.** *Trigger:* a scaffolded body needs
-filling. *Do:* let the runner detect it deterministically (graph marks a node touched → `NotImplementedError`
-present, or mypy red on a scaffolded body after contract drift) and dispatch; you only escalate if a test
-won't go green in N iterations. *Why:* detection is deterministic, the fix is the agent's judgment;
-parallelism falls out of the DAG for free. `spec §4`
+**D3 · Anti-collusion on tests.** *Trigger:* authoring tests or judging done-ness. *Do:* the
+test-author writes tests from the spec + Interface sketch, in a separate context and **before** the
+code; the implementer cannot write `tests/**`; the verdict comes only from a **fresh-context
+evaluator**; `criteria.md` owns the *list* of scenarios so none is silently dropped, and agents can
+only flip its checkboxes with junit-backed proof. *Why:* test and code written from one understanding
+would be equally wrong about intent; self-evaluation bias is the most documented failure of agent
+loops. `v3 §3.3, §4`
 
-**D3 · Anti-collusion on tests.** *Trigger:* authoring or filling a canonical test. *Do:* the test is
-written from the contract, separately and **before** the body, by a different context; the implementer
-**never reads or writes** manual-stub asserts. *Why:* co-authoring test and body would let both be
-equally wrong about intent; the manifest owns the *list* of scenarios so none is silently dropped.
-`spec §9`
-
-**D4 · File ownership is whole-file.** *Trigger:* a re-run touches an existing file. *Litmus:* a file is
-**either** declarative/glue (scaffolder owns it, regenerates always) **or** body-bearing (scaffolded once
-→ implementer-owned, contract drift → red toolchain → the implementer reconciles). No half-files that get
-partially rewritten. The line runs by artifact category, derived from the node. *Why:* whole-file
-ownership is what removes the overwrite-the-filled-body hazard. `spec §3, §4`
+**D4 · File ownership runs tests vs src.** *Trigger:* a cycle step touches files. *Litmus:*
+`tests/**` belongs to the test-author (including deleting obsolete tests in a removal-class change);
+`src/**` belongs to the implementer (including the Alembic revision); `verdict.md` + criteria flips
+belong to the evaluator; canonical spec files are written only by `accept.py` and the `/spec` session.
+The boundary is enforced (`disallowedTools` + gate integrity), not conventional. *Why:* v2's
+declarative-vs-body line died with the scaffolder; the tests-vs-src line is what makes collusion and
+self-grading structurally impossible. `v3 §4`
 
 ---
 
-## E. Domain modeling (house-style decisions that drive manifest review)
+## E. Domain modeling (house style that shapes spec review)
 
-These few target-app rules live here because they shape *your* review of a manifest; the full how-to is
-in the named skills.
+These few target-app rules live here because they shape review of a change and its Interface sketch;
+the full how-to is in the skills.
 
 **E1 · Value object vs primitive vs entity `__post_init__`.** *Trigger:* deciding how to model a value.
 *Litmus:* wrap it in a **value object** only when it carries its own invariant, behavior, or shared/
@@ -197,23 +206,25 @@ type-significant meaning (`Email`, `Money`) — *not* mechanically for every pri
 stays primitive). A **single-value** invariant may be a VO *or* an entity `__post_init__` check; a
 **cross-field / whole-entity** invariant ("if X then Y") can *only* be an entity `__post_init__`. *Why:*
 blanket "VO everywhere" is primitive-obsession inverted — ceremony plus `str ↔ VO` conversion at every
-boundary. *(See `domain-value-object` / `domain-entity`.)* `CLAUDE.md`
+boundary. *(See the domain skills.)*
 
 **E2 · Audit timestamps are not domain fields.** *Trigger:* an entity wants `created_at` / `updated_at`.
-*Do:* don't put them on the entity — they're a DB-managed table convention (reserved names the validator
-forbids on an entity); a read that must display/filter them returns a **read-model DTO** projected from
-the row. *Why:* write model = entity, read model = whatever the API needs. `CLAUDE.md`
+*Do:* don't put them on the entity — they're a DB-managed table convention (reserved column names,
+never entity fields); a read that must display/filter them returns a **read-model DTO** projected from
+the row. *Why:* write model = entity, read model = whatever the API needs.
 
-**E3 · Polyglot storage; table is a write-once scaffold.** *Trigger:* persistence shows up. *Do:* a
-`datastore` node (free-token `kind`) + a `repository.store` edge; the relational `Table` is a write-once
-scaffold (column types are the implementer's judgment) and **migrations are Alembic-native, never
-generated**. *(Full rules in `infra-sqlalchemy-table` / the `conventions` skill.)* `spec §3`
+**E3 · Polyglot storage; the table is written once.** *Trigger:* persistence shows up. *Do:* one app
+may target several stores at once (store profiles live in the `conventions` skill); the relational
+`Table` is written once (column types are the implementer's judgment) and **migrations are
+Alembic-native, owned by the implementer** — the Docker tier runs `alembic upgrade head`. *(Full rules
+in the persistence skills.)* `v3 §5.1, §9`
 
 ---
 
 ## F. Mode
 
-**F1 · Brownfield is the primary mode.** *Trigger:* designing any pipeline mechanism. *Do:* build it for
-**deltas** — a new UC is a delta applied to an existing manifest snapshot; greenfield is the degenerate
-case of applying deltas to an empty manifest. *Why:* designing greenfield-first is exactly how the old
-generator's glue broke (it added/overwrote but never removed orphans). `spec §8`
+**F1 · Brownfield is the primary mode.** *Trigger:* designing any workflow mechanism. *Do:* build it
+for **deltas** — a change is a delta applied to the living spec of an existing system; greenfield is
+the degenerate case: the first change of an empty context (skeleton `overview.md`), shaped as a
+vertical slice with one end-to-end observable AC. *Why:* designing greenfield-first is exactly how the
+old generator's glue broke (it added/overwrote but never removed orphans). `v3 §2, §9`
