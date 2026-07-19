@@ -23,7 +23,8 @@ T01–T10 all `[x]`; T06's bypass suite green (the spec's hard gate).
    branches isolate, accept order exercises the Affects-intersection flag.
 4. **One deliberate escalation:** pick a change with an intentionally under-specified
    Interface sketch → observe CONTRACT-CHANGE protocol fire.
-5. **One removal-class change** (drop a behavior added earlier) → orphan sweep exercised.
+5. **One removal-class change** (drop a behavior added earlier; the toy /health accepted
+   in T10 is the natural candidate) → orphan sweep exercised.
 
 ## Measurements (spec §12.3 decision inputs)
 Per change: human touchpoints count · wall-clock · agent dispatches · iterations-to-green ·

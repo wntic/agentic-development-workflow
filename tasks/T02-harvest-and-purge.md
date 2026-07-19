@@ -20,8 +20,13 @@ T01.
 - Deletions committed: files listed in spec §8 "уходит" (validator + planner + snapshot +
   gen_template + their tests + fixtures, templates MANIFEST_SCHEMA.md + manifest.template.yaml,
   the five v2 agents, the nine v2 commands, `src/codegen/` + `tests/`, `specs/epics/*/manifest.yaml`).
-- `examples/` — remove generator entrypoint + example manifests (they exercise deleted code);
-  keep the git-ignored `examples/generated/` convention mentioned in CLAUDE.md.
+- `examples/` — remove entirely (generator entrypoint + example manifests exercise deleted
+  code; disposable generated trees are a v2 concept — the v3 target app lives at the repo
+  root, spec §1). Clean the matching `.gitignore` entry.
+- `.claude/commands/orient.md` — rewritten for v3: orient by reading `workflow_v3_spec.md`
+  → `PRINCIPLES.md` → `tasks/INDEX.md`, summarize state + the next task; the §5.5
+  drift-check integration is marked *planned (T05/T10)*. `.claude/commands/{commit,brainstorm}.md`
+  swept for stale v2 references (validator, scaffold, manifest paths).
 
 ## Steps
 1. Sweep each v2 agent/command for rules that are NOT already in a skill or in the spec.
@@ -35,12 +40,16 @@ T01.
 2. Delete per spec §8. Use `git rm` so the commit is reviewable.
 3. Update `.claude/skills/CONVENTIONS.md` ONLY if it references deleted commands by name
    (defer content changes to T08).
+4. Rewrite `orient.md`; sweep `commit.md`/`brainstorm.md` (see Deliverables).
 
 ## Verification
 - `notes/16_agent_prompt_harvest.md` exists; every "Known minimum" item above present.
 - `ls .claude/agents/` → none of the five v2 agents; `ls .claude/commands/` → none of the
   nine v2 commands; `test -d src/codegen` → absent; `test -f .claude/tools/validate_manifest.py` → absent.
 - `git status` clean after commit; `grep -rn "validate_manifest\|plan_implementation" .claude/commands .claude/agents CLAUDE.md` → empty.
+- `test -d examples` → absent; `grep -n "examples/generated" .gitignore` → empty.
+- `grep -n "codegen_workflow_spec\|/scaffold\|/verify\|manifest" .claude/commands/orient.md` →
+  at most archive-context mentions; orient.md names `tasks/INDEX.md` as the state source.
 
 ## Out of scope / Escalate if
 - Do NOT touch `.claude/skills/` content (T07/T08). Do NOT write the new agents (T09).

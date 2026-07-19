@@ -31,8 +31,10 @@ T05, T09.
   each is either "accept.py does it" or explicitly human).
 
 ## Human verification
-- Full pass on the toy change from T09's smoke: gates green → review → merge to main → tag
-  present → change dir gone → drift-check clean.
+- Full pass on a fresh tiny change (same recipe as T09's smoke — e.g. the /health S-change,
+  since T09's branch was abandoned): gates green → review → merge to main → tag present →
+  change dir gone → drift-check clean. The accepted toy behavior becomes T11's natural
+  removal-class candidate.
 
 ## Out of scope / Escalate if
 - No batch-accept (deferred to post-T11 by the spec). No accept.py changes (that's T05;

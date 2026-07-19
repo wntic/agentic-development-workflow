@@ -45,11 +45,12 @@ T03, T04, T06, T08.
   → both present (the protocol has both ends).
 
 ## Human verification
-- Scripted smoke on a toy target: create a minimal FastAPI app in `examples/generated/toy/`
-  (or reuse an existing disposable tree), run `/spec` + `/implement` for an S-change
-  ("add /health route"), observe: red baseline → green gate → fast-lane verdict → all-[x].
-  This is interactive (slash-commands run in the main session) — the builder agent CANNOT
-  do it; it is the T11 entry gate.
+- Scripted smoke on a toy target AT THE REPO ROOT (`src/` — this repo doubles as the
+  product repo, spec §1): run `/spec` + `/implement` for a tiny S-change ("add /health
+  route", bootstrapping a minimal app skeleton on the way), observe: red baseline → green
+  gate → fast-lane verdict → all-[x]. Finish with `/abandon` (smokes it too) so `main`
+  stays untouched. This is interactive (slash-commands run in the main session) — the
+  builder agent CANNOT do it; it is the T11 entry gate.
 
 ## Out of scope / Escalate if
 - /accept-change (T10). If disallowedTools cannot express a §4 cell (docs drift), implement

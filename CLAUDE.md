@@ -150,8 +150,8 @@ only the human removes it). Hotfixes past the workflow are legal but not silent:
 
 v2 (YAML manifest + stdlib validator + scaffolder/implementer over the manifest DAG) was **proven
 end-to-end** — full forward path, brownfield delta, cross-context scaffolding, Docker integration
-tier, the §9 trust tail — and is archived in the git history of **`main`** (up to commit `6824289`,
-the tip at this branch's fork point; no separate archive directory). Its design doc
+tier, the §9 trust tail — and is archived in the git history of **`main`** (tag **`v2-archive`** =
+commit `6824289`, the tip at this branch's fork point; no separate archive directory). Its design doc
 `codegen_workflow_spec.md` is kept for rationale, and `notes/` keep the decision history
 (`notes/pipeline_dryrun_feedback.md` is the honesty benchmark for defect logs). v2 files still
 present on this branch — `src/codegen/`, the validator/runner under `.claude/tools/`, the v2
