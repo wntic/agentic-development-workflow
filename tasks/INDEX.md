@@ -23,7 +23,7 @@ escalates instead of improvising.
 - [x] T01 — Rewrite CLAUDE.md + PRINCIPLES.md (WP1a)
 - [x] T02 — Harvest agent prompts, purge v2 machinery (WP1b)
 - [x] T03 — Spec format: templates + criteria lint + /spec (WP2)
-- [ ] T04 — gate.py + its test suite (WP3a)
+- [x] T04 — gate.py + its test suite (WP3a)
 - [ ] T05 — accept.py + its test suite (WP3b)
 - [ ] T06 — Enforcement wiring: hooks, ESCALATE, bypass tests (WP3c)
 - [ ] T07 — Paid-fixes inventory + test-principles rewrite (WP4a)
