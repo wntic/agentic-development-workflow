@@ -153,9 +153,10 @@ end-to-end** — full forward path, brownfield delta, cross-context scaffolding,
 tier, the §9 trust tail — and is archived in the git history of **`main`** (tag **`v2-archive`** =
 commit `6824289`, the tip at this branch's fork point; no separate archive directory). Its design doc
 `codegen_workflow_spec.md` is kept for rationale, and `notes/` keep the decision history
-(`notes/pipeline_dryrun_feedback.md` is the honesty benchmark for defect logs). v2 files still
-present on this branch — `src/codegen/`, the validator/runner under `.claude/tools/`, the v2
-agents/commands — are **harvested then purged in T02**; do not extend or invoke them.
+(`notes/pipeline_dryrun_feedback.md` is the honesty benchmark for defect logs). The v2 files that
+lived on this branch — the generator, the validator/runner under `.claude/tools/`, the v2
+agents/commands, `examples/` — were **harvested (`notes/16_agent_prompt_harvest.md`) then purged
+in T02**; recover any of them from git history, never by rewriting.
 
 ## Repository map (as it will be — planned items marked)
 
@@ -182,7 +183,7 @@ specs/
   use-cases/UC-NN-*.md            # BA corpus, verbatim — the input material for /spec
   <context>/                      # living spec of one bounded context (created by /spec)
 src/ tests/                       # the target app, maintained through the change cycle
-                                  #   (src/codegen + v2 fixtures still present until T02 purges them)
+                                  #   (absent until the first change creates them — T02 purged v2's)
 ```
 
 ## How skills work (read before authoring or editing one)
@@ -241,8 +242,8 @@ uv run .claude/tools/accept.py <context>/NNN
 
 `mypy` stays load-bearing (contract drift shows up as type errors), but the command you run is
 `gate.py` — the toolchain config lives inside it, so there is exactly one definition of "green".
-Until T04 lands, there is **no validator to run**: `validate_manifest.py` is v2 machinery awaiting
-the T02 purge.
+Until T04 lands, there is **no gate to run**: the v2 validator and its machinery were purged in T02
+(recoverable from git history; tag `v2-archive` on `main`).
 
 ## Conventions when extending the workflow
 

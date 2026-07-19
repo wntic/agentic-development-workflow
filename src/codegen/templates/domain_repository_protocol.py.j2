@@ -1,9 +1,0 @@
-{{ import_block }}
-
-__all__ = ["{{ class_name }}"]
-
-
-class {{ class_name }}(Protocol):
-{% for sig in methods %}
-    {{ sig }}: ...
-{% endfor %}

@@ -221,5 +221,3 @@ __marimo__/
 .claude/worktrees
 
 .DS_Store
-# generated demo output (regenerate with examples/generate.py)
-examples/generated/

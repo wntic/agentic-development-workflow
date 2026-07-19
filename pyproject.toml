@@ -1,54 +1,22 @@
+# Meta-layer environment only. The v2 generator package this file used to build was purged
+# in T02 (recoverable from git history). The target app's own pyproject.toml is created by
+# the change cycle when the first change lands, and the v3 toolchain config ("green") lives
+# inside gate.py (planned, T04) — do not grow toolchain config here.
+
 [project]
-name = "codegen"
+name = "agentic-development-workflow"
 version = "0.1.0"
-description = "Manifest-driven, scaffold-first code generator for an agentic pipeline."
+description = "Tooling for a spec-driven agentic development workflow (v3)."
 requires-python = ">=3.12"
-dependencies = [
-    "pydantic",
-    "pydantic-settings",
-    "jinja2",            # render the declarative + glue templates
-    "pyyaml",            # parse epic manifests
-    "sqlalchemy",        # scaffold/db_*.py + the schema-drift check
-]
+dependencies = []
 
 [dependency-groups]
 dev = [
     "pytest",
-    "pytest-asyncio",
     "ruff",
-    # The generator's self-tests import the GENERATED hexagon to prove it is import-clean
-    # (containers / routers / handlers). Those modules pull the target app's runtime stack,
-    # so it lives here as a test-only dependency of the generator — not in [project].
-    "fastapi",
-    "dependency-injector",
-    "structlog",
-    "pyjwt[crypto]",
     "pre-commit>=4.6.0",
 ]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/codegen"]
 
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-extend-exclude = ["examples/generated"]   # generated output, not source
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
-ignore = ["B008"]                       # FastAPI's Depends()-in-defaults idiom (generated code)
-
-[tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401", "F403", "F405"]   # wildcard re-export packages
-
-[tool.ruff.lint.isort]
-known-first-party = ["codegen"]
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-pythonpath = ["src"]                    # so `import codegen` resolves without an install
