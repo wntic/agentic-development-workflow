@@ -22,6 +22,10 @@ T07 (hard); T02 (v2 command references gone).
 - `.claude/skills/CONVENTIONS.md` — updated index (13 entries, shared vocabulary kept);
   `conventions/SKILL.md` — kind→skill registry removed, toolchain section now CITES gate.py.
 - Old skill directories removed.
+- Stale-pointer sweep from the purge (notes/16): `meta-uc-author` "When to use" no longer
+  references the deleted `extract-ucs`/`uc-extractor` (U1 — point it at "hand-authoring a UC",
+  upstream extraction marked as a future stage); `.claude/skills/CONVENTIONS.md` no longer
+  names the deleted v2 agents.
 
 ## Steps
 1. Merge group by group (one commit per target skill — reviewable); move content verbatim
@@ -39,6 +43,9 @@ T07 (hard); T02 (v2 command references gone).
 - Frontmatter check: every SKILL.md has `description`; combined description+when_to_use
   ≤ 1536 chars (script the check inline).
 - `notes/17_hardstop_dispositions.md` covers every merged skill (count them).
+- Every ⚠ TRANSFER / "Open transfers" row of `notes/16_agent_prompt_harvest.md` addressed to
+  T08 (R1, I2, I3, C4, U1) is closed: inserted (cite skill + section in the report) or
+  escalated — none silently dropped.
 
 ## Out of scope / Escalate if
 - No new knowledge authored here — merge + harvest-insert only. A Hard stop that fits

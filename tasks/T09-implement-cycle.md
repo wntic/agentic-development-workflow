@@ -12,6 +12,10 @@ T03, T04, T06, T08.
 - Spec §4 (roles table incl. disallowedTools cells and the evaluator honesty rule),
   §6 `/implement`+`/abandon`, §5.3; `notes/15` F-2/F-7 (role scoping, sequential dispatch,
   no per-dispatch tool tuning), V-01, E-13, O-02.
+- `notes/16_agent_prompt_harvest.md` — the ⚠ TRANSFER rows homed in T09: I1 (review-tail →
+  the `[m]`-candidate mapping in the test-author report + the evaluator's per-AC
+  PASS/FAIL/MANUAL-candidate verdict format) and the protocol sides of I3/C3. Close them or
+  escalate — none silently dropped.
 
 ## Deliverables
 - `.claude/agents/test-author.md` — reads change.md + criteria.md + Interface sketch +
