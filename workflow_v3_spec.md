@@ -552,8 +552,8 @@ criteria-lint (§3.3) + Verification отвечает «как доказать�
 1. `/spec meetings "закрытие action item по UC-16"` → интервью (идемпотентность? кто вправе?)
    → ветка `change/meetings-004`, `specs/meetings/changes/004-complete-action-item/change.md`
    (Class: behavioral, глубина S) + `criteria.md`: AC-1 `POST /action-items/{id}/complete`
-   от участника воркспейса → 200, статус DONE; AC-2 повторный вызов идемпотентен; AC-3 чужой
-   item → 404 без утечки существования.
+   от участника воркспейса → 200, статус DONE; AC-2 повторный вызов того же `POST` → 200,
+   статус остаётся DONE (идемпотентность); AC-3 чужой item → 404 без утечки существования.
 2. `/implement meetings/004`: test-author — 3 `ac`-помеченных теста → краснота подтверждена
    скриптом → baseline-коммит; implementer — enum grows DONE, протокол grows
    `get_by_id/update`, хендлер, роут (скиллы `domain-model`/`application`/`restapi`

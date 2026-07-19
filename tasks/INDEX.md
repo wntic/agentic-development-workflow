@@ -53,3 +53,6 @@ v2 минус валидатор, то есть хуже v2".
    files (except this INDEX's checkboxes). Design questions → escalate to the human.
 3. Every manual workaround during a task is a finding — recorded in the task report and,
    during T11, in the defect log (the notes/pipeline_dryrun_feedback.md honesty discipline).
+4. **Branch base during the build-out:** until `markdown-specs` merges into `main`, it plays
+   `main`'s role for S9 — `change/<context>-NNN` branches base on it and `accept.py` merges
+   back into it (`main` is still the v2 archive). Revisit after T11.

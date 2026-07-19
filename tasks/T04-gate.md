@@ -11,6 +11,9 @@ T02 (old tools purged; the name `gate.py` is unambiguous).
 - Spec §5.1 — the exhaustive check inventory (every check cites its E/L/V/O/F finding; do
   not drop one silently), §5.3 (what SubagentStop consumes), §3.3 (`--criteria` semantics).
 - `notes/15_v3_design_review.md` — E-01/02/05/07, V-04, L-06.
+- `.claude/tools/criteria_lint.py` (T03) — `--criteria` MUST import its `iter_criteria`/
+  `Criterion` parser instead of re-implementing the checkbox grammar: one grammar, one home
+  (C7). It is stdlib-only, so gate.py's dependency rule holds.
 
 ## Deliverables
 - `.claude/tools/gate.py` — stdlib-only (PyYAML allowed as in v2's validator; nothing else).

@@ -27,8 +27,10 @@ T04.
    text findable in the spec-merge diff); spec-lint (dangling refs, duplicate capabilities,
    >300-line files, capability missing from overview); orphan sweep for removal-class.
 3. Post-approval actions (`--execute`): criteria → capability-file invariants with
-   provenance; merge branch to main; tag `change/<context>-NNN`; delete the change dir;
-   run the §5.5 drift-check and print its report.
+   provenance (a NEW capability file is instantiated from `.claude/templates/capability.md`
+   — T03 finding 6: `/spec` never creates capability files, this script is the template's
+   consumer); merge branch to the S9 base (see INDEX rule 4); tag `change/<context>-NNN`;
+   delete the change dir; run the §5.5 drift-check and print its report.
 4. The LLM contradiction-hunt pass (§5.4.5b) is NOT in this script — it's a step of the
    /accept-change command (T10). The script covers everything deterministic.
 
