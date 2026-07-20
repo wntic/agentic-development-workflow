@@ -24,6 +24,12 @@ T07 (hard); T02 (v2 command references gone).
   also cites gate.py's Docker-tier DSN handoff (T04 finding 3): the app's `alembic/env.py`
   must honor the `DATABASE_URL`/`GATE_DATABASE_URL` env vars — the convention's home is
   gate.py, conventions cites it (C7).
+- `testing-integration` skill carries the **Docker-absence rule** (T04b finding 2): an
+  integration test's environment guard MUST be a clean `pytest.skip`/`skipif` on daemon
+  absence, NEVER a fixture that raises — gate.py's inventory carve-out exempts only a
+  *skipped* baseline integration test, so a raising/erroring one turns a Docker-less machine
+  permanently RED. This is a Hard stop, gated indirectly by gate.py (T04b) — note it as such
+  in notes/17.
 - Old skill directories removed.
 - Stale-pointer sweep from the purge (notes/16): `meta-uc-author` "When to use" no longer
   references the deleted `extract-ucs`/`uc-extractor` (U1 — point it at "hand-authoring a UC",

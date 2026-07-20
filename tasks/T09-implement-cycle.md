@@ -16,6 +16,10 @@ T03, T04, T06, T08.
   the `[m]`-candidate mapping in the test-author report + the evaluator's per-AC
   PASS/FAIL/MANUAL-candidate verdict format) and the protocol sides of I3/C3. Close them or
   escalate — none silently dropped.
+- T04b finding 2: the test-author, when it writes integration tests, follows the
+  `testing-integration` Docker-absence rule (env guard is `skipif`, never a raising fixture) —
+  otherwise the gate carve-out can't apply. The agent reads that skill; this task only needs
+  to ensure the test-author's brief points at it.
 
 ## Deliverables
 - `.claude/agents/test-author.md` — reads change.md + criteria.md + Interface sketch +
