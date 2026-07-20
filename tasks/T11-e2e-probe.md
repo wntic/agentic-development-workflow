@@ -13,9 +13,21 @@ T01–T10 all `[x]`; T06's bypass suite green (the spec's hard gate).
   `notes/pipeline_dryrun_feedback.md` (the honesty discipline to replicate).
 
 ## The probe script
+0. **Trivial cycle smoke FIRST** (the de-risk that keeps getting deferred): a throwaway
+   `/health`-route S-change through `/spec` → `/implement` → `/abandon`, before any real work.
+   Its only job is to answer "does the cycle run AT ALL" cheaply, and to watch the five
+   unvalidated live behaviours: does `disallowedTools` actually block test-author src writes /
+   implementer test writes; does the Interface sketch resolve the who-owns-names seam (V-01);
+   does CONTRACT-CHANGE fire; does the ceiling counter reset; does the now-complete `gate.py`
+   go GREEN on real generated code or false-positive. A fundamental break here is far cheaper
+   to find now than three steps into the real slice.
 1. **Greenfield vertical slice:** `accounts` context from empty overview.md — `/spec` the
    §9-L-style first change (sign-in slice from UC-10: one observable AC + substrate),
    `/implement`, `/accept-change`. Then UC-11 as a normal M-change.
+   - **Multi-target decision:** if the probe includes a change touching two capabilities
+     (e.g. a quota rule spanning two files), **T10b must land first** (accept.py can't execute
+     a placement map without it). Otherwise keep every probe change single-target and record
+     multi-target as consciously deferred — do not let accept.py dump-into-first silently.
 2. **Brownfield S-case:** UC-16 complete-action-item per §9 (requires a meetings context —
    scope it as its own vertical slice first, or run the S-case against accounts with an
    analogous small delta; decide at runtime, record the decision).
