@@ -34,7 +34,7 @@ escalates instead of improvising.
 - [x] T04d — narrow no-mocks off monkeypatch (T04c finding 5 false positive; do BEFORE T09)
 - [x] T09 — Cycle agents + /implement + /abandon (WP5)
 - [x] T09b — red-baseline commit must be tests-only (T09 finding 2 anti-collusion)
-- [ ] T10 — /accept-change command (WP6)
+- [x] T10 — /accept-change command (WP6)
 - [ ] T11 — E2E probe runbook (WP7, human-driven)
 
 ## Dependency order
