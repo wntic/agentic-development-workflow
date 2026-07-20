@@ -120,13 +120,15 @@ GREP_GATES: tuple[tuple[str, re.Pattern[str], str], ...] = (
 # Test-tier grep gates (spec §5.1) — scan the target app's tests/** (never .claude/tools/).
 TEST_GREP_GATES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # T08-5: the no-mocks contract — fakes for unit, real backends via testcontainers for
-    # integration. unittest.mock / MagicMock / AsyncMock / @patch / mocker. / monkeypatch are
-    # banned. Was ADVICE (notes/17); flipped to a gate per S4.
+    # integration. The mock family only — unittest.mock / MagicMock / AsyncMock / @patch /
+    # mock.patch / mocker. — is banned (zero sanctioned uses). Was ADVICE (notes/17); flipped
+    # to a gate per S4. NOT monkeypatch: the house style sanctions monkeypatch.setenv in
+    # settings tests and monkeypatch.setattr for non-dependencies (T04d, T04c finding 5), so
+    # monkeypatch-misuse (patching a handler dependency) stays ADVICE — the "is this attr a
+    # dependency" question is semantic and has no clean grep signature.
     (
         "grep.no-mocks",
-        re.compile(
-            r"\bunittest\.mock\b|\bMagicMock\b|\bAsyncMock\b|@patch\b|\bmock\.patch\b|\bmocker\.|\bmonkeypatch\b"
-        ),
+        re.compile(r"\bunittest\.mock\b|\bMagicMock\b|\bAsyncMock\b|@patch\b|\bmock\.patch\b|\bmocker\."),
         "§5.1",
     ),
 )

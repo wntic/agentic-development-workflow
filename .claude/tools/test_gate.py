@@ -406,7 +406,6 @@ def test_no_mocks_patterns_unit() -> None:
         "@patch('app.core.add')",
         "    with mock.patch('app.core.add'):",
         "    result = mocker.patch('x')",
-        "    monkeypatch.setattr(os, 'environ', {})",
     ):
         assert pattern.search(mock), mock
     for fake in (
@@ -414,6 +413,11 @@ def test_no_mocks_patterns_unit() -> None:
         "    repo = FakeUserRepository()",
         "def test_add() -> None:",
         "    response = client.patch('/users/1')",  # a REST .patch(), not @patch
+        # monkeypatch is house-sanctioned (T04d): setenv in settings tests, setattr for
+        # non-dependencies. Misuse (patching a handler dependency) stays ADVICE — no clean
+        # grep signature, so the gate must never fire on the family.
+        "    monkeypatch.setenv('APP_DB_DSN', 'postgres://x')",
+        "    monkeypatch.setattr(os, 'environ', {})",
     ):
         assert not pattern.search(fake), fake
 
@@ -472,6 +476,36 @@ def test_mock_use_in_tests_is_red(repo: FixtureRepo) -> None:
 
 def test_fakes_only_tests_keep_no_mocks_green(repo: FixtureRepo) -> None:
     # The green fixture tree uses fakes / plain asserts — the no-mocks gate stays green.
+    proc = repo.gate()
+    assert repo.statuses()["grep.no-mocks"] == "PASS", proc.stdout
+
+
+def test_monkeypatch_setenv_in_settings_test_keeps_no_mocks_green(repo: FixtureRepo) -> None:
+    # House-sanctioned (T04d): monkeypatch.setenv exercises the env-reading code in a
+    # settings-parsing test. The no-mocks gate must NOT fire on the monkeypatch family.
+    repo.write(
+        "tests/unit/infrastructure/test_app_settings.py",
+        '"""Settings-parsing test — monkeypatch.setenv is house-sanctioned."""\n\n'
+        "import os\n\n\n"
+        "def test_env_read(monkeypatch) -> None:\n"
+        "    monkeypatch.setenv('APP_X', '1')\n"
+        "    assert os.environ['APP_X'] == '1'\n",
+    )
+    proc = repo.gate()
+    assert repo.statuses()["grep.no-mocks"] == "PASS", proc.stdout
+
+
+def test_monkeypatch_setattr_keeps_no_mocks_green(repo: FixtureRepo) -> None:
+    # monkeypatch.setattr for a non-dependency is available house style (T04d); misuse
+    # (patching a handler dependency) is semantic and stays ADVICE, not a gate.
+    repo.write(
+        "tests/unit/test_clock.py",
+        '"""monkeypatch.setattr for a non-dependency — house-sanctioned."""\n\n'
+        "import time\n\n\n"
+        "def test_frozen(monkeypatch) -> None:\n"
+        "    monkeypatch.setattr(time, 'time', lambda: 42.0)\n"
+        "    assert time.time() == 42.0\n",
+    )
     proc = repo.gate()
     assert repo.statuses()["grep.no-mocks"] == "PASS", proc.stdout
 

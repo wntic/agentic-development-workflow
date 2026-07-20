@@ -165,12 +165,17 @@ Two hard stops that the task named explicitly are settled first:
 
 ## testing-unit (← test-application-handler, test-fake-repository, test-domain-*, test-architecture-rule)
 
-- `MagicMock`/`AsyncMock`/`monkeypatch` to stub: **GATE** — `gate.py`'s `grep.no-mocks` gate reds the target
-  app's `tests/**` on `unittest.mock`, `MagicMock`, `AsyncMock`, `@patch`, `mock.patch`, `mocker.`, or
-  `monkeypatch` (the no-mocks contract: fakes for unit, real backends via testcontainers for integration).
-  Flipped from ADVICE to a gate in T04c per S4. Scope note: the gate scans `<tree>/tests` only — the meta-layer
-  tooling's own tests under `.claude/tools/` are never scanned. The `@pytest.mark.asyncio`/`.integration`
-  marker bans stay **ADVICE** (no clean grep, no gate).
+- `MagicMock`/`AsyncMock` to stub (the mock family): **GATE** — `gate.py`'s `grep.no-mocks` gate reds the target
+  app's `tests/**` on `unittest.mock`, `MagicMock`, `AsyncMock`, `@patch`, `mock.patch`, or `mocker.` — every
+  member has zero sanctioned uses (the no-mocks contract: fakes for unit, real backends via testcontainers for
+  integration). Flipped from ADVICE to a gate in T04c per S4. Scope note: the gate scans `<tree>/tests` only —
+  the meta-layer tooling's own tests under `.claude/tools/` are never scanned. The
+  `@pytest.mark.asyncio`/`.integration` marker bans stay **ADVICE** (no clean grep, no gate).
+- `monkeypatch`-misuse (patching a handler dependency): **ADVICE** — semantic, and the family has house-sanctioned
+  uses, so it was cut from the `grep.no-mocks` alternation in T04d (T04c finding 5, a false positive in the trust
+  anchor). Sanctioned: `monkeypatch.setenv` inside settings-parsing tests (`tests/unit/infrastructure/test_*_settings.py`,
+  exercising the env-reading code itself) and `monkeypatch.setattr` for non-dependencies. Which attribute is a
+  "dependency" is not grep-able; misuse is caught by review + the fake-repository pattern, not a gate.
 - Test hits a real DB/HTTP/S3, or imports `myapp.restapi.*`/`infrastructure.*` from a unit test: **GATE** —
   the architecture firewall pins "no infra/restapi import from `tests/unit/`" and reds under `pytest`.
 - **Concrete-domain-service faked structurally** (F-019): **GATE (indirect)** — a structural fake of a concrete
