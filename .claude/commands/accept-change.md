@@ -68,16 +68,25 @@ no `[m]` criteria, say so and move on.
 ## 4. Multi-target invariant placement (only when accept.py flags it)
 
 If step 1 printed a `merge.placement` `[FLAG]` (a multi-target `Affects`), invariant distribution
-is a semantic act, not a deterministic one (spec §5.4). Propose, for each proven invariant, which
-capability file it belongs in (read the criteria against the target files), and present the
-mapping to the human to approve or edit. Single-target is fully deterministic — `accept.py` places
-it and this command just relays; do nothing here.
+is a semantic act, not a deterministic one (spec §5.4): `accept.py` refuses to place a multi-target
+merge until this command hands it an approved map, and it will never dump every invariant into the
+first `Affects` file. Propose, for each proven criterion, which capability file its invariant
+belongs in (read the criteria against the target files), and present the mapping to the human to
+approve or edit. Single-target is fully deterministic — `accept.py` places it and this command just
+relays; do nothing here.
 
-Note (doc-drift, see the T10 report): the current `accept.py` places all invariants in the
-primary `Affects` file and only *flags* the extra targets — it does not yet take an approved
-placement map. Until it does, realise an approved split as a `/spec` re-cut (moving canonical text
-between capability files is a `/spec` right, §2.1), never by hand-editing capability files in this
-session — the spec-write owners are `accept.py` and `/spec` only.
+Record the human-approved mapping as a JSON object keyed by AC-id — the exact **placement map**
+you will pass to `--execute` in step 6:
+
+```
+{"AC-1": "<capability-a>.md", "AC-2": "<capability-b>.md"}
+```
+
+Every proven criterion must map to one of the files on the change's `Affects` line (a map naming a
+file outside `Affects` is refused by `accept.py`). Distributing one change's invariants across its
+`Affects` files is this map; splitting the work itself into *separate changes* is instead the
+`/spec` re-cut path (§2.1) — keep the two distinct, and never hand-edit capability files here (the
+spec-write owners are `accept.py` and `/spec` only).
 
 ## 5. Human review of the merge
 
@@ -95,8 +104,16 @@ On the human's approval:
 uv run .claude/tools/accept.py <context>/NNN --execute
 ```
 
+For a **multi-target** change, pass the human-approved placement map from step 4 so `accept.py`
+writes each invariant to its file (without it, a multi-target `--execute` is refused):
+
+```
+uv run .claude/tools/accept.py <context>/NNN --execute --placement '{"AC-1": "<capability-a>.md", "AC-2": "<capability-b>.md"}'
+```
+
 `accept.py` re-checks that no gate FAILs, writes the invariants into the capability files with
-provenance, merges the branch into the base, tags `change/<context>-NNN`, deletes the change dir,
+provenance (single-target deterministically, multi-target per the approved map), merges the branch
+into the base, tags `change/<context>-NNN`, deletes the change dir,
 and prints the §5.5 drift check. **Relay that drift report to the human verbatim** — src commits
 on the base not tied to a `change/*` tag are the signal of an unlegalised hotfix (§5.5); the
 OpenAPI route⊆operation half surfaces via `/orient`. Confirm to the human: merged, tagged, change

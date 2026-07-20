@@ -9,7 +9,7 @@ with the human's diff review and the LLM contradiction-hunt pass — the determi
 lives here.
 
 Usage:
-    accept.py <context>/NNN [--base <branch>] [--execute] [--tree <dir>]
+    accept.py <context>/NNN [--base <branch>] [--execute] [--placement <json>] [--tree <dir>]
 
   check mode (default): run every gate, print the results AND the prepared merge diff for
                         the human. Touches nothing.
@@ -17,6 +17,10 @@ Usage:
                         merge criteria into capability invariants, merge the branch to the
                         base, tag, delete the change dir, then run and print the §5.5 drift
                         check. Requires a clean work tree.
+  --placement <json>:   the /accept-change-approved invariant->capability map for a MULTI-target
+                        `Affects`; invariant distribution is a semantic act the command owns
+                        (§5.4). Single-target is deterministic and ignores it; multi-target with
+                        no map is refused (accept.py never dumps every invariant into file[0]).
 
 Gates, in the §5.4 order:
   1. criteria.md: all items [x]|[m] (no open [ ]); every [x] junit-backed and every [m]
@@ -52,7 +56,7 @@ import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -175,15 +179,21 @@ def junit_ac_test_ids(gate_dir: Path) -> dict[str, str]:
 # ---------------------------------------------------------------------------------------
 
 
-def build_invariants(criteria: list, ac_ids: dict[str, str]) -> list[str]:
-    """One invariant line per proven criterion, carrying its provenance mark (§5.4)."""
-    lines: list[str] = []
+def build_invariant_lines(criteria: list, ac_ids: dict[str, str]) -> list[tuple[str, str]]:
+    """(ac_id, invariant line) per proven criterion — keyed so a placement map can distribute
+    each invariant to its human-approved capability file (§5.4)."""
+    out: list[tuple[str, str]] = []
     for crit in criteria:
         if crit.state == "x":
-            lines.append(f"- {crit.text} (verified by: {ac_ids.get(crit.ac_id, '?')})")
+            out.append((crit.ac_id, f"- {crit.text} (verified by: {ac_ids.get(crit.ac_id, '?')})"))
         elif crit.state == "m":
-            lines.append(f"- {crit.text} (MANUAL)")
-    return lines
+            out.append((crit.ac_id, f"- {crit.text} (MANUAL)"))
+    return out
+
+
+def build_invariants(criteria: list, ac_ids: dict[str, str]) -> list[str]:
+    """One invariant line per proven criterion, carrying its provenance mark (§5.4)."""
+    return [line for _, line in build_invariant_lines(criteria, ac_ids)]
 
 
 def instantiate_capability(ctx: str, capability: str) -> str:
@@ -224,30 +234,84 @@ def resolve_targets(tree: Path, ctx: str, change_md: str) -> list[str]:
 class MergePlan:
     infos: list[dict]  # {rel, new, is_new}
     diff_text: str
-    invariants: list[str]
-    extra_targets: list[str]  # targets beyond the first (invariants NOT auto-distributed)
-    error: str
+    invariants: list[str]  # flat, for the merge-fidelity gate (placement-independent)
+    error: str  # a target-resolution failure that short-circuits the merge (plan unusable)
+    targets: list[str] = field(default_factory=list)
+    needs_placement: bool = False  # multi-target with no valid map: distribution not yet decided
+    placement_error: str = ""  # a map WAS supplied but is invalid (names a non-Affects file, etc.)
 
 
-def compute_merge(tree: Path, ctx: str, change_md: str, criteria: list, ac_ids: dict[str, str]) -> MergePlan:
+def compute_merge(
+    tree: Path,
+    ctx: str,
+    change_md: str,
+    criteria: list,
+    ac_ids: dict[str, str],
+    placement: dict[str, str] | None = None,
+) -> MergePlan:
+    """Prepare the criteria->invariants merge.
+
+    Single-target: deterministic — every invariant lands in the one capability file.
+    Multi-target (`Affects` names >1 file): invariant distribution is a semantic act owned by
+    `/accept-change` (spec §5.4). accept.py never dumps all invariants into the first file — it
+    consumes an approved placement map {ac-id -> capability file}; with no map it flags that the
+    map is needed (`needs_placement`), with an invalid map it refuses (`placement_error`)."""
     targets = resolve_targets(tree, ctx, change_md)
     if not targets:
         return MergePlan(
             [],
             "",
             [],
-            [],
             "cannot determine target capability file — add an 'Affects: <capability>.md' line to change.md",
         )
-    invariants = build_invariants(criteria, ac_ids)
+    inv_pairs = build_invariant_lines(criteria, ac_ids)
+    invariants = [line for _, line in inv_pairs]
+
+    # decide per-target distribution of the invariant lines.
+    if len(targets) == 1:
+        dist: dict[str, list[str]] = {targets[0]: invariants}
+    elif not placement:
+        return MergePlan([], "", invariants, "", targets=targets, needs_placement=True)
+    else:
+        bad = sorted({f for f in placement.values() if f not in targets})
+        if bad:
+            return MergePlan(
+                [],
+                "",
+                invariants,
+                "",
+                targets=targets,
+                placement_error=(
+                    f"placement map names capability file(s) not in Affects: {', '.join(bad)} "
+                    f"(Affects: {', '.join(targets)}) — a re-cut across separate files is a /spec right, not this map"
+                ),
+            )
+        unmapped = [ac for ac, _ in inv_pairs if ac not in placement]
+        if unmapped:
+            return MergePlan(
+                [],
+                "",
+                invariants,
+                "",
+                targets=targets,
+                placement_error=(
+                    f"placement map has no entry for proven criteria: {', '.join(unmapped)} — "
+                    "every invariant needs an approved target file"
+                ),
+            )
+        dist = {t: [] for t in targets}
+        for ac, line in inv_pairs:
+            dist[placement[ac]].append(line)
+
     infos: list[dict] = []
     diff_chunks: list[str] = []
-    for i, name in enumerate(targets):
+    for name in targets:
         path = tree / "specs" / ctx / name
         is_new = not path.exists()
         old = "" if is_new else path.read_text(encoding="utf-8")
         base_text = instantiate_capability(ctx, name) if is_new else old
-        new = append_invariants(base_text, invariants) if i == 0 else base_text
+        target_invs = dist.get(name, [])
+        new = append_invariants(base_text, target_invs) if target_invs else base_text
         if new != old:
             label = f"specs/{ctx}/{name}"
             diff = difflib.unified_diff(
@@ -258,7 +322,7 @@ def compute_merge(tree: Path, ctx: str, change_md: str, criteria: list, ac_ids: 
             )
             diff_chunks.append("".join(diff))
             infos.append({"rel": label, "new": new, "is_new": is_new})
-    return MergePlan(infos, "\n".join(diff_chunks), invariants, targets[1:], "")
+    return MergePlan(infos, "\n".join(diff_chunks), invariants, "", targets=targets)
 
 
 # ---------------------------------------------------------------------------------------
@@ -517,7 +581,9 @@ def prechecks(actx: AcceptContext) -> list[Result]:
     return results
 
 
-def gate_dependent_checks(actx: AcceptContext, verdict: dict) -> tuple[list[Result], MergePlan | None]:
+def gate_dependent_checks(
+    actx: AcceptContext, verdict: dict, placement: dict[str, str] | None = None
+) -> tuple[list[Result], MergePlan | None]:
     _, criteria_lint = _tools()
     results: list[Result] = []
     check_by_id = {c["id"]: c for c in verdict.get("checks", [])}
@@ -568,7 +634,7 @@ def gate_dependent_checks(actx: AcceptContext, verdict: dict) -> tuple[list[Resu
     lines = criteria_lint._strip_html_comments(actx.criteria_text.splitlines())
     criteria = criteria_lint.iter_criteria(lines)
     ac_ids = junit_ac_test_ids(actx.tree / GATE_DIR_NAME)
-    plan = compute_merge(actx.tree, actx.ctx, actx.change_md, criteria, ac_ids)
+    plan = compute_merge(actx.tree, actx.ctx, actx.change_md, criteria, ac_ids, placement)
     if plan.error:
         results.append(Result("merge.fidelity", FAIL, plan.error))
         return results, None
@@ -620,12 +686,26 @@ def gate_dependent_checks(actx: AcceptContext, verdict: dict) -> tuple[list[Resu
                 "merge.fidelity", PASS, f"all {len(ac_texts)} acceptance criteria are present in the merge diff (L-11)"
             )
         )
-    if plan.extra_targets:
+    if plan.placement_error:
+        results.append(Result("merge.placement", FAIL, plan.placement_error))
+    elif plan.needs_placement:
         results.append(
             Result(
                 "merge.placement",
                 FLAG,
-                f"invariants placed in {plan.infos[0]['rel'] if plan.infos else '?'} only; distribute across {', '.join(plan.extra_targets)} by hand if needed",
+                "multi-target Affects ("
+                + ", ".join(plan.targets)
+                + ") — invariant placement is a semantic act (spec §5.4): /accept-change must propose a "
+                'map and pass it to --execute (--placement \'{"AC-1": "<file>.md", ...}\'). accept.py '
+                "will not dump every invariant into the first file",
+            )
+        )
+    elif len(plan.targets) > 1:
+        results.append(
+            Result(
+                "merge.placement",
+                PASS,
+                "invariants distributed across " + ", ".join(plan.targets) + " per the approved placement map",
             )
         )
 
@@ -762,7 +842,7 @@ def drift_report(tree: Path, base: str) -> str:
 # ---------------------------------------------------------------------------------------
 
 
-def run(tree: Path, change_id: str, base: str, do_execute: bool) -> int:
+def run(tree: Path, change_id: str, base: str, do_execute: bool, placement: dict[str, str] | None = None) -> int:
     actx = resolve(tree, change_id, base)
     results = prechecks(actx)
     plan: MergePlan | None = None
@@ -785,7 +865,7 @@ def run(tree: Path, change_id: str, base: str, do_execute: bool) -> int:
     else:
         verdict = run_gate(actx)
         print()
-        gate_results, plan = gate_dependent_checks(actx, verdict)
+        gate_results, plan = gate_dependent_checks(actx, verdict, placement)
         results.extend(gate_results)
 
     for r in results:
@@ -813,6 +893,14 @@ def run(tree: Path, change_id: str, base: str, do_execute: bool) -> int:
         if denied:
             print("refusing to --execute: at least one gate FAILed")
             return 1
+        if plan is not None and plan.needs_placement:
+            print(
+                "refusing to --execute: multi-target Affects ("
+                + ", ".join(plan.targets)
+                + ") needs a placement map from /accept-change (--placement) — accept.py will not dump "
+                "every invariant into the first file (spec §5.4)"
+            )
+            return 1
         report = execute(actx, plan) if plan is not None else drift_report(tree, base)
         print()
         print("== EXECUTED ==")
@@ -835,14 +923,41 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="main", help="the S9 base branch to merge into (default: main)")
     parser.add_argument("--execute", action="store_true", help="perform the post-approval actions when no gate FAILs")
     parser.add_argument("--tree", default=".", help="work-tree root (default: cwd)")
+    parser.add_argument(
+        "--placement",
+        default=None,
+        metavar="JSON",
+        help="multi-target invariant placement map approved by /accept-change: a JSON object "
+        '{"AC-1": "<capability>.md", ...} mapping each proven criterion to its capability file, '
+        "or @<path> to read that JSON from a file. Required for a multi-target Affects; single-target "
+        "is placed deterministically and ignores this.",
+    )
     args = parser.parse_args(argv)
 
     tree = Path(args.tree).resolve()
     if not tree.is_dir():
         print(f"error: tree {tree} is not a directory", file=sys.stderr)
         return 2
+    placement: dict[str, str] | None = None
+    if args.placement is not None:
+        import json  # noqa: PLC0415
+
+        raw = args.placement
+        try:
+            if raw.startswith("@"):
+                raw = Path(raw[1:]).read_text(encoding="utf-8")
+            loaded = json.loads(raw)
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"error: --placement is not readable JSON: {exc}", file=sys.stderr)
+            return 2
+        if not isinstance(loaded, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in loaded.items()
+        ):
+            print('error: --placement must be a JSON object of {"AC-id": "<capability>.md"}', file=sys.stderr)
+            return 2
+        placement = loaded
     try:
-        return run(tree, args.change, args.base, args.execute)
+        return run(tree, args.change, args.base, args.execute, placement)
     except AcceptError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -121,6 +121,21 @@ The core arithmetic operations of the demo context.
 ## Invariants
 """
 
+# A second, pre-existing capability file for the multi-target `Affects` cases.
+EXTRA_CAPABILITY_MD = """\
+# demo / extra
+
+## Behaviour
+The app-construction surface of the demo context.
+
+## Invariants
+"""
+
+OVERVIEW_MULTI = OVERVIEW_MD.replace(
+    "- `core.md` — arithmetic core",
+    "- `core.md` — arithmetic core\n- `extra.md` — app construction",
+)
+
 CHANGE_MD = """\
 # demo/001 — provide the arithmetic core
 
@@ -169,6 +184,10 @@ None
 ## Adversarial review
 N/A (S)
 """
+
+# A multi-target variant: `Affects` names two pre-existing capability files, so invariant
+# distribution needs a placement map from /accept-change (spec §5.4, T10b).
+MULTI_CHANGE_MD = CHANGE_MD.replace("Affects: core.md", "Affects: core.md extra.md")
 
 # An M-depth variant: a filled Interface sketch is the structural signal of M/L depth, which
 # makes the adversarial pass mandatory (spec §6 step 4).
@@ -220,15 +239,24 @@ class FixtureRepo:
         return proc.stdout if proc.returncode == 0 else ""
 
 
-def make_repo(root: Path, *, change_md: str = CHANGE_MD, verdict_md: str = VERDICT_MD) -> FixtureRepo:
+def make_repo(
+    root: Path,
+    *,
+    change_md: str = CHANGE_MD,
+    verdict_md: str = VERDICT_MD,
+    overview_md: str = OVERVIEW_MD,
+    extra_caps: dict[str, str] | None = None,
+) -> FixtureRepo:
     root.mkdir(parents=True, exist_ok=True)
     repo = FixtureRepo(root)
     repo.git("-c", "init.defaultBranch=main", "init", "-q")
     # M0 — green main: tools + the existing capability spec, no change dir, no app yet.
     repo.write("pyproject.toml", PYPROJECT)
     repo.write(".gitignore", GITIGNORE)
-    repo.write("specs/demo/overview.md", OVERVIEW_MD)
+    repo.write("specs/demo/overview.md", overview_md)
     repo.write("specs/demo/core.md", CAPABILITY_MD)
+    for name, content in (extra_caps or {}).items():
+        repo.write(f"specs/demo/{name}", content)
     for name in TOOL_FILES:
         repo.write(f".claude/tools/{name}", (TOOLS_DIR / name).read_text(encoding="utf-8"))
     repo.git("add", "-A")
@@ -287,6 +315,15 @@ def test_build_invariants_carry_provenance() -> None:
     assert lines == [
         "- add returns the sum (verified by: tests/test_core.py::test_add)",
         "- throttle can only be seen live (MANUAL)",
+    ]
+
+
+def test_build_invariant_lines_are_keyed_by_ac_id() -> None:
+    criteria = [_crit("x", "AC-1", "add returns the sum"), _crit("m", "AC-2", "throttle seen live")]
+    pairs = accept.build_invariant_lines(criteria, {"AC-1": "tests/t.py::test_add"})
+    assert pairs == [
+        ("AC-1", "- add returns the sum (verified by: tests/t.py::test_add)"),
+        ("AC-2", "- throttle seen live (MANUAL)"),
     ]
 
 
@@ -363,6 +400,84 @@ def test_execute_merges_criteria_and_tags(repo: FixtureRepo) -> None:
     assert "change/demo-001" in repo.git("tag", "--list", "change/demo-001")
     assert "def add" in repo.show("main", "src/app/core.py")
     assert "drift-check on main" in proc.stdout
+
+
+# ---------------------------------------------------------------------------------------
+# integration — multi-target placement map (T10b)
+# ---------------------------------------------------------------------------------------
+
+
+def _multi_repo(root: Path) -> FixtureRepo:
+    return make_repo(
+        root,
+        change_md=MULTI_CHANGE_MD,
+        overview_md=OVERVIEW_MULTI,
+        extra_caps={"extra.md": EXTRA_CAPABILITY_MD},
+    )
+
+
+def test_multi_target_check_mode_flags_need_for_placement_map(tmp_path: Path) -> None:
+    # check mode (the command's step 1): multi-target Affects surfaces a merge.placement FLAG
+    # — not a deny — so the command knows to propose a map before --execute.
+    repo = _multi_repo(tmp_path / "app")
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "[FLAG] merge.placement" in proc.stdout
+    assert "verdict: ACCEPTABLE" in proc.stdout
+    # nothing placed without an approved map.
+    assert "verified by" not in repo.show("main", "specs/demo/core.md")
+    assert "verified by" not in repo.show("main", "specs/demo/extra.md")
+
+
+def test_multi_target_execute_without_map_is_refused(tmp_path: Path) -> None:
+    repo = _multi_repo(tmp_path / "app")
+    proc = repo.accept("demo/001", "--base", "main", "--execute")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "refusing to --execute" in proc.stdout
+    assert "placement map" in proc.stdout
+    # main untouched — no dumping into the first Affects file.
+    assert "verified by" not in repo.show("main", "specs/demo/core.md")
+    assert "verified by" not in repo.show("main", "specs/demo/extra.md")
+
+
+def test_multi_target_valid_map_distributes_each_invariant(tmp_path: Path) -> None:
+    repo = _multi_repo(tmp_path / "app")
+    proc = repo.accept(
+        "demo/001",
+        "--base",
+        "main",
+        "--execute",
+        "--placement",
+        '{"AC-1": "core.md", "AC-2": "extra.md"}',
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "[PASS] merge.placement" in proc.stdout
+    assert "EXECUTED" in proc.stdout
+    core = repo.show("main", "specs/demo/core.md")
+    extra = repo.show("main", "specs/demo/extra.md")
+    # each invariant landed in exactly its mapped file.
+    assert "verified by: tests/test_core.py::test_add" in core
+    assert "test_add" not in extra
+    assert "verified by: tests/test_core.py::test_create_app" in extra
+    assert "test_create_app" not in core
+
+
+def test_multi_target_map_naming_file_outside_affects_is_refused(tmp_path: Path) -> None:
+    repo = _multi_repo(tmp_path / "app")
+    proc = repo.accept(
+        "demo/001",
+        "--base",
+        "main",
+        "--execute",
+        "--placement",
+        '{"AC-1": "core.md", "AC-2": "ghost.md"}',
+    )
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "[FAIL] merge.placement" in proc.stdout
+    assert "ghost.md" in proc.stdout
+    assert "verdict: DENIED" in proc.stdout
+    # nothing written.
+    assert "verified by" not in repo.show("main", "specs/demo/core.md")
 
 
 # ---------------------------------------------------------------------------------------
@@ -447,5 +562,5 @@ def test_s_change_does_not_require_adversarial(repo: FixtureRepo) -> None:
 def test_help_lists_flags() -> None:
     proc = subprocess.run([sys.executable, str(TOOLS_DIR / "accept.py"), "--help"], capture_output=True, text=True)
     assert proc.returncode == 0
-    for flag in ("--execute", "--base", "--tree"):
+    for flag in ("--execute", "--base", "--tree", "--placement"):
         assert flag in proc.stdout
