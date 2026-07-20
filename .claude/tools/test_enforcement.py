@@ -195,6 +195,9 @@ def test_criteria_guard_case_variant_path_reword_denied(repo: FixtureRepo) -> No
         "git checkout -- specs/demo/core.md",
         "mv pyproject.toml pyproject.bak",
         "printf x | tee tests/test_core.py",
+        # T06b — a real write to a protected path is still caught by the retargeted matcher:
+        "echo x > tests/test_foo.py",
+        "sed -i 's/x/y/' specs/demo/foo.md",
     ],
 )
 def test_bash_guard_denies_writes_to_protected_paths(command: str) -> None:
@@ -210,6 +213,13 @@ def test_bash_guard_denies_writes_to_protected_paths(command: str) -> None:
         "ls -la",
         "cat specs/demo/core.md",  # read, not write
         "python3 -m pytest tests/",  # runs tests, no write token
+        # T06b — false positives that trained the operator toward --no-verify (finding 3):
+        # a `>` and a protected fragment inside the quoted commit message are not a write.
+        'git commit -m "msg with <brackets> and .claude/hooks"',
+        # `2>&1` is fd duplication (target `&1`), and the tee target is unprotected.
+        "pytest 2>&1 | tee /tmp/log",
+        # the protected path is a *read* argument to pytest, not a write target.
+        "uv run pytest .claude/tools/test_enforcement.py 2>&1 | tee /tmp/log",
     ],
 )
 def test_bash_guard_allows_benign(command: str) -> None:

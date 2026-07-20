@@ -27,7 +27,7 @@ escalates instead of improvising.
 - [x] T04b — Docker-skip carve-out in gate's inventory check (design ruling on T04 finding 2)
 - [x] T05 — accept.py + its test suite (WP3b)
 - [x] T06 — Enforcement wiring: hooks, ESCALATE, bypass tests (WP3c)
-- [ ] T06b — Tighten bash_guard toward precision (T06 finding 3 false positives)
+- [x] T06b — Tighten bash_guard toward precision (T06 finding 3 false positives)
 - [ ] T07 — Paid-fixes inventory + test-principles rewrite (WP4a)
 - [ ] T08 — Skill catalog merge 44 → ~13 (WP4b)
 - [ ] T09 — Cycle agents + /implement + /abandon (WP5)
