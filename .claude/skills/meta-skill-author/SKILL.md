@@ -1,11 +1,12 @@
 ---
 name: meta-skill-author
-description: Apply when adding a new skill to `.claude/skills/`. Produces one `<prefix>-<name>/SKILL.md` file conforming to the catalog's canonical format — frontmatter, the four-section body, and placeholder vocabulary — so agents reading the new skill can apply it the same way they apply every existing one. Does not produce the agents that invoke skills (those live under `.claude/agents/`) or the spec format itself.
+description: Apply when adding a new skill to `.claude/skills/`. Produces one `<name>/SKILL.md` conforming to the catalog's canonical format — the `name` + `description` + `when_to_use` frontmatter (the last two drive auto-invocation, ≤1536 chars combined), the four-section body, and placeholder vocabulary — so agents reading the new skill apply it the same way they apply every existing one. Does not produce the agents that invoke skills (those live under `.claude/agents/`) or the spec format itself.
+when_to_use: Adding a brand-new skill to the knowledge catalog, or checking that a hand-written skill conforms to the canonical frontmatter and four-section body. Not for editing an existing skill (edit it directly) or sweeping cross-references after a rename.
 ---
 
 # Meta — Skill Author
 
-A skill in this catalog is **component-narrow**: it produces exactly one kind of artifact (one entity file, one repository module, one endpoint, one test file, …). Skills are read by agents (or humans) as reference knowledge; the skill's job is to show how the right file(s) are written. Uniformity matters more than expressiveness — an agent that has read one skill should be able to apply any other.
+A skill in this catalog is **theme-narrow**: it covers one coherent theme an agent can pick by its `description` / `when_to_use` (e.g. `domain-model`, `restapi`, `testing-unit`). A theme may span several closely-related artifacts, each carried as its own `## …` section keeping the four-section shape. Skills are read by agents (or humans) as reference knowledge; the skill's job is to show how the right file(s) are written. Uniformity matters more than expressiveness — an agent that has read one skill should be able to apply any other.
 
 This skill produces one new `SKILL.md`. It does **not** modify other skills (that's an audit task), produce agents (`.claude/agents/`), or design the spec format.
 
@@ -30,10 +31,11 @@ The directory name **is** the skill name (e.g. `domain-entity/SKILL.md`). One SK
 ---
 name: <full-skill-name>
 description: <one paragraph — see rules below>
+when_to_use: <one or two sentences naming the trigger situations — drives auto-invocation>
 ---
 ```
 
-Only `name` and `description`. **No** custom frontmatter fields like `component:`, `produces:`, `layer:`. Tooling does not parse them; they make the format look variable.
+Only `name`, `description`, and `when_to_use`. `description` + `when_to_use` are the two fields the runtime lists for auto-invocation, so keep them ≤1536 characters combined. **No** other custom fields like `component:`, `produces:`, `layer:`. Tooling does not parse those; they make the format look variable.
 
 Description rules:
 
@@ -83,52 +85,52 @@ Every skill has these sections, in this order, with these exact headings. Four a
 1. **Match the section order exactly.** Agents scan section headings to decide what to read. Renaming or reordering breaks navigation.
 2. **No custom frontmatter fields.** Only `name` and `description`. Information that doesn't fit in the description goes in the body.
 3. **Templates are literal, not prose.** Show the entire file the agent should write. Use placeholders like `Foo`, `<root>`, `<subdomain>` consistently with CONVENTIONS.md.
-4. **One artifact kind per skill.** If the skill would produce two unrelated artifact types, split into two skills. Producing 2–3 tightly-coupled files (command + handler; protocol + impl + integration) is fine.
-5. **Cross-cutting rules are referenced, not restated.** Point to `general-typing-conventions`, `general-imports-conventions`, `general-python-package`, `general-logging`, `general-layered-architecture` rather than copying their rules. Inlined slices (3–6 bullets) are acceptable when load-bearing.
+4. **One theme per skill.** A skill covers one coherent theme (which may span a few closely-related artifacts, each its own `##` section). If a candidate would cover two unrelated themes, split it. If its hard stops fire, the task asked for the wrong artifact — switch skills, don't stretch this one.
+5. **Cross-cutting rules are referenced, not restated.** Point to `architecture` (layers, packages, imports), `python-style` (typing, logging), and `conventions` (derivation) rather than copying their rules. Inlined slices (3–6 bullets) are acceptable when load-bearing. Toolchain commands are never restated — cite `gate.py`.
 6. **Hard stops are explicit.** Every plausible "wrong-skill" case becomes a hard stop with a redirect. This is how agents recover from misclassification without overreaching.
 7. **Use placeholder vocabulary.** `Foo` for the primary aggregate, `Bar` for the secondary, `myapp` for the project root. Never name a specific aggregate from the current application.
 8. **No meta-notes for skill authors inside the body.** Lines like "Do not duplicate these rules here" are instructions for the author, not the agent — they pollute runtime context. Put author-side notes in the commit message or in CONVENTIONS.md.
 9. **One paragraph descriptions read as sentences.** Not lists, not headings. The description is what an agent grep-scans to find the right skill.
-10. **No orchestration, no spec-shape leakage.** A skill is knowledge injected into context, not an executor. It must not describe what invokes it, what it returns to a runner, or which inputs a manifest must carry — those are layers that belong to the runner and the manifest schema, not to the skill. The purity test: would a new live developer read this as onboarding docs? If they'd trip over a line, that line is a leaked layer — cut it.
+10. **No orchestration, no process leakage.** A skill is knowledge injected into context, not an executor. It must not describe what invokes it, what it returns to a caller, the change cycle, criteria files, or "report to the coordinator" — those are the enforcement/orchestration layer (agents, commands, `gate.py`), not the skill. The purity test: would a new developer read this as onboarding docs? If they'd trip over a line, that line is a leaked layer — cut it.
 
 ## Skill modes (a navigational aid, not a new requirement)
 
 Every skill in this catalog falls into one of four implicit **modes**. The section format is universal — modes don't add or remove sections; they just signal which sections will be load-bearing vs. ceremonial for this particular skill. Identify your mode before writing so the section content matches the pattern of skills already in the same mode.
 
-### Producer (the default, ~25 skills)
+### Producer (the common case)
 
 Creates one or more new files. Section emphasis:
 
 - `Template(s)` — full literal file content with placeholders. The agent copy-paste-modifies.
 - `Package wiring` — present when a new module needs registering in an `__init__.py`.
 
-Examples: `domain-entity`, `application-command`, `infra-sqlalchemy-repository`, `restapi-endpoint`, `test-domain-entity`.
+Examples: the producing sections of `domain-model`, `application`, `infra-persistence`, `restapi`, `testing-unit`.
 
-### Modifier (~5 skills)
+### Modifier
 
 Extends an existing file rather than creating a new one. Section emphasis:
 
 - `Template(s)` — shows what gets inserted (a class body, a function, a decorator argument, a registry entry), not a whole file.
 - `Package wiring` — usually absent; the file already lives in a package.
 
-Examples: `infra-di-provider` (modifies `containers.py`), `restapi-error-responses` (adds decorator kwarg + optional `MIDDLEWARE_ERRORS` entry), `pattern-compensating-tx` (shapes a handler body), `test-architecture-rule` (appends a test function).
+Examples: the DI-provider section of `infra-integration` (modifies `containers.py`), the error-responses section of `restapi` (adds a decorator kwarg), the compensating-tx section of `application` (shapes a handler body), the architecture-rule section of `testing-unit` (appends a test function).
 
-### Bootstrap (~5 skills)
+### Bootstrap
 
 Produces a fixed set of files, runs **once per project**. Section emphasis:
 
 - `Template(s)` — multiple full file templates under `###` subheadings, one per produced file.
 - `When to use vs. neighbours` — explicitly notes "one-shot per project" and the catalog-ordering that other skills depend on.
 
-Examples: `restapi-app-bootstrap`, `test-integration-isolation`, `test-integration-authed-client`, `test-discovery-invariants`.
+Examples: the app-bootstrap section of `restapi`; the isolation, authed-client, and discovery-invariant sections of `testing-integration`.
 
-(Note: `domain-exception` is a **Producer**, not a bootstrap skill — its catalog file is declarative and regenerated wholesale from the manifest's `domain.exceptions` on every run, not created once.)
+(Note: the exception catalog `domain/exceptions.py` is a single append-only file — a new exception appends one class, it is not created once as a bootstrap file.)
 
-### Reference (~6 skills)
+### Reference
 
 Produces nothing — documents conventions other skills consult. Keeps `When to use vs. neighbours`, `Rules`, `Hard stops`; omits `Template(s)` and `Package wiring`.
 
-Examples: `general-typing-conventions`, `general-imports-conventions`, `general-python-package`, `general-layered-architecture`, `general-logging`, `test-principles`.
+Examples: `conventions`, `architecture`, `python-style`, `test-principles`.
 
 ### Picking a mode
 
@@ -145,9 +147,9 @@ Examples: `general-typing-conventions`, `general-imports-conventions`, `general-
 
 The body assumes the skill **produces an artifact**. Skills that describe cross-cutting conventions or meta-tasks adapt the format:
 
-### `general-*` — cross-cutting convention skills
+### Reference / cross-cutting convention skills (`conventions`, `architecture`, `python-style`)
 
-These document rules that apply continuously across the catalog (typing, imports, packaging, layering, logging). They are consulted, not invoked per artifact — so the producer-shaped sections don't apply.
+These document rules that apply continuously across the catalog (derivation, layering, packaging, imports, typing, logging). They are consulted, not invoked per artifact — so the producer-shaped sections don't apply.
 
 **Required sections:**
 
@@ -171,7 +173,7 @@ A process skill (brainstorm, retrospective) and a meta skill (this one) may prod
 - No custom frontmatter fields.
 - No `## Revision` footer or author-side history block — that's author metadata that pollutes runtime context. Use git history.
 - No meta-notes addressed to skill authors inside the body ("Do not duplicate these rules here").
-- No orchestration sections (what the skill returns, who invokes it) and no manifest-input tables — those layers live in the runner and the manifest schema, not in the skill.
+- No orchestration sections (what the skill returns, who invokes it) and no spec-input tables — those layers live in the agents/commands and the spec format, not in the skill.
 - Hard stops use the canonical phrasing: "X → stop, use `<other-skill>`" or "X → stop, <action>".
 
 ## Common pitfalls (read before writing)
@@ -180,7 +182,7 @@ A process skill (brainstorm, retrospective) and a meta skill (this one) may prod
 - **Description that doesn't disambiguate.** "Apply when working with foos" is too vague. Compare to "Apply when adding or modifying a SQLAlchemy repository for an aggregate" — the latter excludes other foo-touching work explicitly.
 - **Templates that document the rule instead of showing the file.** If the template has more comments than code, you're explaining the rule, not showing the output. Move the explanation to "Rules" and tighten the template.
 - **Hard stops that aren't actually stops.** "Hard stop: think carefully before X" isn't a hard stop. The format is "X → stop, use Y."
-- **A leaked orchestration or input-table section.** If you find yourself writing what the skill returns to a runner, or a table of fields a manifest must supply, stop — that's a different layer (see rule 10).
+- **A leaked orchestration or input-table section.** If you find yourself writing what the skill returns to a caller, or a table of fields a spec must supply, stop — that's a different layer (see rule 10).
 
 ## After writing the file
 
