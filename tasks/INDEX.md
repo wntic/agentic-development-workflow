@@ -29,7 +29,7 @@ escalates instead of improvising.
 - [x] T06 — Enforcement wiring: hooks, ESCALATE, bypass tests (WP3c)
 - [x] T06b — Tighten bash_guard toward precision (T06 finding 3 false positives)
 - [x] T07 — Paid-fixes inventory + test-principles rewrite (WP4a)
-- [ ] T08 — Skill catalog merge 44 → ~13 (WP4b)
+- [x] T08 — Skill catalog merge 44 → ~13 (WP4b)
 - [ ] T09 — Cycle agents + /implement + /abandon (WP5)
 - [ ] T10 — /accept-change command (WP6)
 - [ ] T11 — E2E probe runbook (WP7, human-driven)
