@@ -107,6 +107,28 @@ GREP_GATES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("grep.noqa-f401", re.compile(r"#\s*noqa:[^#]*\bF401\b"), "§5.1"),
     # V-04: `raise NotImplementedError` in src/** is green for mypy but an A4-class stub.
     ("grep.not-implemented", re.compile(r"\braise\s+NotImplementedError\b"), "V-04"),
+    # T08-5: SQLAlchemy Core is the house style; the ORM (declarative_base / DeclarativeBase /
+    # Mapped[...] / mapped_column / relationship()) is banned. Was ADVICE (notes/17); flipped
+    # to a gate per S4 — a clean deterministic signature belongs in the gate, not in prose.
+    (
+        "grep.no-orm",
+        re.compile(r"\bdeclarative_base\b|\bDeclarativeBase\b|\bMapped\[|\bmapped_column\b|\brelationship\("),
+        "§5.1",
+    ),
+)
+
+# Test-tier grep gates (spec §5.1) — scan the target app's tests/** (never .claude/tools/).
+TEST_GREP_GATES: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    # T08-5: the no-mocks contract — fakes for unit, real backends via testcontainers for
+    # integration. unittest.mock / MagicMock / AsyncMock / @patch / mocker. / monkeypatch are
+    # banned. Was ADVICE (notes/17); flipped to a gate per S4.
+    (
+        "grep.no-mocks",
+        re.compile(
+            r"\bunittest\.mock\b|\bMagicMock\b|\bAsyncMock\b|@patch\b|\bmock\.patch\b|\bmocker\.|\bmonkeypatch\b"
+        ),
+        "§5.1",
+    ),
 )
 
 # Protected trees for the integrity diff vs baseline (E-01/E-02/E-12).
@@ -229,6 +251,13 @@ def _criteria_lint():  # noqa: ANN202 — stdlib-only sibling import, one gramma
 def _src_files(tree: Path) -> list[Path]:
     src = tree / "src"
     return sorted(src.rglob("*.py")) if src.is_dir() else []
+
+
+def _test_files(tree: Path) -> list[Path]:
+    # The target app's tests/** only. The meta-layer tooling's own tests live under
+    # .claude/tools/ and are NEVER scanned — that is what scopes no-mocks to the app (T04c).
+    tests = tree / "tests"
+    return sorted(tests.rglob("*.py")) if tests.is_dir() else []
 
 
 def _module_name(py_file: Path, src_root: Path) -> str:
@@ -440,17 +469,27 @@ def grep_hits(files: list[Path], tree: Path, pattern: re.Pattern[str]) -> list[s
 
 
 def check_greps(ctx: GateContext) -> list[Check]:
-    files = _src_files(ctx.tree)
     checks: list[Check] = []
+    src_files = _src_files(ctx.tree)
     for check_id, pattern, ref in GREP_GATES:
-        if not files:
+        if not src_files:
             checks.append(Check(check_id, "SKIP", "no src/ in tree — grep gate not applicable"))
             continue
-        hits = grep_hits(files, ctx.tree, pattern)
+        hits = grep_hits(src_files, ctx.tree, pattern)
         if hits:
             checks.append(Check(check_id, "FAIL", f"forbidden pattern ({ref}):\n" + "\n".join(hits)))
         else:
             checks.append(Check(check_id, "PASS", f"no {pattern.pattern!r} in src/** ({ref})"))
+    test_files = _test_files(ctx.tree)
+    for check_id, pattern, ref in TEST_GREP_GATES:
+        if not test_files:
+            checks.append(Check(check_id, "SKIP", "no tests/ in tree — grep gate not applicable"))
+            continue
+        hits = grep_hits(test_files, ctx.tree, pattern)
+        if hits:
+            checks.append(Check(check_id, "FAIL", f"forbidden pattern ({ref}):\n" + "\n".join(hits)))
+        else:
+            checks.append(Check(check_id, "PASS", f"no {pattern.pattern!r} in tests/** ({ref})"))
     return checks
 
 

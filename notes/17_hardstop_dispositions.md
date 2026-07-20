@@ -101,10 +101,11 @@ Two hard stops that the task named explicitly are settled first:
 
 ## infra-persistence (← infra-sqlalchemy-repository, -table, infra-store-repository)
 
-- ORM / declarative-base / relationships instead of Core: **ADVICE** — there is **no** "no-ORM" grep-gate in
-  §5.1; the Core-only rule is house-style kept alive as a paid phrase (`test_ban_orm_use_sqlalchemy_core_only`)
-  and enforced by review. Honest S4: an agent that reaches for the ORM is not stopped by the gate today.
-  *(Candidate for a future grep-gate — logged for the human.)*
+- ORM / declarative-base / relationships instead of Core: **GATE** — `gate.py`'s `grep.no-orm` gate reds
+  `src/**` on any SQLAlchemy ORM signature (`declarative_base`, `DeclarativeBase`, `Mapped[`, `mapped_column`,
+  `relationship(`); Core is the only sanctioned relational path. Flipped from ADVICE to a gate in T04c per S4
+  (a clean deterministic signature belongs in the gate, not in prose); the paid phrase
+  `test_ban_orm_use_sqlalchemy_core_only` keeps the house-style rationale alive alongside it.
 - Repository logs / generates IDs / commits inside a UoW-managed form: **ADVICE** (design; "logs" has no gate).
 - Constraint-name misalignment between table and repository `_map_integrity_error`: **GATE (indirect)** — the
   repository-contract integration test asserts `context["constraint"]`, so a mismatch reds `pytest` under the
@@ -164,10 +165,12 @@ Two hard stops that the task named explicitly are settled first:
 
 ## testing-unit (← test-application-handler, test-fake-repository, test-domain-*, test-architecture-rule)
 
-- `MagicMock`/`AsyncMock`/`monkeypatch` to stub, `@pytest.mark.asyncio`/`.integration`: **ADVICE** — the
-  no-mocks contract and the marker bans are house-style; there is **no** anti-mock grep-gate in §5.1. Honest
-  S4: an agent that reaches for `MagicMock` is not stopped by the gate (the paid phrases keep the rule visible,
-  not enforced). *(Candidate grep-gate for `unittest.mock` in `tests/unit/` — logged for the human.)*
+- `MagicMock`/`AsyncMock`/`monkeypatch` to stub: **GATE** — `gate.py`'s `grep.no-mocks` gate reds the target
+  app's `tests/**` on `unittest.mock`, `MagicMock`, `AsyncMock`, `@patch`, `mock.patch`, `mocker.`, or
+  `monkeypatch` (the no-mocks contract: fakes for unit, real backends via testcontainers for integration).
+  Flipped from ADVICE to a gate in T04c per S4. Scope note: the gate scans `<tree>/tests` only — the meta-layer
+  tooling's own tests under `.claude/tools/` are never scanned. The `@pytest.mark.asyncio`/`.integration`
+  marker bans stay **ADVICE** (no clean grep, no gate).
 - Test hits a real DB/HTTP/S3, or imports `myapp.restapi.*`/`infrastructure.*` from a unit test: **GATE** —
   the architecture firewall pins "no infra/restapi import from `tests/unit/`" and reds under `pytest`.
 - **Concrete-domain-service faked structurally** (F-019): **GATE (indirect)** — a structural fake of a concrete

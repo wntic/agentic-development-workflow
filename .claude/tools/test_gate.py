@@ -296,6 +296,8 @@ def test_green_tree_is_green(repo: FixtureRepo) -> None:
         "toolchain.ruff-format",
         "toolchain.pytest",
         "grep.not-implemented",
+        "grep.no-orm",
+        "grep.no-mocks",
         "smoke.construct",
         "criteria.junit-backing",
         "criteria.manual-verdict",
@@ -367,11 +369,53 @@ def test_grep_patterns_unit() -> None:
         "grep.future-annotations": "from __future__ import annotations",
         "grep.noqa-f401": "import os  # noqa: F401,E501",
         "grep.not-implemented": "    raise NotImplementedError",
+        "grep.no-orm": "    users = relationship(User)",
     }
     clean = "def add(a: int, b: int) -> int:  # a normal content line"
     for check_id, pattern, _ref in gate.GREP_GATES:
         assert pattern.search(samples[check_id]), check_id
         assert not pattern.search(clean), check_id
+
+
+def test_no_orm_patterns_unit() -> None:
+    # Every SQLAlchemy ORM signature the house style bans must trip the one no-orm gate.
+    (_id, pattern, _ref) = next(g for g in gate.GREP_GATES if g[0] == "grep.no-orm")
+    for orm in (
+        "Base = declarative_base()",
+        "class Base(DeclarativeBase):",
+        "    name: Mapped[str]",
+        "    id = mapped_column(Integer, primary_key=True)",
+        "    items = relationship('Item')",
+    ):
+        assert pattern.search(orm), orm
+    for core in (
+        "users = Table('users', metadata, Column('id', Integer))",
+        "stmt = select(users).where(users.c.id == 1)",
+        "def relationship_note() -> str:  # not a call",
+    ):
+        assert not pattern.search(core), core
+
+
+def test_no_mocks_patterns_unit() -> None:
+    (_id, pattern, _ref) = gate.TEST_GREP_GATES[0]
+    assert _id == "grep.no-mocks"
+    for mock in (
+        "from unittest.mock import MagicMock",
+        "    repo = MagicMock()",
+        "    client = AsyncMock()",
+        "@patch('app.core.add')",
+        "    with mock.patch('app.core.add'):",
+        "    result = mocker.patch('x')",
+        "    monkeypatch.setattr(os, 'environ', {})",
+    ):
+        assert pattern.search(mock), mock
+    for fake in (
+        "class FakeUserRepository(IUserRepository):",
+        "    repo = FakeUserRepository()",
+        "def test_add() -> None:",
+        "    response = client.patch('/users/1')",  # a REST .patch(), not @patch
+    ):
+        assert not pattern.search(fake), fake
 
 
 def test_not_implemented_stub_is_red(repo: FixtureRepo) -> None:
@@ -380,6 +424,56 @@ def test_not_implemented_stub_is_red(repo: FixtureRepo) -> None:
     assert proc.returncode == 1
     assert repo.statuses()["grep.not-implemented"] == "FAIL"
     assert "V-04" in proc.stdout
+
+
+def test_orm_use_in_src_is_red(repo: FixtureRepo) -> None:
+    # SQLAlchemy ORM in src/** — Core is the house style (T04c). mypy/ruff stay green.
+    repo.write(
+        "src/app/models.py",
+        '"""ORM model that should never pass the gate."""\n\n'
+        "from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column\n\n\n"
+        "class Base(DeclarativeBase):\n    pass\n\n\n"
+        "class User(Base):\n"
+        '    __tablename__ = "users"\n'
+        "    id: Mapped[int] = mapped_column(primary_key=True)\n",
+    )
+    proc = repo.gate()
+    assert proc.returncode == 1
+    assert repo.statuses()["grep.no-orm"] == "FAIL"
+
+
+def test_core_only_src_keeps_no_orm_green(repo: FixtureRepo) -> None:
+    # SQLAlchemy Core is allowed — the no-orm gate must not fire on it.
+    repo.write(
+        "src/app/tables.py",
+        '"""Core table — the house style, no ORM."""\n\n'
+        "from sqlalchemy import Column, Integer, MetaData, Table\n\n"
+        "metadata = MetaData()\n"
+        'users = Table("users", metadata, Column("id", Integer, primary_key=True))\n',
+    )
+    proc = repo.gate()
+    assert repo.statuses()["grep.no-orm"] == "PASS", proc.stdout
+
+
+def test_mock_use_in_tests_is_red(repo: FixtureRepo) -> None:
+    # A mock in the target app's tests/** — the no-mocks contract (T04c).
+    repo.write(
+        "tests/test_mocked.py",
+        '"""Test that reaches for a mock — banned."""\n\n'
+        "from unittest.mock import MagicMock\n\n\n"
+        "def test_with_mock() -> None:\n"
+        "    repo = MagicMock()\n"
+        "    assert repo is not None\n",
+    )
+    proc = repo.gate()
+    assert proc.returncode == 1
+    assert repo.statuses()["grep.no-mocks"] == "FAIL"
+
+
+def test_fakes_only_tests_keep_no_mocks_green(repo: FixtureRepo) -> None:
+    # The green fixture tree uses fakes / plain asserts — the no-mocks gate stays green.
+    proc = repo.gate()
+    assert repo.statuses()["grep.no-mocks"] == "PASS", proc.stdout
 
 
 # ---------------------------------------------------------------------------------------
