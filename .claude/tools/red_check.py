@@ -13,6 +13,11 @@ conftest/pyproject does not work, E-05 class), then asserts:
   1. coverage — every `AC-n` in criteria.md carries at least one `@pytest.mark.ac("AC-n")` test;
   2. redness — every ac-marked test is RED (failed or errored). A **passed** marked test is
      flagged as green-before-implementation; a skipped/xfail one cannot prove redness either.
+  3. tests-only baseline — the commit about to be tagged touches `tests/**` only. The
+     test-author's `disallowedTools` denies Edit/Write on `src/**`, but a Bash/Write escape
+     (`echo > src/foo.py`) bypasses it and a *partial* src seed can leave the tests red and
+     still slip code into the baseline. Catch the artifact, not the actor (S8): any non-`tests/`
+     path in the baseline commit → refuse to tag (anti-collusion, spec §4 / D3).
 
 Usage:
     red_check.py [--change <context>/NNN] [--no-tag] [--force-tag] [tree]
@@ -260,6 +265,28 @@ def format_report(change_id: str, result: RedCheckResult) -> str:
     return "\n".join(lines)
 
 
+def baseline_commit_paths(tree: Path) -> list[str]:
+    """Paths the commit about to be tagged (HEAD) touches, relative to the tree root.
+
+    `diff-tree --root` lists every file for a root commit; for a normal commit it is the diff
+    against its parent — either way, exactly what the baseline commit introduced (deletions
+    included, so a removal-class change deleting tests still shows only `tests/` paths).
+    """
+    proc = subprocess.run(
+        ["git", "-C", str(tree), "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise RedCheckError(f"could not inspect the baseline commit (HEAD): {(proc.stderr or proc.stdout).strip()}")
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
+def non_tests_paths(paths: list[str]) -> list[str]:
+    """The baseline-commit paths that are NOT under tests/ (order preserved)."""
+    return [p for p in paths if p != "tests" and not p.startswith("tests/")]
+
+
 def tag_baseline(tree: Path, change_id: str, *, force: bool) -> str:
     tag = "baseline/" + change_id.replace("/", "-")
     args = ["git", "-C", str(tree), "tag"]
@@ -304,6 +331,20 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if not args.no_tag:
+        try:
+            offenders = non_tests_paths(baseline_commit_paths(tree))
+        except RedCheckError as exc:
+            print(f"red_check: ERROR — {exc}", file=sys.stderr)
+            return 2
+        if offenders:
+            print(
+                "red_check: FAILED — the red-tests commit wrote code — anti-collusion, §4/D3.\n"
+                "the baseline commit must touch tests/** only; these paths do not:",
+                file=sys.stderr,
+            )
+            for path in offenders:
+                print(f"    {path}", file=sys.stderr)
+            return 1
         try:
             tag = tag_baseline(tree, change_id, force=args.force_tag)
         except RedCheckError as exc:

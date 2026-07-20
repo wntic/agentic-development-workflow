@@ -77,6 +77,18 @@ def test_analyze_skipped_cannot_prove_redness() -> None:
     assert result.not_red_other == ["tests/t.py::test_a"]
 
 
+# --- pure: non_tests_paths (tests-only baseline filter) --------------------------------
+
+
+def test_non_tests_paths_accepts_only_tests() -> None:
+    assert red_check.non_tests_paths(["tests/a.py", "tests/sub/b.py", "tests"]) == []
+
+
+def test_non_tests_paths_flags_src_and_change_dir() -> None:
+    paths = ["tests/a.py", "src/app/main.py", ".gitignore", "specs/demo/x.md"]
+    assert red_check.non_tests_paths(paths) == ["src/app/main.py", ".gitignore", "specs/demo/x.md"]
+
+
 # --- end-to-end fixture repos ----------------------------------------------------------
 
 
@@ -103,9 +115,19 @@ class FixtureRepo:
 
 
 def _base_repo(tmp_path: Path) -> FixtureRepo:
+    """A repo whose FIRST commit is the /spec commit (change-dir + .gitignore).
+
+    /implement sequences the commits so the change-dir files land before the test-author
+    runs (step 0 confirms change.md + criteria.md already exist); the red-tests commit that
+    red_check tags is therefore a *separate*, later, tests-only commit. The fixtures mirror
+    that: _base_repo lays the spec commit, each e2e test adds the baseline commit on top.
+    """
     repo = FixtureRepo(tmp_path)
     repo.write(".gitignore", ".gate/\n__pycache__/\n.pytest_cache/\n")
     repo.write("specs/demo/changes/001-health/criteria.md", CRITERIA_MD)
+    repo.git("init", "-q")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "spec: demo/001")
     return repo
 
 
@@ -135,12 +157,26 @@ def test_health_status_ok() -> None:
 def test_e2e_red_baseline_confirmed_and_tagged(tmp_path: Path) -> None:
     repo = _base_repo(tmp_path)
     repo.write("tests/test_health.py", RED_TESTS)
-    repo.git("init", "-q")
     repo.git("add", "-A")
     repo.git("commit", "-qm", "red tests")
 
     assert _run(repo) == 0
     assert "baseline/demo-001" in repo.tags()
+
+
+def test_e2e_baseline_touching_src_refused_with_path_named(tmp_path: Path, capsys) -> None:
+    # A partial src seed: tests stay RED (red_check's coverage + redness both pass), but the
+    # baseline commit smuggles in src/ code — the anti-collusion (§4/D3, S8) case T09b closes.
+    repo = _base_repo(tmp_path)
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.write("src/app/main.py", "def health():\n    return {}\n")  # partial: no 'status' key
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests + sneaked-in src")
+
+    assert _run(repo) == 1
+    combined = capsys.readouterr()
+    assert "src/app/main.py" in (combined.out + combined.err)
+    assert "baseline/demo-001" not in repo.tags()
 
 
 def test_e2e_green_before_implementation_fails_no_tag(tmp_path: Path) -> None:
@@ -152,7 +188,6 @@ def test_e2e_green_before_implementation_fails_no_tag(tmp_path: Path) -> None:
         '@pytest.mark.ac("AC-1")\ndef test_a() -> None:\n    assert True\n\n\n'
         '@pytest.mark.ac("AC-2")\ndef test_b() -> None:\n    assert True\n',
     )
-    repo.git("init", "-q")
     repo.git("add", "-A")
     repo.git("commit", "-qm", "green tests")
 
@@ -167,7 +202,6 @@ def test_e2e_missing_ac_coverage_fails_no_tag(tmp_path: Path) -> None:
         "tests/test_health.py",
         'import pytest\n\n\n@pytest.mark.ac("AC-1")\ndef test_a() -> None:\n    assert False\n',
     )
-    repo.git("init", "-q")
     repo.git("add", "-A")
     repo.git("commit", "-qm", "partial")
 
@@ -178,7 +212,6 @@ def test_e2e_missing_ac_coverage_fails_no_tag(tmp_path: Path) -> None:
 def test_e2e_no_tag_flag_skips_tagging(tmp_path: Path) -> None:
     repo = _base_repo(tmp_path)
     repo.write("tests/test_health.py", RED_TESTS)
-    repo.git("init", "-q")
     repo.git("add", "-A")
     repo.git("commit", "-qm", "red tests")
 
