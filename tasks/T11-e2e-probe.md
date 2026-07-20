@@ -26,6 +26,13 @@ T01–T10 all `[x]`; T06's bypass suite green (the spec's hard gate).
 5. **One removal-class change** (drop a behavior added earlier; the toy /health accepted
    in T10 is the natural candidate) → orphan sweep exercised.
 
+## Deferred completions to close here (need a constructed app)
+- **OpenAPI-drift half of §5.5** (T05 finding 5): accept.py + /orient do the git-attributable
+  half (unlinked src commits); the route⊆operation comparison needs a running app — wire and
+  exercise it now, against the real probe app.
+- **Orphan sweep** (T05 finding 6): the removal-class change below is its first real exercise
+  — confirm it actually catches a dead symbol / dropped spec text, not just unit fixtures.
+
 ## Measurements (spec §12.3 decision inputs)
 Per change: human touchpoints count · wall-clock · agent dispatches · iterations-to-green ·
 fast-lane vs full evaluator · any manual intervention (= finding, no exceptions).

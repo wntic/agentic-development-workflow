@@ -24,6 +24,13 @@ T05, T09.
    duplicated as prose — S4).
 2. The contradiction-hunt prompt: scoped to the affected context, output format = list of
    (file, quoted statement, why it conflicts) — empty list is a valid result.
+3. **Multi-target invariant distribution** (spec §5.4, T05 finding 2): when `accept.py`
+   flags a multi-target `Affects`, the command proposes per-invariant placement (which
+   invariant → which capability file — an LLM reading of the criteria against the target
+   files), the human approves/edits, and only then `accept.py --execute` writes to the
+   approved locations. accept.py never auto-dumps all invariants into the first file; the
+   semantic call lives here, where there is an LLM + a human. Single-target is fully
+   deterministic in accept.py — the command just relays it.
 
 ## Verification
 - `grep -n "accept.py" .claude/commands/accept-change.md` → both check and --execute calls
