@@ -50,6 +50,15 @@ T05, T09.
   change dir gone → drift-check clean. The accepted toy behavior becomes T11's natural
   removal-class candidate.
 
+## Verification (additional)
+- **Adversarial-section seam** (T09 finding 5): the section the evaluator writes into
+  verdict.md and the section accept.py checks for MUST match by name/shape. Confirm accept.py
+  actually enforces the per-class adversarial-presence rule (spec §6 step 4: required for M/L
+  + first-change-of-capability) — if T05's accept.py did not build that check, it is added
+  here or escalated as an accept.py gap. Test: an M-change verdict.md missing the adversarial
+  section → accept denied; present → allowed; an S-change → not required.
+
 ## Out of scope / Escalate if
-- No batch-accept (deferred to post-T11 by the spec). No accept.py changes (that's T05;
-  if a gap surfaces, escalate with the failing scenario).
+- No batch-accept (deferred to post-T11 by the spec). accept.py changes are normally T05's;
+  the adversarial-presence check is the one sanctioned exception (it spans the evaluator↔accept
+  seam that only exists once T09 landed) — build it here or escalate with the failing scenario.
