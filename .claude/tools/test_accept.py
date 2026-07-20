@@ -170,6 +170,19 @@ None
 N/A (S)
 """
 
+# An M-depth variant: a filled Interface sketch is the structural signal of M/L depth, which
+# makes the adversarial pass mandatory (spec §6 step 4).
+M_CHANGE_MD = CHANGE_MD.replace(
+    "## Acceptance criteria",
+    "## Interface sketch\n`app.core.add(a, b)`; `create_app()` factory.\n\n## Acceptance criteria",
+)
+
+# The same verdict, but with the adversarial section actually filled by a run.
+VERDICT_ADVERSARIAL = VERDICT_MD.replace(
+    "## Adversarial review\nN/A (S)",
+    "## Adversarial review\nRan the assert-strength recipes over the test diff — asserts pin\nexact values; no tautologies found.",
+)
+
 CHANGE_DIR = "specs/demo/changes/001-thing"
 
 
@@ -207,7 +220,7 @@ class FixtureRepo:
         return proc.stdout if proc.returncode == 0 else ""
 
 
-def make_repo(root: Path) -> FixtureRepo:
+def make_repo(root: Path, *, change_md: str = CHANGE_MD, verdict_md: str = VERDICT_MD) -> FixtureRepo:
     root.mkdir(parents=True, exist_ok=True)
     repo = FixtureRepo(root)
     repo.git("-c", "init.defaultBranch=main", "init", "-q")
@@ -223,7 +236,7 @@ def make_repo(root: Path) -> FixtureRepo:
 
     repo.git("checkout", "-q", "-b", "change/demo-001")
     # commit A — red baseline: change dir + src + tests.
-    repo.write(f"{CHANGE_DIR}/change.md", CHANGE_MD)
+    repo.write(f"{CHANGE_DIR}/change.md", change_md)
     repo.write(f"{CHANGE_DIR}/criteria.md", CRITERIA_OPEN)
     repo.write("src/app/__init__.py", SRC_INIT)
     repo.write("src/app/core.py", SRC_CORE)
@@ -238,7 +251,7 @@ def make_repo(root: Path) -> FixtureRepo:
     repo.git("commit", "-q", "-m", "flip criteria to [x]")
     sha_b = repo.git("rev-parse", "HEAD").strip()
     # commit C — evaluator's verdict, pinned to sha_b.
-    repo.write(f"{CHANGE_DIR}/verdict.md", VERDICT_MD.format(sha=sha_b))
+    repo.write(f"{CHANGE_DIR}/verdict.md", verdict_md.format(sha=sha_b))
     repo.git("add", "-A")
     repo.git("commit", "-q", "-m", "evaluator verdict")
     return repo
@@ -293,6 +306,26 @@ def test_orphan_violations() -> None:
     assert accept.orphan_violations(["gone"], "clean spec", "clean src") == []
     hit = accept.orphan_violations(["ghost"], "the ghost lingers", "")
     assert hit and "ghost" in hit[0]
+
+
+def test_adversarial_required_by_depth_and_novelty() -> None:
+    s_change = "## Task\ndo a thing\n\n## Acceptance criteria\n- AC-1: x returns y\n"
+    # S depth on an existing capability -> opt-in, not required.
+    assert accept.adversarial_required(s_change, creates_new_capability=False)[0] is False
+    # first change of a capability -> required even at S depth (spec §6 step 4).
+    assert accept.adversarial_required(s_change, creates_new_capability=True)[0] is True
+    # a filled Interface sketch marks M/L depth -> required.
+    m_change = "## Context\nbecause.\n\n" + s_change + "\n## Interface sketch\n`Foo(dep: Bar)`\n"
+    assert accept.adversarial_required(m_change, creates_new_capability=False)[0] is True
+
+
+def test_adversarial_section_filled() -> None:
+    assert accept.adversarial_section_filled(None) is False
+    # the template comment / an empty section is not a run.
+    assert accept.adversarial_section_filled("## Adversarial review\n<!-- slot -->\n") is False
+    # a bare N/A marker legitimises only the not-required case, never a required one.
+    assert accept.adversarial_section_filled("## Adversarial review\nN/A (S)\n") is False
+    assert accept.adversarial_section_filled("## Adversarial review\nRan recipes; asserts strong.\n") is True
 
 
 def test_instantiate_and_append() -> None:
@@ -382,6 +415,33 @@ def test_unbacked_flip_denies(repo: FixtureRepo) -> None:
     assert proc.returncode == 1
     assert "[FAIL] criteria.junit-backing" in proc.stdout
     assert "verdict: DENIED" in proc.stdout
+
+
+def test_m_change_missing_adversarial_section_denies(tmp_path: Path) -> None:
+    # M-depth change (filled Interface sketch), verdict.md's adversarial section left as "N/A" —
+    # the pass never ran for a class that requires it, so accept must deny (spec §6 step 4).
+    repo = make_repo(tmp_path / "app", change_md=M_CHANGE_MD, verdict_md=VERDICT_MD)
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "[FAIL] adversarial.presence" in proc.stdout
+    assert "verdict: DENIED" in proc.stdout
+
+
+def test_m_change_with_adversarial_section_is_acceptable(tmp_path: Path) -> None:
+    # same M-depth change, but the adversarial section is filled by a real run -> acceptable.
+    repo = make_repo(tmp_path / "app", change_md=M_CHANGE_MD, verdict_md=VERDICT_ADVERSARIAL)
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "[PASS] adversarial.presence" in proc.stdout
+    assert "verdict: ACCEPTABLE" in proc.stdout
+
+
+def test_s_change_does_not_require_adversarial(repo: FixtureRepo) -> None:
+    # the default fixture is S depth on an existing capability -> the pass is opt-in, not gated.
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 0
+    assert "[PASS] adversarial.presence" in proc.stdout
+    assert "not required" in proc.stdout
 
 
 def test_help_lists_flags() -> None:

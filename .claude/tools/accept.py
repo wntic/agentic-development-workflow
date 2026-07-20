@@ -34,6 +34,11 @@ Gates, in the §5.4 order:
   6. orphan sweep (removal flavour): removed behaviour lingers neither in spec text nor as
      dead src symbols (V-02/§5.4).
 
+Plus one cross-§ gate on the evaluator↔accept seam T09 opened (spec §6 step 4): the
+`## Adversarial review` section of verdict.md must be filled when the change class demands the
+adversarial pass (M/L depth or the first change of a capability) — a structural hold on the
+pass having run, since criteria_guard cannot tell a human evaluator from a self-certifying one.
+
 Stdlib-only. gate.py and criteria_lint.py are imported from this directory — the criteria
 grammar and the junit-backing checker have exactly one home (C7).
 """
@@ -316,6 +321,44 @@ def orphan_violations(removed_terms: list[str], spec_text: str, src_text: str) -
 
 
 # ---------------------------------------------------------------------------------------
+# adversarial-pass presence (spec §6 step 4 — the evaluator↔accept seam T09 opened, T10)
+# ---------------------------------------------------------------------------------------
+
+
+def _has_real_content(section_body: str) -> bool:
+    """True when a section carries content beyond template HTML comments / whitespace."""
+    return bool(re.sub(r"<!--.*?-->", "", section_body, flags=re.DOTALL).strip())
+
+
+def adversarial_required(change_md: str, creates_new_capability: bool) -> tuple[bool, str]:
+    """Spec §6 step 4: the adversarial pass (recorded as a verdict.md section) is mandatory
+    for M/L-depth changes and for the first change of a capability. Depth is read structurally
+    — an M/L change carries a filled Context or Interface sketch section, an S change does not
+    (the change.md template marks both sections "M/L only"); the first change of a capability is
+    the one whose acceptance BIRTHS the capability file (S6), i.e. no file exists for it yet."""
+    if creates_new_capability:
+        return True, "first change of a capability (its file is born at this acceptance)"
+    if _has_real_content(_section(change_md, "Interface sketch")):
+        return True, "M/L depth (Interface sketch present)"
+    if _has_real_content(_section(change_md, "Context")):
+        return True, "M/L depth (Context present)"
+    return False, "S depth on an existing capability — the adversarial pass is opt-in"
+
+
+def adversarial_section_filled(verdict_text: str | None) -> bool:
+    """True when verdict.md's `## Adversarial review` carries a real run — not empty, not the
+    template comment, and not a bare N/A marker (which only legitimises the not-required case).
+    criteria_guard cannot tell a human evaluator from an agent, so this presence check is the
+    only structural hold on the pass having actually run for a change class that demands it."""
+    if verdict_text is None:
+        return False
+    stripped = re.sub(r"<!--.*?-->", "", _section(verdict_text, "Adversarial review"), flags=re.DOTALL).strip()
+    if not stripped:
+        return False
+    return re.match(r"(?i)n/?a\b", stripped) is None
+
+
+# ---------------------------------------------------------------------------------------
 # context + gate run
 # ---------------------------------------------------------------------------------------
 
@@ -450,6 +493,26 @@ def prechecks(actx: AcceptContext) -> list[Result]:
                     f"companion {comp} not yet accepted — accept both together (T10); tag {tag} missing or its change dir still present",
                 )
             )
+
+    # gate (spec §6 step 4): the adversarial-pass section is present when the change class
+    # demands it (M/L or first-change-of-a-capability). This is the accept side of the
+    # evaluator↔accept seam T09 opened — /implement writes the section, accept checks it.
+    targets = resolve_targets(actx.tree, actx.ctx, actx.change_md)
+    creates_new = any(not (actx.tree / "specs" / actx.ctx / name).exists() for name in targets) if targets else False
+    required, why = adversarial_required(actx.change_md, creates_new)
+    if not required:
+        results.append(Result("adversarial.presence", PASS, f"adversarial pass not required — {why}"))
+    elif adversarial_section_filled(actx.verdict_text):
+        results.append(Result("adversarial.presence", PASS, f"adversarial review section present, as required ({why})"))
+    else:
+        results.append(
+            Result(
+                "adversarial.presence",
+                FAIL,
+                f"adversarial pass required ({why}) but verdict.md's '## Adversarial review' section is "
+                "empty/absent — run the adversarial pass and record it (spec §6 step 4)",
+            )
+        )
 
     return results
 
