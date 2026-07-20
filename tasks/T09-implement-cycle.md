@@ -42,7 +42,10 @@ T03, T04, T06, T08.
 ## Steps
 1. Agents first (the command references them). Frontmatter tool scoping is THE enforcement
    here — copy the exact `disallowedTools` semantics verified in T06's doc re-check.
-2. red_check + its pytest tests.
+2. red_check + its pytest tests. `/implement` **resets the SubagentStop ceiling counter**
+   (`.gate/subagent-stop-count`, owned by `subagent_stop.py`, T06) at the start of each
+   change — a stale counter from a prior change must not trip an instant false ESCALATE on
+   the next. Verify the reset in the smoke.
 3. Commands. The adversarial step reuses the assert-strength recipes by pointing the agent
    at `testing-unit` — no duplicated checklist in the command (C7: one home).
 

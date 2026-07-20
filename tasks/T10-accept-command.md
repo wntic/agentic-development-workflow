@@ -24,7 +24,14 @@ T05, T09.
    duplicated as prose — S4).
 2. The contradiction-hunt prompt: scoped to the affected context, output format = list of
    (file, quoted statement, why it conflicts) — empty list is a valid result.
-3. **Multi-target invariant distribution** (spec §5.4, T05 finding 2): when `accept.py`
+3. **`[m]` human confirmation** (T06 finding 2 — closes a real self-evaluation hole):
+   criteria_guard cannot tell a human from an agent, so nothing stops an *evaluator agent*
+   from self-certifying an `[m]` and writing its own justification into verdict.md. The
+   human gate is HERE: the command must enumerate every `[m]` criterion and its verdict.md
+   justification for **explicit human confirmation** during review — not bury them in the
+   diff. No `[m]` reaches the base branch without the human having eyeballed each one. (gate.py
+   still checks the verdict entry exists; this adds the missing human-in-the-loop check.)
+4. **Multi-target invariant distribution** (spec §5.4, T05 finding 2): when `accept.py`
    flags a multi-target `Affects`, the command proposes per-invariant placement (which
    invariant → which capability file — an LLM reading of the criteria against the target
    files), the human approves/edits, and only then `accept.py --execute` writes to the
