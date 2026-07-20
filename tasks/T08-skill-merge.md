@@ -20,7 +20,10 @@ T07 (hard); T02 (v2 command references gone).
 - `notes/17_hardstop_dispositions.md` — per Hard stop of every merged skill: "gate in
   gate.py (which check)" or "demoted to advice (why)" (O-12; S4 litmus applied).
 - `.claude/skills/CONVENTIONS.md` — updated index (13 entries, shared vocabulary kept);
-  `conventions/SKILL.md` — kind→skill registry removed, toolchain section now CITES gate.py.
+  `conventions/SKILL.md` — kind→skill registry removed, toolchain section now CITES gate.py;
+  also cites gate.py's Docker-tier DSN handoff (T04 finding 3): the app's `alembic/env.py`
+  must honor the `DATABASE_URL`/`GATE_DATABASE_URL` env vars — the convention's home is
+  gate.py, conventions cites it (C7).
 - Old skill directories removed.
 - Stale-pointer sweep from the purge (notes/16): `meta-uc-author` "When to use" no longer
   references the deleted `extract-ucs`/`uc-extractor` (U1 — point it at "hand-authoring a UC",

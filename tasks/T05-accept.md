@@ -22,7 +22,10 @@ T04.
    all gates pass.
 2. Gates in §5.4 order: criteria all `[x]|[m]` with junit backing (reuse gate.py's checker,
    import it — one implementation); verdict SHA == branch HEAD else demand recompute (the
-   L-04 intersection rule); gate.py GREEN on the branch; no ESCALATE file; Companion gate;
+   L-04 intersection rule); gate.py GREEN on the branch — and if the run carries
+   `DOCKER SKIPPED` / exempted integration tests (T04b), that is surfaced as an EXPLICIT
+   flag in the review material: accepting with a skipped Docker tier is a conscious human
+   decision, never a silent default; no ESCALATE file; Companion gate;
    Affects-intersection vs in-flight changes → flag list; merge-fidelity pre-check (each AC
    text findable in the spec-merge diff); spec-lint (dangling refs, duplicate capabilities,
    >300-line files, capability missing from overview); orphan sweep for removal-class.
