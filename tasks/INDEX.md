@@ -35,7 +35,7 @@ escalates instead of improvising.
 - [x] T09 — Cycle agents + /implement + /abandon (WP5)
 - [x] T09b — red-baseline commit must be tests-only (T09 finding 2 anti-collusion)
 - [x] T10 — /accept-change command (WP6)
-- [ ] T10b — accept.py honours a multi-target placement map (T10 finding 2; before T11 IFF the probe goes multi-target)
+- [x] T10b — accept.py honours a multi-target placement map (T10 finding 2; before T11 IFF the probe goes multi-target)
 - [ ] T11 — E2E probe runbook (WP7, human-driven)
 
 ## Dependency order
