@@ -33,7 +33,7 @@ escalates instead of improvising.
 - [x] T04c — no-ORM + no-mocks grep-gates in gate.py (T08 finding 5; do BEFORE T09)
 - [x] T04d — narrow no-mocks off monkeypatch (T04c finding 5 false positive; do BEFORE T09)
 - [x] T09 — Cycle agents + /implement + /abandon (WP5)
-- [ ] T09b — red-baseline commit must be tests-only (T09 finding 2 anti-collusion)
+- [x] T09b — red-baseline commit must be tests-only (T09 finding 2 anti-collusion)
 - [ ] T10 — /accept-change command (WP6)
 - [ ] T11 — E2E probe runbook (WP7, human-driven)
 
