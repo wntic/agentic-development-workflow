@@ -19,6 +19,12 @@ T07 (hard); T02 (v2 command references gone).
 - Harvested rules from notes/16 inserted into their designated homes.
 - `notes/17_hardstop_dispositions.md` — per Hard stop of every merged skill: "gate in
   gate.py (which check)" or "demoted to advice (why)" (O-12; S4 litmus applied).
+- `test-principles` reduced to the paid-fixes guard (T07 finding 3): its testing constitution
+  (pyramid, conftest hierarchy, fixture-vs-builder, no-mocks, speed targets) is redistributed
+  into `testing-unit` / `testing-integration`; test-principles keeps only the meta-test guard
+  + its extension protocol. **`.claude/tools/test_skill_catalog.py` is NOT edited** — it is the
+  acceptance oracle for the merge; editing it to pass defeats the guard (V-07). Also: the ban
+  it guards is offset-vs-cursor mutual exclusivity, NOT a "cursor ban" (T07 finding 1).
 - `.claude/skills/CONVENTIONS.md` — updated index (13 entries, shared vocabulary kept);
   `conventions/SKILL.md` — kind→skill registry removed, toolchain section now CITES gate.py;
   also cites gate.py's Docker-tier DSN handoff (T04 finding 3): the app's `alembic/env.py`
@@ -46,7 +52,9 @@ T07 (hard); T02 (v2 command references gone).
 5. Run T07 suite after EVERY group commit — a red run pinpoints the lost line immediately.
 
 ## Verification
-- `uv run pytest .claude/tools/test_skill_catalog.py` green against the merged catalog.
+- `uv run pytest .claude/tools/test_skill_catalog.py` green against the merged catalog **with
+  zero edits to the test file** (`git diff .claude/tools/test_skill_catalog.py` empty) — the
+  guard must pass because the knowledge survived, never because the oracle was relaxed.
 - `ls .claude/skills/` → exactly the §7 table names + CONVENTIONS.md.
 - `grep -rn "manifest\|scaffolder\|kind→skill\|validate_manifest" .claude/skills/` → empty.
 - Frontmatter check: every SKILL.md has `description`; combined description+when_to_use
