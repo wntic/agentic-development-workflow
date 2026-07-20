@@ -24,7 +24,7 @@ escalates instead of improvising.
 - [x] T02 — Harvest agent prompts, purge v2 machinery (WP1b)
 - [x] T03 — Spec format: templates + criteria lint + /spec (WP2)
 - [x] T04 — gate.py + its test suite (WP3a)
-- [ ] T04b — Docker-skip carve-out in gate's inventory check (design ruling on T04 finding 2)
+- [x] T04b — Docker-skip carve-out in gate's inventory check (design ruling on T04 finding 2)
 - [ ] T05 — accept.py + its test suite (WP3b)
 - [ ] T06 — Enforcement wiring: hooks, ESCALATE, bypass tests (WP3c)
 - [ ] T07 — Paid-fixes inventory + test-principles rewrite (WP4a)

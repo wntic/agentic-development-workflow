@@ -26,7 +26,8 @@ Outputs (machine consumers: the implementer's SubagentStop hook §5.3, the evalu
 accept.py, the human):
   - human summary: one line per check, FAIL details inline, every SKIP loudly annotated;
   - machine block at the end: `failed:`/`skipped:` lists and a final `GATE: GREEN|RED`;
-  - `.gate/verdict.json` in the tree: sha, dirty flag, baseline, per-check status;
+  - `.gate/verdict.json` in the tree: sha, dirty flag, baseline, per-check status, and
+    `docker_exempt` (integration node-ids the daemon-absence carve-out let skip, T04b);
   - `.gate/last-run.xml` in the tree: junit-xml of the pytest run (backs --criteria);
   - exit code 0 only on GREEN.
 
@@ -110,6 +111,12 @@ GREP_GATES: tuple[tuple[str, re.Pattern[str], str], ...] = (
 
 # Protected trees for the integrity diff vs baseline (E-01/E-02/E-12).
 PROTECTED_PATHS = (".claude/tools", ".claude/hooks", ".claude/settings.json", "pyproject.toml")
+
+# Integration suite root (house convention: path-based collection, testcontainer-backed
+# tests live here — see the test-integration-* skills). The Docker-skip carve-out in the
+# inventory check (spec §5.1, T04b) keys on this rootdir-relative prefix, NEVER on a test's
+# skip-reason string.
+INTEGRATION_TEST_PREFIX = "tests/integration/"
 
 # Files whose worktree content must match git HEAD for the gate to trust itself (E-02).
 # criteria_lint.py is imported by --criteria, so it is part of the trust base (C7).
@@ -503,15 +510,33 @@ def check_table_smoke(ctx: GateContext) -> Check:
 # ---------------------------------------------------------------------------------------
 
 
-def check_docker_tier(ctx: GateContext) -> Check:
+@dataclass
+class DockerProbe:
+    # The gate's OWN environment fact about Docker — computed ONCE per run and shared by the
+    # Docker tier AND the inventory carve-out (spec §5.1, T04b): one probe, one truth. The
+    # carve-out keys on `available`, never on any per-test skip-reason string.
+    available: bool
+    reason: str  # loud DOCKER SKIPPED text when unavailable
+    docker_bin: str | None
+
+
+def probe_docker() -> DockerProbe:
     if os.environ.get("GATE_DOCKER") == "0":
-        return Check("docker.alembic", "SKIP", "DOCKER SKIPPED (forced off via GATE_DOCKER=0)")
+        return DockerProbe(False, "DOCKER SKIPPED (forced off via GATE_DOCKER=0)", None)
     docker = shutil.which("docker")
     if not docker:
-        return Check("docker.alembic", "SKIP", "DOCKER SKIPPED (no docker binary on PATH)")
+        return DockerProbe(False, "DOCKER SKIPPED (no docker binary on PATH)", None)
     rc, _ = _run([docker, "info"], timeout=30)
     if rc != 0:
-        return Check("docker.alembic", "SKIP", "DOCKER SKIPPED (docker daemon unavailable)")
+        return DockerProbe(False, "DOCKER SKIPPED (docker daemon unavailable)", docker)
+    return DockerProbe(True, "docker daemon available", docker)
+
+
+def check_docker_tier(ctx: GateContext, probe: DockerProbe) -> Check:
+    if not probe.available:
+        return Check("docker.alembic", "SKIP", probe.reason)
+    docker = probe.docker_bin
+    assert docker is not None  # available implies a resolved binary
     if not (ctx.tree / "alembic.ini").exists():
         return Check("docker.alembic", "SKIP", "docker available, but no alembic.ini in tree — migration tier n/a")
     rc, out = _run(
@@ -775,17 +800,34 @@ def check_change_frozen(ctx: GateContext) -> Check:
     return Check("integrity.change-frozen", "PASS", "change.md identical to baseline (E-12)")
 
 
+def _is_integration_node(node_id: str) -> bool:
+    # node-ids are rootdir-relative (the gate pins rootdir); the integration suite lives
+    # under tests/integration/ by house convention (path-based collection).
+    return node_id.split("::", 1)[0].startswith(INTEGRATION_TEST_PREFIX)
+
+
 def inventory_violations(
     baseline_ids: set[str],
     collected: set[str],
     outcomes: dict[str, str],
     allowed_removals_text: str,
-) -> list[str]:
+    *,
+    docker_available: bool,
+) -> tuple[list[str], list[str]]:
     # E-05: collected node-ids must be a superset of the baseline inventory; a baseline
     # test that is missing, skipped or xfailed = RED (deletion / deselect / conftest
     # silencing all collapse into this one check). Legal removals exist only when the
     # change.md (frozen at baseline) lists the node-id.
+    #
+    # Sole carve-out (spec §5.1, T04b): a COLLECTED baseline test under tests/integration/
+    # reported `skipped` is NOT RED when the gate's own Docker probe found the daemon absent
+    # — it is listed loudly in the DOCKER SKIPPED block instead. The key is the probe (an
+    # environment fact) + the directory, never a skip-reason string. A deselected/deleted
+    # integration test (not collected) is still RED (finding 4: the deselect bypass); with
+    # the daemon present there is no exemption at all; a non-integration skip is RED; and
+    # only `skipped` is exempt (an xfail or a setup error still fails).
     violations = []
+    docker_skipped = []
     for node_id in sorted(baseline_ids):
         if node_id not in collected:
             if node_id in allowed_removals_text:
@@ -793,9 +835,13 @@ def inventory_violations(
             violations.append(f"{node_id}: in baseline inventory but not collected in this run")
             continue
         outcome = outcomes.get(node_id)
-        if outcome not in ("passed", "failed"):
-            violations.append(f"{node_id}: baseline test was {outcome or 'collected but not run'} in this run")
-    return violations
+        if outcome in ("passed", "failed"):
+            continue
+        if outcome == "skipped" and not docker_available and _is_integration_node(node_id):
+            docker_skipped.append(node_id)
+            continue
+        violations.append(f"{node_id}: baseline test was {outcome or 'collected but not run'} in this run")
+    return violations, docker_skipped
 
 
 def collect_baseline_inventory(ctx: GateContext) -> set[str]:
@@ -842,11 +888,11 @@ def collect_baseline_inventory(ctx: GateContext) -> set[str]:
         return set(data.get("collected", []))
 
 
-def check_test_inventory(ctx: GateContext, pytest_check: Check) -> Check:
+def check_test_inventory(ctx: GateContext, pytest_check: Check, *, docker_available: bool) -> tuple[Check, list[str]]:
     try:
         baseline_ids = collect_baseline_inventory(ctx)
     except GateError as exc:
-        return Check("integrity.test-inventory", "FAIL", str(exc))
+        return Check("integrity.test-inventory", "FAIL", str(exc)), []
     allowed = ""
     for rel in _baseline_paths(ctx, "specs"):
         if rel.endswith("/change.md") and "/changes/" in rel:
@@ -856,26 +902,40 @@ def check_test_inventory(ctx: GateContext, pytest_check: Check) -> Check:
     inventory_path = ctx.gate_dir / INVENTORY_NAME
     if pytest_check.status == "SKIP" or not inventory_path.exists():
         if baseline_ids:
-            return Check(
-                "integrity.test-inventory",
-                "FAIL",
-                f"baseline has {len(baseline_ids)} tests but this run collected none (E-05)",
+            return (
+                Check(
+                    "integrity.test-inventory",
+                    "FAIL",
+                    f"baseline has {len(baseline_ids)} tests but this run collected none (E-05)",
+                ),
+                [],
             )
-        return Check("integrity.test-inventory", "PASS", "baseline inventory empty; nothing to protect (E-05)")
+        return Check("integrity.test-inventory", "PASS", "baseline inventory empty; nothing to protect (E-05)"), []
     data = json.loads(inventory_path.read_text(encoding="utf-8"))
     collected = set(data.get("collected", []))
     outcomes = dict(data.get("outcomes", {}))
-    violations = inventory_violations(baseline_ids, collected, outcomes, allowed)
+    violations, docker_skipped = inventory_violations(
+        baseline_ids, collected, outcomes, allowed, docker_available=docker_available
+    )
     if violations:
-        return Check(
-            "integrity.test-inventory",
-            "FAIL",
-            "test inventory is not a superset of the baseline (E-05):\n" + "\n".join(violations),
+        return (
+            Check(
+                "integrity.test-inventory",
+                "FAIL",
+                "test inventory is not a superset of the baseline (E-05):\n" + "\n".join(violations),
+            ),
+            docker_skipped,
         )
-    return Check(
-        "integrity.test-inventory",
-        "PASS",
-        f"all {len(baseline_ids)} baseline tests collected and run (E-05)",
+    exempt_note = ""
+    if docker_skipped:
+        exempt_note = f"; {len(docker_skipped)} integration test(s) DOCKER SKIPPED (see block below)"
+    return (
+        Check(
+            "integrity.test-inventory",
+            "PASS",
+            f"all {len(baseline_ids)} baseline tests collected and run (E-05){exempt_note}",
+        ),
+        docker_skipped,
     )
 
 
@@ -920,7 +980,8 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
     checks.extend(check_greps(ctx))
     checks.append(check_construct_smoke(ctx))
     checks.append(check_table_smoke(ctx))
-    checks.append(check_docker_tier(ctx))
+    docker_probe = probe_docker()  # one probe per run, shared by the tier and the carve-out
+    checks.append(check_docker_tier(ctx, docker_probe))
     if criteria:
         checks.extend(check_criteria(ctx))
     else:
@@ -929,6 +990,7 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
         checks.append(Check("criteria.manual-verdict", "SKIP", skip))
     checks.append(check_invariant_tests(ctx))
 
+    docker_exempt: list[str] = []
     if ctx.baseline is None:
         skip = (
             f"INTEGRITY SKIPPED — {ctx.baseline_reason}; this run is NOT verified against "
@@ -945,7 +1007,10 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
         checks.append(check_protected_trees(ctx))
         checks.append(check_criteria_flips(ctx))
         checks.append(check_change_frozen(ctx))
-        checks.append(check_test_inventory(ctx, pytest_check))
+        inventory_check, docker_exempt = check_test_inventory(
+            ctx, pytest_check, docker_available=docker_probe.available
+        )
+        checks.append(inventory_check)
     checks.append(check_self_hash(ctx))
 
     failed = [c.id for c in checks if c.status == "FAIL"]
@@ -967,6 +1032,9 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
     print(f"sha: {ctx.sha}")
     docker_detail = next(c.detail for c in checks if c.id == "docker.alembic")
     print(f"docker: {docker_detail.splitlines()[0]}")
+    if docker_exempt:
+        # loud, never silent: the integration tests the daemon-absence carve-out let skip
+        print(f"docker-exempt integration tests (skipped, not RED): {', '.join(docker_exempt)}")
     print(f"failed: {', '.join(failed) or '-'}")
     print(f"skipped: {', '.join(skipped) or '-'}")
     print(f"GATE: {result}")
@@ -982,6 +1050,7 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
         "result": result,
         "failed": failed,
         "skipped": skipped,
+        "docker_exempt": docker_exempt,  # integration node-ids skipped under daemon-absence (T04b; accept.py surfaces)
         "junit": f"{GATE_DIR_NAME}/{JUNIT_NAME}",
         "checks": [{"id": c.id, "status": c.status, "detail": c.detail} for c in checks],
     }

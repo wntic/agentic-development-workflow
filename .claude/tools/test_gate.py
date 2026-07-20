@@ -93,6 +93,35 @@ def test_add_zero() -> None:
     assert add(0, 0) == 0
 '''
 
+# An integration test that skips exactly when the gate's Docker probe is off. gate() sets
+# GATE_DOCKER=0 in the subprocess env (never stripped), so this deterministically skips on
+# every machine while --collect-only still records the node-id into the baseline inventory.
+TESTS_INTEGRATION = '''\
+"""Fixture integration test — needs a container; skips when the daemon is absent."""
+
+import os
+
+import pytest
+
+
+@pytest.mark.skipif(os.environ.get("GATE_DOCKER") == "0", reason="needs docker daemon")
+def test_needs_container() -> None:
+    assert True
+'''
+
+# A unit test whose skip-reason STRING pretends docker is unavailable — it lives OUTSIDE
+# tests/integration/, so the carve-out (directory-keyed) must not exempt it: RED.
+TESTS_FAKE_DOCKER_SKIP = '''\
+"""Fixture unit test that lies about docker in its skip reason (T04b: the string is not the key)."""
+
+import pytest
+
+
+@pytest.mark.skip(reason="docker unavailable")
+def test_pretends_to_need_docker() -> None:
+    assert True
+'''
+
 CHANGE_MD = """\
 # demo/001 — fixture change
 
@@ -482,6 +511,42 @@ def test_skipped_baseline_test_is_red(repo: FixtureRepo) -> None:
     assert statuses["toolchain.pytest"] == "PASS"  # a skip is green for pytest — only the inventory catches it
 
 
+def test_docker_absent_integration_skip_is_green_and_listed(tmp_path: Path) -> None:
+    # T04b: a skipped integration baseline test is GREEN when the gate's own probe (here
+    # forced off via GATE_DOCKER=0) found no daemon — and its node-id is listed loudly in
+    # the DOCKER SKIPPED block, never silently swallowed.
+    repo = make_repo(tmp_path / "app")
+    repo.write("tests/integration/test_container.py", TESTS_INTEGRATION)
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "--amend", "--no-edit")  # fold into the red baseline commit
+    repo.git("tag", "-f", "baseline/demo-001")
+    proc = repo.gate()
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "GATE: GREEN" in proc.stdout
+    statuses = repo.statuses()
+    assert statuses["integrity.test-inventory"] == "PASS"
+    node = "tests/integration/test_container.py::test_needs_container"
+    assert "DOCKER SKIPPED" in proc.stdout
+    assert node in proc.stdout  # listed in the loud DOCKER SKIPPED block
+    assert repo.verdict()["docker_exempt"] == [node]
+
+
+def test_docker_absent_non_integration_skip_is_red(tmp_path: Path) -> None:
+    # T04b: the carve-out is directory-keyed. A skipped NON-integration baseline test is RED
+    # even with the daemon absent (GATE_DOCKER=0).
+    repo = make_repo(tmp_path / "app")
+    repo.write("tests/unit/test_skip.py", TESTS_FAKE_DOCKER_SKIP)
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "--amend", "--no-edit")
+    repo.git("tag", "-f", "baseline/demo-001")
+    proc = repo.gate()
+    assert proc.returncode == 1
+    statuses = repo.statuses()
+    assert statuses["integrity.test-inventory"] == "FAIL"
+    assert "tests/unit/test_skip.py::test_pretends_to_need_docker" in proc.stdout
+    assert repo.verdict()["docker_exempt"] == []
+
+
 def test_removal_listed_in_change_md_is_legal(tmp_path: Path) -> None:
     repo = make_repo(tmp_path / "app", change_md=CHANGE_MD_REMOVAL)
     # the capability invariant of the removed behaviour goes too (worktree spec edit is
@@ -541,22 +606,69 @@ def test_criteria_flip_violations_unit() -> None:
 
 def test_inventory_violations_unit() -> None:
     baseline = {"tests/t.py::test_a", "tests/t.py::test_b"}
-    ok = gate.inventory_violations(
-        baseline, baseline, {"tests/t.py::test_a": "passed", "tests/t.py::test_b": "failed"}, ""
+    ok, exempt = gate.inventory_violations(
+        baseline, baseline, {"tests/t.py::test_a": "passed", "tests/t.py::test_b": "failed"}, "", docker_available=False
     )
-    assert ok == []
-    missing = gate.inventory_violations(baseline, {"tests/t.py::test_a"}, {"tests/t.py::test_a": "passed"}, "")
+    assert ok == [] and exempt == []
+    missing, _ = gate.inventory_violations(
+        baseline, {"tests/t.py::test_a"}, {"tests/t.py::test_a": "passed"}, "", docker_available=False
+    )
     assert any("test_b" in v for v in missing)
-    allowed = gate.inventory_violations(
-        baseline, {"tests/t.py::test_a"}, {"tests/t.py::test_a": "passed"}, "Removed tests: tests/t.py::test_b"
+    allowed, _ = gate.inventory_violations(
+        baseline,
+        {"tests/t.py::test_a"},
+        {"tests/t.py::test_a": "passed"},
+        "Removed tests: tests/t.py::test_b",
+        docker_available=False,
     )
     assert allowed == []
     for silenced in ("skipped", "xfail", None):
         outcomes = {"tests/t.py::test_a": "passed"}
         if silenced:
             outcomes["tests/t.py::test_b"] = silenced
-        violations = gate.inventory_violations(baseline, baseline, outcomes, "")
+        # test_b is a NON-integration node, so even with docker absent it is RED (the
+        # carve-out is directory-keyed, not skip-reason-keyed).
+        violations, _ = gate.inventory_violations(baseline, baseline, outcomes, "", docker_available=False)
         assert any("test_b" in v for v in violations), silenced
+
+
+def test_docker_carveout_unit() -> None:
+    # T04b: the sole inventory carve-out — a collected, skipped integration baseline test is
+    # exempt only when the gate's own probe found the daemon absent. Directory + probe are
+    # the key; the skip-reason string is never consulted here.
+    unit = "tests/unit/test_x.py::test_a"
+    integ = "tests/integration/postgres/test_repo.py::test_round_trip"
+    baseline = {unit, integ}
+    passed_unit = {unit: "passed"}
+
+    # integration skipped + daemon absent -> exempt (listed, not a violation)
+    violations, exempt = gate.inventory_violations(
+        baseline, baseline, {**passed_unit, integ: "skipped"}, "", docker_available=False
+    )
+    assert violations == [] and exempt == [integ]
+
+    # SAME tree + daemon present -> no exemption, RED
+    violations, exempt = gate.inventory_violations(
+        baseline, baseline, {**passed_unit, integ: "skipped"}, "", docker_available=True
+    )
+    assert any(integ in v for v in violations) and exempt == []
+
+    # NON-integration skipped + daemon absent -> RED (carve-out is directory-keyed)
+    violations, exempt = gate.inventory_violations(
+        baseline, baseline, {unit: "skipped", integ: "passed"}, "", docker_available=False
+    )
+    assert any(unit in v for v in violations) and exempt == []
+
+    # a DESELECTED/deleted integration test (not collected) is still RED — the carve-out
+    # must not reopen the deselect bypass (finding 4).
+    violations, exempt = gate.inventory_violations(baseline, {integ}, {integ: "passed"}, "", docker_available=False)
+    assert any(unit in v for v in violations) and exempt == []
+
+    # only `skipped` is exempt: an xfailed integration test still fails even with docker off.
+    violations, exempt = gate.inventory_violations(
+        baseline, baseline, {**passed_unit, integ: "xfail"}, "", docker_available=False
+    )
+    assert any(integ in v for v in violations) and exempt == []
 
 
 def test_manual_violations_unit() -> None:
