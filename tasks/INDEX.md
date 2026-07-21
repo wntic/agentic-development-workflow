@@ -38,7 +38,9 @@ escalates instead of improvising.
 - [x] T10b — accept.py honours a multi-target placement map (T10 finding 2; before T11 IFF the probe goes multi-target)
 - [x] T06c — SubagentStop must hold only the implementer (greenfield-probe F1 bug; blocks a clean re-run)
 - [x] T09c — greenfield bootstrap: substrate + shell in a pre-baseline commit (greenfield-probe F2/F3; blocks green)
-- [ ] T11 — E2E probe runbook (WP7, human-driven; re-run after T06c + T09c)
+- [ ] T09d — evolving/conditional substrate ownership (T09c finding 5; needed before any DB/auth slice, NOT before /health)
+- [ ] SKILL-GATE — make architecture/restapi skill templates gate-clean under RUFF_SELECT (T09c finding 2; scope from the smoke's real reds)
+- [ ] T11 — E2E probe runbook (WP7, human-driven; /health smoke runs now; real slices need T09d)
 
 ## Dependency order
 
