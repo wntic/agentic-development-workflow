@@ -239,13 +239,21 @@ def _finish_change(repo: FixtureRepo) -> None:
     repo.write("specs/demo/changes/001-thing/verdict.md", "# Verdict\nGate: GREEN\n")
 
 
+def _on_change_branch(repo: FixtureRepo) -> FixtureRepo:
+    """Put the fixture on a `change/<ctx>-NNN` branch — the only branch session_stop fires on."""
+    repo.git("checkout", "-q", "-b", "change/demo-001")
+    return repo
+
+
 def test_session_stop_blocks_on_unchecked_criteria(repo: FixtureRepo) -> None:
+    _on_change_branch(repo)
     proc = run_hook("session_stop.py", {"cwd": str(repo.root)}, cwd=repo.root)
     assert decision(proc) == "block", proc.stdout
     assert "unchecked" in proc.stdout
 
 
 def test_session_stop_blocks_on_missing_verdict(repo: FixtureRepo) -> None:
+    _on_change_branch(repo)
     repo.write(CRITERIA_REL, CRITERIA_MD.replace("- [ ] AC-1:", "- [x] AC-1:").replace("- [ ] AC-2:", "- [x] AC-2:"))
     proc = run_hook("session_stop.py", {"cwd": str(repo.root)}, cwd=repo.root)
     assert decision(proc) == "block", proc.stdout
@@ -253,12 +261,14 @@ def test_session_stop_blocks_on_missing_verdict(repo: FixtureRepo) -> None:
 
 
 def test_session_stop_allows_when_resolved(repo: FixtureRepo) -> None:
+    _on_change_branch(repo)
     _finish_change(repo)
     proc = run_hook("session_stop.py", {"cwd": str(repo.root)}, cwd=repo.root)
     assert decision(proc) is None, proc.stdout
 
 
 def test_session_stop_escalate_blocks_then_allows_after_human_turn(repo: FixtureRepo) -> None:
+    _on_change_branch(repo)
     _finish_change(repo)  # otherwise the criteria/verdict reasons would fire first
     repo.write("specs/demo/changes/001-thing/ESCALATE", "ceiling reached\n")
     first = run_hook("session_stop.py", {"cwd": str(repo.root), "stop_hook_active": False}, cwd=repo.root)
@@ -269,13 +279,46 @@ def test_session_stop_escalate_blocks_then_allows_after_human_turn(repo: Fixture
     assert decision(again) is None, again.stdout
 
 
+# T06c (F1b) — the hook is scoped to an active cycle: only a change/<ctx>-NNN branch fires it.
+
+
+def test_session_stop_passes_through_on_base_branch_with_floating_escalate(repo: FixtureRepo) -> None:
+    # make_repo leaves the fixture on the default (base/build) branch — not a change branch.
+    _finish_change(repo)  # unresolved reasons must NOT matter off-cycle
+    repo.write("specs/demo/changes/001-thing/ESCALATE", "stale, floating on the build branch\n")
+    proc = run_hook("session_stop.py", {"cwd": str(repo.root), "stop_hook_active": False}, cwd=repo.root)
+    assert proc.returncode == 0, proc.stderr
+    assert decision(proc) is None, proc.stdout  # a stale ESCALATE off-cycle never deadlocks
+
+
+def test_session_stop_passes_through_on_base_branch_with_unchecked_criteria(repo: FixtureRepo) -> None:
+    # Unchecked criteria on the base branch (design turn) must not block an ordinary Stop.
+    proc = run_hook("session_stop.py", {"cwd": str(repo.root)}, cwd=repo.root)
+    assert proc.returncode == 0, proc.stderr
+    assert decision(proc) is None, proc.stdout
+
+
+def test_session_stop_escalate_blocks_on_change_branch(repo: FixtureRepo) -> None:
+    _on_change_branch(repo)
+    _finish_change(repo)
+    repo.write("specs/demo/changes/001-thing/ESCALATE", "ceiling reached\n")
+    proc = run_hook("session_stop.py", {"cwd": str(repo.root), "stop_hook_active": False}, cwd=repo.root)
+    assert decision(proc) == "block", proc.stdout
+    assert "ESCALATE" in proc.stdout
+
+
 # =======================================================================================
 # subagent_stop — re-runs the real gate.py
 # =======================================================================================
 
 
+def _implementer(payload: dict) -> dict:
+    """Tag a SubagentStop payload as the implementer stopping (F-2: payload carries agent_type)."""
+    return {**payload, "agent_type": "implementer"}
+
+
 def test_subagent_stop_allows_when_gate_green(repo: FixtureRepo) -> None:
-    proc = run_hook("subagent_stop.py", {"cwd": str(repo.root), "stop_hook_active": False}, cwd=repo.root)
+    proc = run_hook("subagent_stop.py", _implementer({"cwd": str(repo.root), "stop_hook_active": False}), cwd=repo.root)
     assert proc.returncode == 0, proc.stderr
     assert decision(proc) is None, proc.stdout  # not blocked
     assert repo.verdict()["result"] == "GREEN"
@@ -283,7 +326,7 @@ def test_subagent_stop_allows_when_gate_green(repo: FixtureRepo) -> None:
 
 def test_subagent_stop_blocks_while_gate_red(repo: FixtureRepo) -> None:
     repo.write("src/app/main.py", SRC_MAIN_BROKEN)  # A4 construct-smoke failure -> gate RED
-    proc = run_hook("subagent_stop.py", {"cwd": str(repo.root), "stop_hook_active": False}, cwd=repo.root)
+    proc = run_hook("subagent_stop.py", _implementer({"cwd": str(repo.root), "stop_hook_active": False}), cwd=repo.root)
     assert decision(proc) == "block", proc.stdout
     assert "smoke.construct" in proc.stdout  # names the failed check
 
@@ -292,7 +335,7 @@ def test_subagent_stop_writes_escalate_at_ceiling(repo: FixtureRepo) -> None:
     repo.write("src/app/main.py", SRC_MAIN_BROKEN)
     proc = run_hook(
         "subagent_stop.py",
-        {"cwd": str(repo.root), "stop_hook_active": True},
+        _implementer({"cwd": str(repo.root), "stop_hook_active": True}),
         cwd=repo.root,
         env={"WORKFLOW_STOP_CEILING": "0"},  # escalate immediately
     )
@@ -301,6 +344,33 @@ def test_subagent_stop_writes_escalate_at_ceiling(repo: FixtureRepo) -> None:
     escalate = repo.root / "specs/demo/changes/001-thing/ESCALATE"
     assert escalate.exists(), "hook must author the ESCALATE file (E-08)"
     assert "gate.py stayed RED" in escalate.read_text(encoding="utf-8")
+
+
+# T06c (F1) — only the implementer is held-and-counted; other agents pass straight through.
+
+
+def test_subagent_stop_passes_through_non_implementer_while_red(repo: FixtureRepo) -> None:
+    # The test-author's deliverable IS a red gate — its stop must NOT block or bump the counter.
+    repo.write("src/app/main.py", SRC_MAIN_BROKEN)  # gate is RED
+    proc = run_hook(
+        "subagent_stop.py",
+        {"cwd": str(repo.root), "stop_hook_active": False, "agent_type": "test-author"},
+        cwd=repo.root,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert decision(proc) is None, proc.stdout  # not blocked
+    assert not proc.stdout.strip(), "no gate run, no output for a non-implementer stop"
+    # counter untouched: the hook never wrote it, and no ESCALATE was authored
+    assert not (repo.root / ".gate/subagent-stop-count").exists()
+    assert not (repo.root / "specs/demo/changes/001-thing/ESCALATE").exists()
+
+
+def test_subagent_stop_passes_through_when_agent_type_absent(repo: FixtureRepo) -> None:
+    # Defensive: a payload with no agent_type is treated as not-the-implementer.
+    repo.write("src/app/main.py", SRC_MAIN_BROKEN)  # gate is RED
+    proc = run_hook("subagent_stop.py", {"cwd": str(repo.root), "stop_hook_active": False}, cwd=repo.root)
+    assert proc.returncode == 0, proc.stderr
+    assert decision(proc) is None, proc.stdout
 
 
 # =======================================================================================

@@ -3,11 +3,14 @@
 
 Holds the implementer subagent while gate.py is RED on the change branch: emits
 `{"decision":"block","reason":<failed checks>}` so the agent keeps working toward green.
-When the block ceiling is hit, THE HOOK ITSELF writes `changes/NNN-slug/ESCALATE` (E-08:
-escalation is a material file, not a line in an ephemeral report) and then allows the stop
-so the session can surface it to the human. Respects `stop_hook_active` and a configurable
-ceiling (F-4/5: the documented anti-loop field is `stop_hook_active`; the numeric ceiling is
-tracked in a git-ignored `.gate/` counter — see the report's finding on this drift).
+ONLY the implementer is held-and-counted — the SubagentStop payload carries `agent_type`
+(F-2), so any other agent's stop (test-author, whose deliverable IS a red gate; evaluator)
+passes straight through with no gate run and no counter change. When the block ceiling is
+hit, THE HOOK ITSELF writes `changes/NNN-slug/ESCALATE` (E-08: escalation is a material
+file, not a line in an ephemeral report) and then allows the stop so the session can surface
+it to the human. Respects `stop_hook_active` and a configurable ceiling (F-4/5: the
+documented anti-loop field is `stop_hook_active`; the numeric ceiling is tracked in a
+git-ignored `.gate/` counter — see the report's finding on this drift).
 
 This hook is ergonomics + escalation plumbing; the trust anchor is still gate.py itself,
 which it simply re-runs (S8). Stdin: the SubagentStop payload. Stdout: a block JSON while
@@ -29,6 +32,7 @@ DESCRIBE = (
 
 DEFAULT_CEILING = 3
 COUNTER_REL = Path(".gate") / "subagent-stop-count"
+IMPLEMENTER_AGENT = "implementer"  # matches .claude/agents/implementer.md frontmatter name
 
 
 def find_change_dir(root: Path) -> Path | None:
@@ -80,6 +84,12 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
+        return 0
+
+    # Only the implementer is held-and-counted while red; the test-author's deliverable IS a
+    # red gate, and the evaluator merely reports. Any non-implementer stop passes through
+    # untouched — no gate run, no counter change (F-2: SubagentStop carries agent_type).
+    if payload.get("agent_type") != IMPLEMENTER_AGENT:
         return 0
 
     root = Path(payload.get("cwd") or os.getcwd()).resolve()
