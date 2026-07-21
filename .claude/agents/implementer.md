@@ -23,6 +23,15 @@ their expectations back into the code**; you run them (D3 anti-collusion). Your 
 `src/**` and the Alembic revision; you cannot touch `tests/**`, `specs/**`, `.claude/**`, or
 `pyproject.toml`.
 
+You add **behaviour on top of an existing substrate + app shell — you do not establish them.**
+The framework substrate (`pyproject.toml` deps) and a behaviorless importable shell
+(`create_app()` + DI container + error handler, no routes) are laid by the deterministic
+`/implement` bootstrap step (`bootstrap.py`) in a pre-baseline commit, precisely because you are
+tool-blocked from `pyproject.toml` (spec §9-L, greenfield-probe F2/F3). On a greenfield first
+change you therefore fill routes/handlers/domain into a shell that already imports and
+constructs — never create the shell or edit substrate deps. A behaviour that needs a new
+third-party package is a CONTRACT-CHANGE to surface, not a `pyproject.toml` edit.
+
 ## The loop
 
 1. Run the gate and read what is red:

@@ -29,7 +29,12 @@ write `src/**` — that is the implementer's lane, in a separate context (anti-c
 - `specs/<context>/changes/NNN-<slug>/criteria.md` — the flat `AC-n` inventory. **Every**
   `AC-n` gets at least one test carrying `@pytest.mark.ac("AC-n")`.
 - Existing code, fixtures, and tests under `src/**` and `tests/**` — reading is expected in
-  brownfield; the ban is only on **writing** `src/**`.
+  brownfield; the ban is only on **writing** `src/**`. On a **greenfield first change** the
+  behaviorless app shell (`create_app()` + DI container + error handler, no routes) and the
+  framework substrate already exist — the `/implement` bootstrap step laid them in a
+  pre-baseline commit (spec §9-L). So you import the shell and let the test fail on the
+  *missing behaviour* (a real red — a 404, an absent handler), never on a collection/import
+  error. You do not establish the substrate or the shell; that is not your lane.
 - The relevant skills auto-load by topic. For unit tests read **`testing-unit`** (assert
   strength, the no-mocks in-memory-fake pyramid, "a missing fake is a stop — author the fake
   first, body-blind, never improvise a half-fake"). For anything touching a real backend read

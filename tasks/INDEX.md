@@ -37,7 +37,7 @@ escalates instead of improvising.
 - [x] T10 — /accept-change command (WP6)
 - [x] T10b — accept.py honours a multi-target placement map (T10 finding 2; before T11 IFF the probe goes multi-target)
 - [x] T06c — SubagentStop must hold only the implementer (greenfield-probe F1 bug; blocks a clean re-run)
-- [ ] T09c — greenfield bootstrap: substrate + shell in a pre-baseline commit (greenfield-probe F2/F3; blocks green)
+- [x] T09c — greenfield bootstrap: substrate + shell in a pre-baseline commit (greenfield-probe F2/F3; blocks green)
 - [ ] T11 — E2E probe runbook (WP7, human-driven; re-run after T06c + T09c)
 
 ## Dependency order
