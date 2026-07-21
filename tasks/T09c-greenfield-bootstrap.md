@@ -24,18 +24,29 @@ T09.
 - `.claude/commands/implement.md`, `.claude/agents/test-author.md`, `.claude/tools/red_check.py`
   (T09b's tests-only baseline check — must stay green: bootstrap is a SEPARATE earlier commit).
 
+**RULINGS (human, 2026-07-21) — both builder escalations resolved:**
+- **Package-root name** `src/<pkg>/` is derived from `pyproject.toml` `name`, normalized
+  `-`→`_` (single source, earn-its-place — no new config surface; the human sets `name` as
+  normal project setup, bootstrap only READS it). NOT the context name. `bootstrap.py` reads
+  pyproject `name`; if absent it is a stop (the human declares the project identity first).
+- **Spec §9-L canon edit is DONE by the human** (commit below) — do NOT touch
+  `workflow_v3_spec.md`. The approved design is exactly the builder's investigated plan:
+  `.claude/tools/bootstrap.py` run as an `/implement` **step 0.5** (before the test-author,
+  gated on "substrate absent"), verified to keep T09b + frozen-pyproject integrity intact.
+
 ## Deliverables
-- An `/implement` **bootstrap step** (before the test-author, only on a first change / when the
-  substrate is absent): establishes the conventions §D substrate in `pyproject.toml` + a
-  minimal importable app shell (`create_app()` returning a bare app with the DI container +
-  error handler, NO routes/behaviour) + the package skeleton, and commits it as a distinct
-  **pre-baseline** commit. Deterministic where possible (the substrate list is §D; the shell
-  is the restapi bootstrap content) — no business-logic judgment.
-- Spec §9: correct the §9-L line that assigns bootstrap to the implementer → bootstrap is the
-  pre-baseline step; the implementer adds only behaviour (the actual `/health` route).
+- `.claude/tools/bootstrap.py` + an `/implement` **step 0.5** (before the test-author, only on
+  a first change / when the substrate is absent): establishes the conventions §D substrate in
+  the root `pyproject.toml` + a minimal importable app shell (`create_app()` returning a bare
+  app with the DI container + error handler, NO routes/behaviour) + the package skeleton under
+  `src/<pkg>/` (pkg from pyproject `name`, per the ruling), and commits it as a distinct
+  **pre-baseline** commit. Deterministic (the substrate list is §D; the shell is the restapi
+  bootstrap content) — no business-logic judgment.
 - Update `.claude/agents/implementer.md` / `test-author.md` if their prose still implies either
-  owns substrate.
-- Tests for the bootstrap step (substrate present, shell imports, shell has no routes).
+  owns substrate (the implementer adds only behaviour + the Alembic revision).
+- Tests for `bootstrap.py` (substrate present, shell imports, shell has no routes, pkg name
+  derived from pyproject).
+- NOT a deliverable: the spec §9-L edit — already applied by the human.
 
 ## Verification
 - The greenfield `/health` change runs `/spec` → `/implement` → green gate **without a human

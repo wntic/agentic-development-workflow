@@ -584,11 +584,17 @@ criteria-lint (§3.3) + Verification отвечает «как доказать�
 самом тяжёлом входе; правило **vertical slice**): первый change нового контекста НЕ режется
 на «bootstrap» / «DI» / «таблицы» (у них нет наблюдаемого поведения — S1/S3 запрещают такие
 AC), а оформляется как один L-change с ОДНИМ сквозным наблюдаемым AC («`GET /billing/plan`
-авторизованного пользователя возвращает его тариф и лимиты») плюс весь substrate по дороге:
-bootstrap владеет implementer через скиллы `architecture`/`restapi`/`infra-*`, Alembic-ревизию
-пишет implementer, Docker-tier гоняет `upgrade head`. Interface sketch обязателен; жить он
-будет дольше 30 минут — и это легально для vertical slice (риск §12.5 говорит о
-раздутых S/M, не об этом узаконенном случае).
+авторизованного пользователя возвращает его тариф и лимиты») плюс весь substrate по дороге.
+**Bootstrap НЕ принадлежит implementer'у** (исправление, greenfield-probe F2/F3): фреймворк-
+substrate обязан быть в `pyproject.toml` уже на baseline (это замороженное защищённое дерево),
+а implementer к `pyproject.toml` не допущен. Поэтому substrate (deps §D + поведенчески-пустая
+импортируемая app-shell `create_app()` + скелет пакета) поднимает детерминированный
+**pre-baseline шаг `/implement`** (`bootstrap.py`, до красного baseline'а test-author'а — так
+T09b «baseline только tests/» и проверка замороженного pyproject остаются целы). Имя корневого
+пакета `src/<pkg>/` берётся из `pyproject.toml` `name` (нормализация `-`→`_`) — единый источник,
+не имя контекста. Implementer добавляет ТОЛЬКО поведение (роут) + Alembic-ревизию; Docker-tier
+гоняет `upgrade head`. Interface sketch обязателен; жить он будет дольше 30 минут — и это
+легально для vertical slice (риск §12.5 говорит о раздутых S/M, не об этом узаконенном случае).
 
 Сравнить с тем же изменением в v2 (architect-делта → validate → re-scaffold → drift-trigger
 → implementer → verify): цепочка v3 короче на два механизма (валидатор, планировщик) при
