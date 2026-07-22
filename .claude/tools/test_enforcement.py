@@ -298,6 +298,18 @@ def test_session_stop_passes_through_on_base_branch_with_unchecked_criteria(repo
     assert decision(proc) is None, proc.stdout
 
 
+def test_session_stop_passes_through_on_change_branch_before_baseline(repo: FixtureRepo) -> None:
+    # F6: /spec authors the change and creates the change branch, but the red baseline tag does
+    # not exist until the test-author runs in /implement. The spec-author session legitimately
+    # ends with criteria still `[ ]` and no verdict.md, so the hook must pass through until the
+    # baseline exists — the branch alone is not enough to declare the cycle live.
+    _on_change_branch(repo)
+    repo.git("tag", "-d", "baseline/demo-001")
+    proc = run_hook("session_stop.py", {"cwd": str(repo.root)}, cwd=repo.root)
+    assert proc.returncode == 0, proc.stderr
+    assert decision(proc) is None, proc.stdout
+
+
 def test_session_stop_escalate_blocks_on_change_branch(repo: FixtureRepo) -> None:
     _on_change_branch(repo)
     _finish_change(repo)
