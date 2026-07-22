@@ -38,6 +38,6 @@ After reading:
   `tasks/INDEX.md`** (respecting the dependency order) — so the human sees you are up to date.
 - **Do not touch code or propose edits until the direction is confirmed.** Discuss first, act
   second.
-- Dialogue with the human is in **Russian**; everything that lands in the repo is in **English**
-  (exceptions per `CLAUDE.md`: verbatim use cases, the living spec corpus under `specs/<context>/`,
-  the design docs).
+- Dialogue with the human follows the project's convention (see its `CLAUDE.md`; English if it
+  sets none); everything that lands in the repo is in **English** (exceptions per `CLAUDE.md`:
+  verbatim use cases, the living spec corpus under `specs/<context>/`, the design docs).

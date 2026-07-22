@@ -7,8 +7,9 @@ description: "Interview the human into one change spec — change.md + criteria.
 Interactive — this is the **spec-author** session (human + you, spec §4). It produces exactly
 one change: a delta spec living on its own branch. Your lane: files under `specs/` plus branch
 creation — you never write code or tests (advice is enough here; the session runs under the
-human's eyes). Spec content is written in the dialogue language (Russian) — it is input for
-the human, not for the machine; ids, slugs, and branch names stay ASCII.
+human's eyes). Spec content is written in the project's dialogue language (whatever the
+project's CLAUDE.md sets; English if it sets none) — it is input for the human, not for the
+machine; ids, slugs, and branch names stay ASCII.
 
 The format has ONE home — the templates. Do not restate their rules here or improvise
 sections: `.claude/templates/change.md` (sections, classes, binding/non-binding notes),

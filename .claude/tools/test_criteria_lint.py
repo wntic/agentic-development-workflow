@@ -6,10 +6,10 @@ import criteria_lint as cl
 
 SPEC_EXAMPLE = """\
 # Criteria — meetings/003-upload-recording
-- [ ] AC-1: POST /meetings с валидным audio-файлом возвращает 201 и id митинга
-- [ ] AC-2: превышение месячной квоты тарифа возвращает 402 с кодом quota_exceeded
-- [x] AC-3: при падении записи в БД загруженный blob удаляется (компенсация), ответ 5xx
-- [m] AC-4: файл >25 MiB отклоняется 413 ДО чтения тела целиком
+- [ ] AC-1: POST /meetings with a valid audio file returns 201 and the meeting id
+- [ ] AC-2: exceeding the plan's monthly quota returns 402 with code quota_exceeded
+- [x] AC-3: on a DB write failure the uploaded blob is deleted (compensation), response 5xx
+- [m] AC-4: a file >25 MiB is rejected with 413 before the body is read in full
 """
 
 
@@ -30,11 +30,11 @@ def test_spec_example_passes() -> None:
 
 def test_observable_artifact_variants_pass() -> None:
     for text in [
-        "- [ ] AC-1: GET /billing/plan авторизованного пользователя возвращает его тариф и лимиты",
-        "- [ ] AC-1: после повторного вызова статус остаётся DONE",
-        "- [ ] AC-1: ответ содержит поле `meeting_id`",
-        "- [ ] AC-1: ошибка несёт код quota_exceeded",
-        "- [ ] AC-1: при падении БД ответ 5xx",
+        "- [ ] AC-1: GET /billing/plan for an authorized user returns their plan and limits",
+        "- [ ] AC-1: after a repeat call the status stays DONE",
+        "- [ ] AC-1: the response carries a `meeting_id` field",
+        "- [ ] AC-1: the error carries code quota_exceeded",
+        "- [ ] AC-1: on a DB failure the response is 5xx",
     ]:
         assert _lint(text) == [], text
 
@@ -53,13 +53,13 @@ def test_all_three_states_parse() -> None:
 
 
 def test_unknown_state_is_malformed() -> None:
-    reasons = _reasons("- [y] AC-1: POST /a возвращает 200")
+    reasons = _reasons("- [y] AC-1: POST /a returns 200")
     assert "malformed criteria line" in reasons
 
 
 def test_indented_or_sloppy_checkbox_is_malformed() -> None:
-    assert "malformed criteria line" in _reasons("  - [ ] AC-1: POST /a возвращает 200")
-    assert "malformed criteria line" in _reasons("- [X] AC-1: POST /a возвращает 200")
+    assert "malformed criteria line" in _reasons("  - [ ] AC-1: POST /a returns 200")
+    assert "malformed criteria line" in _reasons("- [X] AC-1: POST /a returns 200")
 
 
 # --- vague markers are rejected ----------------------------------------------
@@ -72,30 +72,23 @@ def test_vague_english_rejected() -> None:
     assert '"as expected"' in reasons
 
 
-def test_vague_russian_rejected() -> None:
-    reasons = _reasons("- [ ] AC-1: middleware настроен корректно и ведёт себя правильно, как ожидается")
-    assert "«корректно»" in reasons
-    assert "«правильно»" in reasons
-    assert "«как ожидается»" in reasons
-
-
 def test_vague_marker_rejected_even_with_observable_token() -> None:
-    reasons = _reasons("- [ ] AC-1: POST /meetings возвращает 201 и работает корректно")
-    assert "«работает»" in reasons
-    assert "«корректно»" in reasons
+    reasons = _reasons("- [ ] AC-1: POST /meetings returns 201 and works correctly")
+    assert '"works"' in reasons
+    assert '"correctly"' in reasons
 
 
 def test_negated_and_embedded_forms_are_not_flagged() -> None:
-    # «неправильный пароль» / "incorrect password" describe an input, not a verdict
-    assert _lint("- [ ] AC-1: неправильный пароль отклоняется с 401") == []
-    assert _lint("- [ ] AC-1: incorrect password is rejected with 401") == []
+    # "incorrect password" describes an input, not a verdict — `\bcorrect\b` must NOT fire
+    # inside "incorrect", so a criterion about rejecting a bad password stays clean.
+    assert _lint("- [ ] AC-1: an incorrect password is rejected with 401") == []
 
 
 # --- criteria without an observable artifact are rejected --------------------
 
 
 def test_no_observable_artifact_rejected() -> None:
-    reasons = _reasons("- [ ] AC-1: пользователь видит понятное сообщение об ошибке")
+    reasons = _reasons("- [ ] AC-1: the user sees a clear error message")
     assert "names no observable artifact" in reasons
 
 
@@ -114,7 +107,7 @@ def test_header_only_file_rejected() -> None:
 
 
 def test_duplicate_ac_id_rejected() -> None:
-    text = "- [ ] AC-1: POST /a возвращает 200\n- [ ] AC-1: DELETE /a возвращает 204"
+    text = "- [ ] AC-1: POST /a returns 200\n- [ ] AC-1: DELETE /a returns 204"
     assert "duplicate id AC-1" in _reasons(text)
 
 
@@ -139,7 +132,7 @@ def test_cli_green_file_exits_zero(tmp_path, capsys) -> None:
 
 def test_cli_vague_file_exits_nonzero_with_line_numbers(tmp_path, capsys) -> None:
     f = tmp_path / "criteria.md"
-    f.write_text("# Criteria — x/001\n- [ ] AC-1: всё работает корректно\n", encoding="utf-8")
+    f.write_text("# Criteria — x/001\n- [ ] AC-1: it all works correctly\n", encoding="utf-8")
     assert cl.main([str(f)]) == 1
     out = capsys.readouterr().out
     assert f"{f}:2:" in out

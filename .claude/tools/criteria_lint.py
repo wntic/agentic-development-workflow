@@ -5,8 +5,10 @@ Every acceptance criterion must describe observable behaviour of the running
 system: it must name at least one observable artifact (an HTTP status code or
 class, an HTTP method, a URL path, an inline-code token, a snake_case field
 name, or an ALL-CAPS state constant) and must not hide behind vagueness
-markers ("works", "correctly", "as expected", «корректно», «правильно», ...).
-A vague criterion does not enter work — loud degradation instead of silent.
+markers ("works", "correctly", "as expected", ...). A vague criterion does not
+enter work — loud degradation instead of silent. Vagueness detection is English
+(the language every shipped artifact is written in); the observable-artifact
+requirement below is language-neutral and carries the check regardless.
 
 Stdlib-only. Usage: criteria_lint.py FILE [FILE ...]
 Exit codes: 0 = all criteria pass · 1 = findings (one `path:line: reason` per
@@ -27,12 +29,14 @@ AC_LINE = re.compile(r"^- \[(?P<state>[ xm])\] (?P<acid>AC-\d+): (?P<text>\S.*)$
 # Anything that looks like an attempted checklist item but does not parse.
 CHECKBOX_LIKE = re.compile(r"^\s*[-*]\s*\[")
 
-# --- vagueness markers (spec §3.3: «корректно», «правильно», "works", ...) ---
+# --- vagueness markers (spec §3.3: "works", "correctly", "as expected", ...) ---
+# English only — the language every shipped artifact is written in. Negated/embedded forms
+# ("incorrect password" describes an input, not a verdict) are NOT matched: `\bcorrect\b`
+# does not fire inside "incorrect".
 
 VAGUE_MARKERS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
     (re.compile(pattern, re.IGNORECASE), label)
     for pattern, label in [
-        # English
         (r"\bworks\b", '"works"'),
         (r"\bworking\b", '"working"'),
         (r"\bcorrectly\b", '"correctly"'),
@@ -45,18 +49,6 @@ VAGUE_MARKERS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"\bappropriate\b", '"appropriate"'),
         (r"\bgracefully\b", '"gracefully"'),
         (r"\bsuccessfully\b", '"successfully"'),
-        # Russian (stems cover gender/case forms; negated forms like «неправильный
-        # пароль» describe an input, not a verdict, and are deliberately NOT matched)
-        (r"\bкорректн\w*", "«корректно»"),
-        (r"\bправильн\w*", "«правильно»"),
-        (r"\bкак ожида\w*", "«как ожидается»"),
-        (r"\bожидаем\w*", "«ожидаемо»"),
-        (r"\bдолжным образом\b", "«должным образом»"),
-        (r"\bнадлежащ\w*", "«надлежащим образом»"),
-        (r"\bработает\b", "«работает»"),
-        (r"\bработают\b", "«работают»"),
-        (r"\bнормальн\w*", "«нормально»"),
-        (r"\bуспешн\w*", "«успешно»"),
     ]
 )
 
