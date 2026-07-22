@@ -358,6 +358,28 @@ def test_subagent_stop_writes_escalate_at_ceiling(repo: FixtureRepo) -> None:
     assert "gate.py stayed RED" in escalate.read_text(encoding="utf-8")
 
 
+def test_subagent_stop_gate_python_prefers_venv(tmp_path: Path) -> None:
+    # F7: the hook re-runs gate.py, whose toolchain/smoke need the app's deps. Claude Code
+    # launches the hook with the ambient system python (no fastapi), so it must prefer the
+    # project's .venv interpreter, falling back to the launching interpreter only when no
+    # venv exists (test fixtures have a pyproject but no venv — the fallback keeps them as-is).
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("subagent_stop_mod", HOOKS_DIR / "subagent_stop.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # no venv in the tree -> fall back to the launching interpreter
+    assert mod.gate_python(tmp_path) == sys.executable
+
+    # a .venv/bin/python present -> that interpreter is chosen over sys.executable
+    venv_py = tmp_path / ".venv" / "bin" / "python"
+    venv_py.parent.mkdir(parents=True)
+    venv_py.write_text("")
+    assert mod.gate_python(tmp_path) == str(venv_py)
+
+
 # T06c (F1) — only the implementer is held-and-counted; other agents pass straight through.
 
 

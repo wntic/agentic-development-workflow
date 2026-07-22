@@ -15,6 +15,12 @@ git-ignored `.gate/` counter — see the report's finding on this drift).
 This hook is ergonomics + escalation plumbing; the trust anchor is still gate.py itself,
 which it simply re-runs (S8). Stdin: the SubagentStop payload. Stdout: a block JSON while
 red under ceiling, otherwise nothing. `--describe` prints a one-line self-description.
+
+gate.py is meant to run under the project's uv venv (`uv run .claude/tools/gate.py`); this
+hook, however, is launched by Claude Code with the ambient system python, which lacks the
+app's deps (fastapi, ...) and would fail every src-import-dependent check with a false RED
+(F7). So the gate is re-run through the project's `.venv` interpreter when one is present,
+falling back to the launching interpreter otherwise (e.g. test fixtures with no venv).
 """
 
 from __future__ import annotations
@@ -54,11 +60,28 @@ def write_count(root: Path, value: int) -> None:
     counter.write_text(f"{value}\n", encoding="utf-8")
 
 
+def gate_python(root: Path) -> str:
+    """The interpreter that can import the app's deps when re-running gate.py (F7).
+
+    gate.py runs its toolchain (mypy/ruff/pytest) and construct-smoke under `sys.executable`,
+    so it must itself be launched by an interpreter that has the app's substrate installed.
+    The hook's own `sys.executable` is the ambient system python Claude Code used to launch
+    it — it lacks fastapi/etc., so every src-import check would falsely go RED. Prefer the
+    project's uv `.venv` interpreter; fall back to the launching interpreter (test fixtures
+    have a pyproject but no venv, so the fallback keeps them running exactly as before).
+    """
+    for rel in ("bin/python", "Scripts/python.exe"):
+        candidate = root / ".venv" / rel
+        if candidate.exists():
+            return str(candidate)
+    return sys.executable
+
+
 def run_gate(root: Path) -> tuple[bool, list[str]]:
     """Run gate.py on root. Return (green, failed_check_ids)."""
     gate = root / ".claude" / "tools" / "gate.py"
     subprocess.run(
-        [sys.executable, str(gate), str(root)],
+        [gate_python(root), str(gate), str(root)],
         capture_output=True,
         text=True,
         cwd=str(root),
