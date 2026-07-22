@@ -27,30 +27,19 @@ F-7). At most **one change per context** is in `/implement` at a time (spec §6)
    behavioral flavour) and **Depth** (S / M / L) — they decide the fast-lane and the
    adversarial pass below.
 
-## 0.5 Greenfield bootstrap → substrate + shell (first change only)
+## 0.5 Precondition — the project is already scaffolded (brownfield)
 
-Before the test-author, run the deterministic bootstrap step — but **only on a first change /
-when the framework substrate is absent** (spec §9-L, greenfield-probe F2/F3). The framework
-substrate (`pyproject.toml` deps) must exist at baseline time (pyproject is a gate-protected
-frozen tree) and the implementer is tool-blocked from it, so a role earlier than the baseline
-must establish it. That role is this step, not the implementer:
+The workflow does **not** bootstrap and generates no code (D1/A3). The framework substrate
+(`pyproject.toml` deps §D + a behaviorless importable app shell `create_app()` + the `src/<pkg>/`
+skeleton, package name from `pyproject.toml` `name`) is provisioned **once at project creation** by
+an external template (cookiecutter/copier), outside the change cycle. So every change — including
+the first change of a new context — is **brownfield**: the substrate is already present before the
+red baseline, and no role has to touch the frozen `pyproject.toml` at baseline time (this is what
+retired the greenfield-bootstrap step and its script).
 
-```
-uv run .claude/tools/bootstrap.py
-```
-
-It reads the package root from `pyproject.toml` `name` (`-`→`_`; no `name` → it stops and the
-human declares project identity first), writes the conventions §D framework substrate into
-`pyproject.toml` + a minimal **behaviorless** importable app shell (`create_app()` returning a
-bare app with the DI container + the domain-error handler, **no routes/behaviour**) + the
-`src/<pkg>/` skeleton, and commits it as a **distinct pre-baseline commit**. It is a no-op when
-the substrate is already present (brownfield / a later change), so running it every cycle is
-safe. This is a narrow first-change bootstrap, **not** a general scaffolder (D1): it emits no
-domain/route/store code — the implementer adds all behaviour on top, against the red tests.
-
-Because bootstrap is its own commit *before* the baseline, T09b's tests-only red baseline and
-gate.py's frozen-`pyproject` integrity check both stay intact, and the test-author's greenfield
-tests import the shell and fail cleanly on missing behaviour (real red, not a collection error).
+If the substrate / `src/<pkg>/` is absent, **stop**: the project has not been scaffolded — that is a
+one-time project-setup step (the template), not something `/implement` does. Do not hand-generate a
+shell here.
 
 ## 1. test-author → red baseline
 

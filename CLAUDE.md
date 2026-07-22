@@ -102,8 +102,9 @@ Change **classes**: `behavioral` (default; removal flavour makes the test-author
 tests), `bugfix` (code diverged from a recorded invariant), `invisible` (refactor/deps/perf — proof
 is a green gate + empty OpenAPI diff). Change **depths**: S (Task + 1–3 AC, evaluator fast-lane) ·
 M (+ Context, Out of scope, Interface sketch, Verification) · L (+ non-binding Design notes). A new
-context's first change is a **vertical slice** — one end-to-end observable AC, substrate on the way.
-At most one change per context is in `/implement` at a time.
+context's first change is a **vertical slice** — one end-to-end observable AC over the project's
+already-scaffolded substrate (the framework shell is a one-time external-template precondition, never
+workflow-generated). At most one change per context is in `/implement` at a time.
 
 ## Roles (spec §4) — few, differentiated by context
 

@@ -37,10 +37,19 @@ escalates instead of improvising.
 - [x] T10 — /accept-change command (WP6)
 - [x] T10b — accept.py honours a multi-target placement map (T10 finding 2; before T11 IFF the probe goes multi-target)
 - [x] T06c — SubagentStop must hold only the implementer (greenfield-probe F1 bug; blocks a clean re-run)
-- [x] T09c — greenfield bootstrap: substrate + shell in a pre-baseline commit (greenfield-probe F2/F3; blocks green)
-- [ ] T09d — evolving/conditional substrate ownership (T09c finding 5; needed before any DB/auth slice, NOT before /health)
-- [ ] SKILL-GATE — make architecture/restapi skill templates gate-clean under RUFF_SELECT (T09c finding 2; scope from the smoke's real reds)
-- [ ] T11 — E2E probe runbook (WP7, human-driven; /health smoke runs now; real slices need T09d)
+- [x] T09c — greenfield bootstrap (bootstrap.py) — **REVERTED 2026-07-22.** bootstrap.py was a
+  v1/v2 codegen regression (a script emitting the app shell; D1/A3). Replaced by **approach A**:
+  the substrate is an external-template precondition and the workflow is brownfield-only. Spec §9
+  rewritten, `bootstrap.py` + `test_bootstrap.py` removed, `/implement` §0.5 dropped.
+- [x] T09d — evolving/conditional substrate ownership — **OBSOLETE (approach A).** Conditional deps
+  (relational / auth / multipart) are the project-template's concern, not a workflow step.
+- [ ] SKILL-GATE — architecture/restapi skill templates must be gate-clean under RUFF_SELECT (still
+  live: agents write change code from these skills, and the emitted code must pass the gate's ruff select).
+- [ ] TEMPLATE — external project scaffold (cookiecutter/copier): framework substrate §D +
+  behaviorless `create_app()` shell + `src/<pkg>/` skeleton, applied ONCE at project creation. Seeds
+  from the removed `bootstrap.py`'s shell content (recover from git history).
+- [ ] T11 — E2E probe runbook (WP7, human-driven). Greenfield e2e now needs the TEMPLATE scaffold
+  first; thereafter every change is brownfield.
 
 ## Dependency order
 

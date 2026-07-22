@@ -226,5 +226,9 @@ in the persistence skills.)* `v3 §5.1, §9`
 **F1 · Brownfield is the primary mode.** *Trigger:* designing any workflow mechanism. *Do:* build it
 for **deltas** — a change is a delta applied to the living spec of an existing system; greenfield is
 the degenerate case: the first change of an empty context (skeleton `overview.md`), shaped as a
-vertical slice with one end-to-end observable AC. *Why:* designing greenfield-first is exactly how the
-old generator's glue broke (it added/overwrote but never removed orphans). `v3 §2, §9`
+vertical slice with one end-to-end observable AC. The *project's* framework substrate is not the
+workflow's job at all — it is provisioned once by an external scaffold template (cookiecutter/copier),
+so even a new context's first change runs brownfield over substrate that already exists; the workflow
+generates no code (D1/A3). *Why:* designing greenfield-first is exactly how the old generator's glue
+broke (it added/overwrote but never removed orphans) — and a bootstrap *script inside the workflow*
+was the same mistake resurfacing. `v3 §2, §9`
