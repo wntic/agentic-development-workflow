@@ -41,15 +41,21 @@ escalates instead of improvising.
   v1/v2 codegen regression (a script emitting the app shell; D1/A3). Replaced by **approach A**:
   the substrate is an external-template precondition and the workflow is brownfield-only. Spec §9
   rewritten, `bootstrap.py` + `test_bootstrap.py` removed, `/implement` §0.5 dropped.
-- [x] T09d — evolving/conditional substrate ownership — **OBSOLETE (approach A).** Conditional deps
-  (relational / auth / multipart) are the project-template's concern, not a workflow step.
+- [x] T09d — evolving/conditional substrate ownership — **RESOLVED by T12.** Conditional deps
+  (relational / auth / multipart) are the **test-author's** pre-baseline concern, per change, declared
+  from the Interface sketch — never predicted into a template or a script.
 - [ ] SKILL-GATE — architecture/restapi skill templates must be gate-clean under RUFF_SELECT (still
-  live: agents write change code from these skills, and the emitted code must pass the gate's ruff select).
-- [ ] TEMPLATE — external project scaffold (cookiecutter/copier): framework substrate §D +
-  behaviorless `create_app()` shell + `src/<pkg>/` skeleton, applied ONCE at project creation. Seeds
-  from the removed `bootstrap.py`'s shell content (recover from git history).
-- [ ] T11 — E2E probe runbook (WP7, human-driven). Greenfield e2e now needs the TEMPLATE scaffold
-  first; thereafter every change is brownfield.
+  live, and now a T12 dependency: the implementer writes the app shell from these skills, so the
+  emitted code must pass the gate's ruff select).
+- [x] TEMPLATE — external project scaffold — **DROPPED (superseded by T12).** A scaffold template that
+  ships fastapi/a shell re-encodes the prediction the workflow must not do; agents own deps + shell,
+  and new-project setup is plain `uv init` + the installed plugin.
+- [ ] T12 — agents own dependencies and the app shell (dissolve bootstrap AND the template):
+  test-author lands the change's deps in a pre-baseline commit (from the Interface sketch);
+  implementer writes the behaviorless shell from the skills; `red_check` gains a greenfield
+  collection-error fallback (static AST marker scan). `gate.py` untouched. See `tasks/T12-*.md`.
+- [ ] T11 — E2E probe runbook (WP7, human-driven). Greenfield e2e runs after T12: `uv init` project →
+  `/spec` → `/implement` reaches green with no bootstrap and no template; thereafter brownfield.
 
 ## Dependency order
 
