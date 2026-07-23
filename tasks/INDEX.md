@@ -44,10 +44,14 @@ escalates instead of improvising.
 - [x] T09d — evolving/conditional substrate ownership — **RESOLVED by T12.** Conditional deps
   (relational / auth / multipart) are the **test-author's** pre-baseline concern, per change, declared
   from the Interface sketch — never predicted into a template or a script.
-- [ ] SKILL-GATE — architecture/restapi skill templates must be gate-clean under RUFF_SELECT (still
+- [x] SKILL-GATE — architecture/restapi skill templates must be gate-clean under RUFF_SELECT (still
   live, and now a T12 dependency: the implementer writes the app shell from these skills, so the
   emitted code must pass the gate's ruff select). Core tension: the architecture re-export contract
   mandates `from .module import *` → F403/F405. See `tasks/SKILL-GATE-templates-gate-clean.md`.
+  RESOLVED at the skill level (option a): each wildcard re-export line carries `# noqa: F403`
+  (F405 never fires — `__all__ = module.__all__` names the explicitly-imported submodule), the
+  `errors.py` `__all__` is RUF022-sorted; no `gate.py` change needed. Guard:
+  `.claude/tools/test_skill_shell_ruff.py`.
 - [x] TEMPLATE — external project scaffold — **DROPPED (superseded by T12).** A scaffold template that
   ships fastapi/a shell re-encodes the prediction the workflow must not do; agents own deps + shell,
   and new-project setup is plain `uv init` + the installed plugin.

@@ -237,7 +237,7 @@ from pydantic import BaseModel, Field
 from myapp.domain import exceptions as _domain_exceptions
 from myapp.domain.exceptions import DomainError
 
-__all__ = ["ErrorResponse", "MIDDLEWARE_ERRORS", "error_responses"]
+__all__ = ["MIDDLEWARE_ERRORS", "ErrorResponse", "error_responses"]
 
 class ErrorResponse(BaseModel):
     code: str
@@ -292,12 +292,12 @@ This file is the **single source of truth** for the error wire-shape, the `error
 
 ```python
 from . import errors
-from .errors import *
+from .errors import *  # noqa: F403
 
 __all__ = errors.__all__
 ```
 
-Per-resource schema modules (e.g. `foos.py`) are added later by `restapi-schema`; each invocation appends a new `from . import <module>` + `from .<module> import *` line and extends the package `__all__`.
+Per-resource schema modules (e.g. `foos.py`) are added later by `restapi-schema`; each invocation appends a new `from . import <module>` + `from .<module> import *  # noqa: F403` line and extends the package `__all__` (the wildcard re-export idiom and its `# noqa: F403` are `architecture`'s — see `general-python-package`).
 
 #### `restapi/__init__.py`
 
@@ -771,7 +771,7 @@ After writing the module, update `restapi/schemas/__init__.py`:
 
 ```python
 from . import foos  # alphabetized with siblings
-from .foos import *
+from .foos import *  # noqa: F403
 
 __all__ = (
     foos.__all__

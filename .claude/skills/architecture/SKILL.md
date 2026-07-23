@@ -172,8 +172,9 @@ This skill fires when **package mechanics change** — a new `.py` module is cre
 - One class per module file.
 - Module name matches class name in snake_case (`manager.py` → `Manager`).
 - In module files: `__all__` goes **after** imports and **before** the class definition, never at the very top.
-- In `__init__.py`: always `from .module import *`, never `from .module import ClassName`.
+- In `__init__.py`: always `from .module import *`, never `from .module import ClassName`. Each wildcard re-export line **carries a trailing `# noqa: F403`** — a bare `from .module import *` trips the toolchain's `F403` ("import `*` used; unable to detect undefined names"), and the wildcard is the intentional idiom here, so it is suppressed per line. This `# noqa` is permitted: only `# noqa: F401` (unused-import laundering) is forbidden. The `__all__ = module.__all__` reference that follows does **not** need `# noqa: F405`, because it names the module bound by the explicit `from . import <module>` line, not a symbol pulled in by the star.
 - In `__init__.py`: always `__all__ = module.__all__` (or `+`-joined across modules), never `__all__ = ["ClassName"]`.
+- A **literal** `__all__` list (a module file's `__all__ = ["A", "B"]`, never the `+`-joined `__init__` form) is sorted the way the toolchain's `RUF022` expects — an isort-style order where SCREAMING_SNAKE constants precede `CamelCase` classes precede `lower_snake` callables (e.g. `__all__ = ["MIDDLEWARE_ERRORS", "ErrorResponse", "error_responses"]`). An unsorted literal is a gate finding.
 - In `__init__.py`: **precede the wildcards with one `from . import <module>, …` line** naming every re-exported submodule (alphabetical). The wildcard binds the submodule at runtime, but **mypy does not model that side effect** — without the explicit `from . import …`, the `__all__ = module.__all__` reference fails type-checking (`name-defined`). The explicit import is what makes the re-export contract type-check; it is **required, not redundant**.
 - Subpackages are directories with their own `__init__.py`; only the top-level package's `__init__.py` carries a `__version__`.
 - **A package re-exports its immediate children — direct modules AND child subpackages — except the three carve-outs below.** A layer package (`domain/`, `application/`, `infrastructure/`) re-exports its subdomain subpackages, not only its direct modules: `from . import auth, support` + `from .auth import *` + `from .support import *` + `__all__ = auth.__all__ + support.__all__`. An **empty layer `__init__.py` that has children is wrong** — re-export them so `from <root>.domain import X` resolves.
@@ -211,7 +212,7 @@ class Manager:
 
 ```python
 from . import manager
-from .manager import *
+from .manager import *  # noqa: F403
 
 __all__ = manager.__all__
 ```
@@ -220,8 +221,8 @@ For multiple modules, list them all in the `from . import …` line, repeat the 
 
 ```python
 from . import command, handler
-from .command import *
-from .handler import *
+from .command import *  # noqa: F403
+from .handler import *  # noqa: F403
 
 __all__ = command.__all__ + handler.__all__
 ```
@@ -236,7 +237,7 @@ A flat single-package library root may additionally re-export its own modules:
 
 ```python
 from . import manager
-from .manager import *
+from .manager import *  # noqa: F403
 
 __version__ = "0.1.0"
 __all__ = manager.__all__
@@ -331,16 +332,16 @@ For the collapsed-import form to work, **every subpackage `__init__.py` must re-
 ```python
 # domain/foos/__init__.py
 from . import foo, foo_category, foo_pattern, i_foo_repository
-from .foo import *
-from .foo_category import *
-from .foo_pattern import *
-from .i_foo_repository import *
+from .foo import *  # noqa: F403
+from .foo_category import *  # noqa: F403
+from .foo_pattern import *  # noqa: F403
+from .i_foo_repository import *  # noqa: F403
 ```
 
 Rules:
 
 - Precede the wildcards with one `from . import <module>, …` line naming every submodule (alphabetical). It binds the submodule names so the `__all__ = module.__all__` concatenation below type-checks under mypy — `from .module import *` binds them at runtime but **not** for the type-checker (`name-defined`). See `general-python-package`.
-- One `from .module import *` per submodule, in alphabetical order.
+- One `from .module import *` per submodule, in alphabetical order, **each with a trailing `# noqa: F403`** (the wildcard is the intentional re-export idiom; `F403` is suppressed per line — this `# noqa` is allowed, only `# noqa: F401` is forbidden). See `general-python-package`.
 - Every module being wildcarded must declare `__all__` listing its public symbols (see `general-python-package`). Wildcard imports without `__all__` leak private helpers.
 - The package's own `__all__` is the concatenation of submodule `__all__`s, e.g.:
 
