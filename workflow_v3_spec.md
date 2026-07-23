@@ -585,19 +585,22 @@ criteria-lint (§3.3) + Verification отвечает «как доказать�
 на «bootstrap» / «DI» / «таблицы» (у них нет наблюдаемого поведения — S1/S3 запрещают такие
 AC), а оформляется как один L-change с ОДНИМ сквозным наблюдаемым AC («`GET /billing/plan`
 авторизованного пользователя возвращает его тариф и лимиты») плюс весь substrate по дороге.
-**Substrate — предусловие проекта, а НЕ шаг воркфлоу** (approach A, отменяет greenfield-probe
-F2/F3 fix): фреймворк-substrate обязан быть в `pyproject.toml` уже на baseline (замороженное
-защищённое дерево), а implementer к `pyproject.toml` не допущен. Поэтому воркфлоу его НЕ поднимает
-вовсе — substrate (deps §D + поведенчески-пустая импортируемая app-shell `create_app()` + скелет
-пакета `src/<pkg>/`, имя из `pyproject.toml` `name`, нормализация `-`→`_`) кладётся ОДИН РАЗ при
-создании проекта внешним шаблоном (cookiecutter/copier), вне цикла изменений. Тогда любой change —
-включая первый change нового контекста — это обычный **brownfield**: substrate уже на месте до
-красного baseline'а, и узел «кто трогает замороженный pyproject» исчезает. Кодогенератор-скрипт
-внутри воркфлоу (bootstrap) — та самая ошибка v1/v2, ради ухода от которой затевался v3 (D1/A3:
-воркфлоу несёт знание+принуждение, не генерит код). Implementer добавляет ТОЛЬКО поведение (роут) +
-Alembic-ревизию; Docker-tier гоняет `upgrade head`. Interface sketch обязателен; жить он будет
-дольше 30 минут — и это легально для vertical slice (риск §12.5 говорит о раздутых S/M, не об этом
-узаконенном случае).
+**Substrate — не шаг воркфлоу и не шаблон, а собственность агентов на каждый change** (T12,
+отменяет approach A с внешним шаблоном): шаблон, кладущий `fastapi`/shell, — это та же самая
+*предсказка*, которую воркфлоу обязан не делать («добавь sqlalchemy на всякий случай»). Поэтому
+новый проект — это просто `uv init` (`pyproject.toml` c `[project] name`, откуда выводится корень
+пакета `src/<pkg>/`, `-`→`_`) + установленный плагин. Зависимости этого change'а объявляет
+**test-author** в отдельном pre-baseline коммите (`pyproject.toml` + `uv.lock`, из Interface
+sketch, §D `conventions`) — до tests-only baseline'а, поэтому `pyproject.toml` неизменен от
+baseline'а до оценки и заморозка гейта не мешает. Поведенчески-пустую app-shell (`create_app()` +
+DI-контейнер + error-handler + `domain/exceptions.py` + `restapi/schemas/errors.py`) пишет
+**implementer** на первом change'е как обычный `src/**` из скиллов — воркфлоу не генерит код
+(D1/A3). Первый-в-проекте change — настоящий greenfield: shell'а ещё нет, и `red_check` через
+greenfield-fallback (статический скан `ac`-маркеров) считает collection-error импорта ненаписанного
+пакета настоящей краснотой. Implementer остаётся tool-blocked от `pyproject.toml`; непредвиденная
+зависимость — CONTRACT-CHANGE к test-author, не `uv add`. Implementer владеет Alembic-ревизией;
+Docker-tier гоняет `upgrade head`. Interface sketch обязателен; жить он будет дольше 30 минут — и это
+легально для vertical slice (риск §12.5 говорит о раздутых S/M, не об этом узаконенном случае).
 
 Сравнить с тем же изменением в v2 (architect-делта → validate → re-scaffold → drift-trigger
 → implementer → verify): цепочка v3 короче на два механизма (валидатор, планировщик) при
