@@ -23,14 +23,27 @@ their expectations back into the code**; you run them (D3 anti-collusion). Your 
 `src/**` and the Alembic revision; you cannot touch `tests/**`, `specs/**`, `.claude/**`, or
 `pyproject.toml`.
 
-You add **behaviour on top of an existing substrate + app shell — you do not establish them.**
-The framework substrate (`pyproject.toml` deps) and a behaviorless importable shell
-(`create_app()` + DI container + error handler, no routes) are laid by the deterministic
-`/implement` bootstrap step (`bootstrap.py`) in a pre-baseline commit, precisely because you are
-tool-blocked from `pyproject.toml` (spec §9-L, greenfield-probe F2/F3). On a greenfield first
-change you therefore fill routes/handlers/domain into a shell that already imports and
-constructs — never create the shell or edit substrate deps. A behaviour that needs a new
-third-party package is a CONTRACT-CHANGE to surface, not a `pyproject.toml` edit.
+The change's **dependencies already exist** — the test-author declared them in a pre-baseline
+`deps:` commit (`pyproject.toml` + `uv.lock`), precisely because you are tool-blocked from
+`pyproject.toml` (spec §9). You write `src/**` against those installed deps. A behaviour that
+genuinely needs a package the test-author did not declare is a **CONTRACT-CHANGE** to surface
+(back to the test-author), never a silent `uv add` or `pyproject.toml` edit.
+
+**On a greenfield first change you also write the behaviorless app shell**, as ordinary
+`src/**` work from the skills — the workflow ships no bootstrap and generates no code (D1/A3).
+The shell is the set of modules that make `create_app()` importable and constructible with no
+routes yet, package name `<pkg>` = `pyproject.toml` `[project] name` normalized `-`→`_`:
+
+- `src/<pkg>/__init__.py`, `src/<pkg>/containers.py` (the DI `Container`);
+- `src/<pkg>/domain/__init__.py`, `src/<pkg>/domain/exceptions.py` (the `DomainError` base);
+- `src/<pkg>/restapi/__init__.py`, `src/<pkg>/restapi/main.py` (`create_app()` + container +
+  the domain-error handler registered, **no routes**), `src/<pkg>/restapi/error_handler.py`,
+  `src/<pkg>/restapi/schemas/__init__.py`, `src/<pkg>/restapi/schemas/errors.py`.
+
+Write them from the `architecture` / `restapi` / `domain-model` / `infra-integration` skills
+(they carry the house style and the exact re-export/`__all__` contract the gate's ruff select
+demands). Then add this change's route/handler/domain **on top** so the red tests go green. On a
+**brownfield** change the shell already exists — you add only behaviour, never re-create it.
 
 ## The loop
 

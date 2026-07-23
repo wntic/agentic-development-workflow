@@ -226,9 +226,11 @@ in the persistence skills.)* `v3 §5.1, §9`
 **F1 · Brownfield is the primary mode.** *Trigger:* designing any workflow mechanism. *Do:* build it
 for **deltas** — a change is a delta applied to the living spec of an existing system; greenfield is
 the degenerate case: the first change of an empty context (skeleton `overview.md`), shaped as a
-vertical slice with one end-to-end observable AC. The *project's* framework substrate is not the
-workflow's job at all — it is provisioned once by an external scaffold template (cookiecutter/copier),
-so even a new context's first change runs brownfield over substrate that already exists; the workflow
-generates no code (D1/A3). *Why:* designing greenfield-first is exactly how the old generator's glue
-broke (it added/overwrote but never removed orphans) — and a bootstrap *script inside the workflow*
-was the same mistake resurfacing. `v3 §2, §9`
+vertical slice with one end-to-end observable AC. The *project's* substrate is not a script's job and
+not a scaffold template's either — a new project is a plain `uv init` + the installed plugin, and the
+substrate is **agent-owned per change**: the test-author declares the change's dependencies in a
+pre-baseline commit (from the Interface sketch, never predicted), and the implementer writes the
+behaviorless app shell as ordinary `src/**` work on the first change. The workflow generates no code
+(D1/A3). *Why:* designing greenfield-first is exactly how the old generator's glue broke (it added/
+overwrote but never removed orphans) — and both a bootstrap *script* and a *template that ships a
+shell/deps* are the same prediction-mistake resurfacing. `v3 §2, §9`

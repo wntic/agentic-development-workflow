@@ -55,7 +55,7 @@ escalates instead of improvising.
 - [x] TEMPLATE — external project scaffold — **DROPPED (superseded by T12).** A scaffold template that
   ships fastapi/a shell re-encodes the prediction the workflow must not do; agents own deps + shell,
   and new-project setup is plain `uv init` + the installed plugin.
-- [ ] T12 — agents own dependencies and the app shell (dissolve bootstrap AND the template):
+- [x] T12 — agents own dependencies and the app shell (dissolve bootstrap AND the template):
   test-author lands the change's deps in a pre-baseline commit (from the Interface sketch);
   implementer writes the behaviorless shell from the skills; `red_check` gains a greenfield
   collection-error fallback (static AST marker scan). `gate.py` untouched. See `tasks/T12-*.md`.
