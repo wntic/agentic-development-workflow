@@ -89,6 +89,72 @@ def test_non_tests_paths_flags_src_and_change_dir() -> None:
     assert red_check.non_tests_paths(paths) == ["src/app/main.py", ".gitignore", "specs/demo/x.md"]
 
 
+# --- pure: greenfield fallback (static AST marker scan) --------------------------------
+
+
+def test_scan_ac_markers_finds_top_level_and_class_methods() -> None:
+    source = (
+        "import pytest\n\n\n"
+        '@pytest.mark.ac("AC-1")\ndef test_a() -> None:\n    pass\n\n\n'
+        "class TestGroup:\n"
+        '    @pytest.mark.ac("AC-2")\n    def test_b(self) -> None:\n        pass\n\n\n'
+        "def test_unmarked() -> None:\n    pass\n"
+    )
+    found = red_check.scan_ac_markers(source, "tests/test_x.py")
+    assert found == {
+        "tests/test_x.py::test_a": ["AC-1"],
+        "tests/test_x.py::TestGroup::test_b": ["AC-2"],
+    }
+
+
+def test_missing_module_of_extracts_name() -> None:
+    assert red_check.missing_module_of("E   ModuleNotFoundError: No module named 'app'") == "app"
+    assert red_check.missing_module_of("cannot import name 'x' from 'app.main'") is None
+
+
+def test_project_package_reads_and_normalizes_name(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "my-app"\nversion = "0.1.0"\n')
+    assert red_check.project_package(tmp_path) == "my_app"
+    assert red_check.project_package(tmp_path / "nope") is None
+
+
+def test_greenfield_fallback_only_when_package_absent(tmp_path: Path) -> None:
+    inv = {
+        "outcomes": {},
+        "markers": {},
+        "collect_errors": [{"nodeid": "tests/test_h.py", "longrepr": "ModuleNotFoundError: No module named 'app'"}],
+    }
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_h.py").write_text(
+        'import pytest\n\n\n@pytest.mark.ac("AC-1")\ndef test_a() -> None:\n'
+        "    from app.main import create_app\n\n    assert create_app()\n"
+    )
+    # package absent → fallback restores the marker as RED
+    out = red_check.apply_greenfield_fallback(tmp_path, dict(inv, markers={}, outcomes={}), "app")
+    assert out["markers"] == {"tests/test_h.py::test_a": ["AC-1"]}
+    assert out["outcomes"]["tests/test_h.py::test_a"] == "error"
+
+    # brownfield: src/app exists → a collection error is NOT masked (fallback is a no-op)
+    (tmp_path / "src" / "app").mkdir(parents=True)
+    out2 = red_check.apply_greenfield_fallback(tmp_path, dict(inv, markers={}, outcomes={}), "app")
+    assert out2["markers"] == {}
+
+
+def test_greenfield_fallback_ignores_third_party_missing_module(tmp_path: Path) -> None:
+    # a forgotten third-party dep (not the project's own package) must NOT be masked
+    inv = {
+        "markers": {},
+        "outcomes": {},
+        "collect_errors": [{"nodeid": "tests/test_h.py", "longrepr": "ModuleNotFoundError: No module named 'httpx'"}],
+    }
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_h.py").write_text(
+        'import pytest\n\n\n@pytest.mark.ac("AC-1")\ndef test_a() -> None:\n    pass\n'
+    )
+    out = red_check.apply_greenfield_fallback(tmp_path, inv, "app")
+    assert out["markers"] == {}
+
+
 # --- end-to-end fixture repos ----------------------------------------------------------
 
 
@@ -216,6 +282,66 @@ def test_e2e_no_tag_flag_skips_tagging(tmp_path: Path) -> None:
     repo.git("commit", "-qm", "red tests")
 
     assert _run(repo, "--no-tag") == 0
+    assert "baseline/demo-001" not in repo.tags()
+
+
+# --- greenfield / brownfield collection-error e2e --------------------------------------
+
+GREENFIELD_TESTS = """\
+from app.restapi.main import create_app  # whole package absent yet — greenfield collection error
+
+import pytest
+
+
+@pytest.mark.ac("AC-1")
+def test_health_status_field() -> None:
+    app = create_app()
+    assert app is not None
+
+
+@pytest.mark.ac("AC-2")
+def test_health_status_ok() -> None:
+    app = create_app()
+    assert app is not None
+"""
+
+
+def test_e2e_greenfield_collection_error_is_red_with_all_acs(tmp_path: Path) -> None:
+    # First-ever change: deps land in a pre-baseline commit (pyproject), the tests-only
+    # baseline commit imports the not-yet-written package → collection error. The fallback
+    # must count it RED and recover both markers so every AC is covered.
+    repo = _base_repo(tmp_path)
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "deps: pre-baseline")
+    repo.write("tests/test_health.py", GREENFIELD_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+
+    assert _run(repo) == 0
+    assert "baseline/demo-001" in repo.tags()
+
+
+def test_e2e_brownfield_broken_import_still_fails_no_tag(tmp_path: Path) -> None:
+    # Brownfield: the package EXISTS but a test mis-imports a submodule (typo) → a real broken
+    # test. The greenfield fallback must NOT mask it: red_check fails on the missing markers.
+    repo = _base_repo(tmp_path)
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.write("src/app/__init__.py", "")
+    repo.write("src/app/restapi/__init__.py", "")
+    repo.write("src/app/restapi/main.py", "def create_app() -> object:\n    return object()\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "deps + existing package")
+    repo.write(
+        "tests/test_health.py",
+        "from app.restapi.mian import create_app  # typo: mian\n\nimport pytest\n\n\n"
+        '@pytest.mark.ac("AC-1")\ndef test_a() -> None:\n    assert create_app() is not None\n\n\n'
+        '@pytest.mark.ac("AC-2")\ndef test_b() -> None:\n    assert True\n',
+    )
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "broken test")
+
+    assert _run(repo) == 1
     assert "baseline/demo-001" not in repo.tags()
 
 

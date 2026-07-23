@@ -19,6 +19,13 @@ conftest/pyproject does not work, E-05 class), then asserts:
      still slip code into the baseline. Catch the artifact, not the actor (S8): any non-`tests/`
      path in the baseline commit → refuse to tag (anti-collusion, spec §4 / D3).
 
+On a project's FIRST-EVER change there is no app shell yet, so the tests fail to *collect*
+(their module-level import of the not-yet-written package raises `ModuleNotFoundError`) and the
+marked items never register. A narrow greenfield fallback (`apply_greenfield_fallback`) then
+static-scans those files' `ac` markers and counts the collection failure as RED — but only when
+the missing module is the project's OWN package and `src/<pkg>/` does not exist yet, so a broken
+brownfield test (a real import typo, package present) is never masked.
+
 Usage:
     red_check.py [--change <context>/NNN] [--no-tag] [--force-tag] [tree]
 
@@ -33,12 +40,14 @@ Exit code 0 only when coverage + redness both hold (and the tag step, if any, su
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -60,10 +69,19 @@ import os
 _collected = []
 _outcomes = {}
 _markers = {}
+_collect_errors = []
 
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "ac(criterion_id): links a test to an acceptance criterion (AC-n)")
+
+
+def pytest_collectreport(report):
+    # A module that fails to import at collection (greenfield: the target package is not
+    # written yet) never yields its items, so its ac markers are lost to the runtime hooks.
+    # Record the failure so red_check can static-scan that file's markers as a fallback.
+    if report.failed:
+        _collect_errors.append({"nodeid": report.nodeid, "longrepr": str(report.longrepr)})
 
 
 def pytest_collection_modifyitems(session, config, items):
@@ -96,7 +114,16 @@ def pytest_sessionfinish(session, exitstatus):
     path = os.environ.get("RED_CHECK_INVENTORY_PATH")
     if path:
         with open(path, "w", encoding="utf-8") as fh:
-            json.dump({"collected": _collected, "outcomes": _outcomes, "markers": _markers}, fh, indent=2)
+            json.dump(
+                {
+                    "collected": _collected,
+                    "outcomes": _outcomes,
+                    "markers": _markers,
+                    "collect_errors": _collect_errors,
+                },
+                fh,
+                indent=2,
+            )
 '''
 
 
@@ -195,6 +222,109 @@ def run_tests(tree: Path) -> dict:
             return json.loads(inventory.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise RedCheckError(f"pytest produced no inventory (collection error?): {exc}") from None
+
+
+# ---------------------------------------------------------------------------------------
+# Greenfield fallback — a module-absent collection error is a real RED, not a missing marker
+# ---------------------------------------------------------------------------------------
+#
+# On a project's first-ever change there is no app shell to import: the test-author's tests
+# import `<pkg>.restapi.main` etc. at module scope, so pytest fails to *collect* them — the
+# items never register and their `@pytest.mark.ac` markers are lost, making "every AC has a
+# marked test" spuriously fail. This fallback restores those markers by a static AST scan of
+# the failing files and counts the collection failure as RED for them.
+#
+# It is deliberately narrow (do not mask a broken brownfield test):
+#   * the collection failure must be a `ModuleNotFoundError` whose top-level package is the
+#     PROJECT'S OWN package (`pyproject.toml` [project] name, `-`→`_`) — not a third-party
+#     dep the test-author forgot to declare (that must still fail);
+#   * `src/<pkg>/` must not exist yet — a true greenfield first change. In brownfield the
+#     package is present, so a collection error there (a real import typo) is never masked.
+
+
+def project_package(tree: Path) -> str | None:
+    """The project's own import package: pyproject [project] name with `-`→`_`, or None."""
+    pyproject = tree / "pyproject.toml"
+    if not pyproject.is_file():
+        return None
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    name = data.get("project", {}).get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    return name.strip().replace("-", "_")
+
+
+_MISSING_MODULE_RE = re.compile(r"No module named ['\"]([\w.]+)['\"]")
+
+
+def missing_module_of(longrepr: str) -> str | None:
+    """The dotted module name from a `ModuleNotFoundError` longrepr, or None if not one."""
+    match = _MISSING_MODULE_RE.search(longrepr or "")
+    return match.group(1) if match else None
+
+
+def _ac_ids_of_decorator(node: ast.expr) -> list[str]:
+    """The AC ids of a `@pytest.mark.ac("AC-n", ...)` decorator, else []."""
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "ac"
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "mark"
+    ):
+        return [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+    return []
+
+
+def scan_ac_markers(source: str, relpath: str) -> dict[str, list[str]]:
+    """Static scan: pytest-style `nodeid -> [AC ids]` for every `@pytest.mark.ac`-marked test.
+
+    Mirrors the runtime plugin's `iter_markers("ac")` shape, but works without collecting the
+    module (used when its import failed). Handles top-level test functions and class methods.
+    """
+    try:
+        module = ast.parse(source)
+    except SyntaxError:
+        return {}
+    found: dict[str, list[str]] = {}
+
+    def visit(body: list[ast.stmt], prefix: str) -> None:
+        for child in body:
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                acs = [ac for dec in child.decorator_list for ac in _ac_ids_of_decorator(dec)]
+                if acs:
+                    found[f"{relpath}::{prefix}{child.name}"] = acs
+            elif isinstance(child, ast.ClassDef):
+                visit(child.body, f"{prefix}{child.name}::")
+
+    visit(module.body, "")
+    return found
+
+
+def apply_greenfield_fallback(tree: Path, inventory: dict, pkg: str | None) -> dict:
+    """Fold module-absent collection errors into the inventory as RED, ac-marked entries.
+
+    Applies only when `pkg` is the project's own package, `src/<pkg>/` does not exist yet, and
+    the collection error is a `ModuleNotFoundError` for that package (see the module note)."""
+    if not pkg or (tree / "src" / pkg).exists():
+        return inventory
+    markers = inventory.setdefault("markers", {})
+    outcomes = inventory.setdefault("outcomes", {})
+    for err in inventory.get("collect_errors", []):
+        missing = missing_module_of(err.get("longrepr", ""))
+        if not missing or missing.split(".")[0] != pkg:
+            continue  # not the project's own absent package → not a greenfield first change
+        relpath = err.get("nodeid", "").strip()
+        source_path = tree / relpath
+        if not relpath or not source_path.is_file():
+            continue
+        for nodeid, acs in scan_ac_markers(source_path.read_text(encoding="utf-8"), relpath).items():
+            markers.setdefault(nodeid, acs)
+            outcomes.setdefault(nodeid, "error")  # a collection failure is a real RED
+    return inventory
 
 
 # ---------------------------------------------------------------------------------------
@@ -320,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
         if not ac_ids:
             raise RedCheckError(f"no AC-n items found in {criteria_path}")
         inventory = run_tests(tree)
+        inventory = apply_greenfield_fallback(tree, inventory, project_package(tree))
     except RedCheckError as exc:
         print(f"red_check: ERROR — {exc}", file=sys.stderr)
         return 2
