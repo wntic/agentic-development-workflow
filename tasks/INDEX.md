@@ -46,7 +46,8 @@ escalates instead of improvising.
   from the Interface sketch — never predicted into a template or a script.
 - [ ] SKILL-GATE — architecture/restapi skill templates must be gate-clean under RUFF_SELECT (still
   live, and now a T12 dependency: the implementer writes the app shell from these skills, so the
-  emitted code must pass the gate's ruff select).
+  emitted code must pass the gate's ruff select). Core tension: the architecture re-export contract
+  mandates `from .module import *` → F403/F405. See `tasks/SKILL-GATE-templates-gate-clean.md`.
 - [x] TEMPLATE — external project scaffold — **DROPPED (superseded by T12).** A scaffold template that
   ships fastapi/a shell re-encodes the prediction the workflow must not do; agents own deps + shell,
   and new-project setup is plain `uv init` + the installed plugin.
