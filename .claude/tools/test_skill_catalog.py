@@ -1,7 +1,7 @@
 """Machine inventory of the skill catalog's paid-for fixes (workflow v3, T07 / WP4a).
 
 This suite is the catalog's GUARD, built BEFORE the thing it guards changes (V-07:
-"лиса сторожит курятник" otherwise). Every closed F/N finding from the dry-run remediation
+"the fox guarding the henhouse" otherwise). Every closed F/N finding from the dry-run remediation
 (`notes/14_dryrun_fix_plan.md`) and the named minimum of the spec's skill-revision step
 (§7, item 3) is asserted to still exist SOMEWHERE in the catalog by its CONTENT signature —
 a distinctive phrase, never a file path. That is what lets the T08 merge (44 skills → ~13)

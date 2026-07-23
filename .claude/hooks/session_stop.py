@@ -9,7 +9,7 @@ ESCALATE present blocks (surface it to the human); once we are already in a stop
 continuation (`stop_hook_active`), it allows the stop so the human can act (only a human
 removes ESCALATE, §5.3).
 
-§5.3 scopes this hook to "Stop на главной сессии в /implement" — it must fire ONLY during
+§5.3 scopes this hook to "Stop on the main session during /implement" — it must fire ONLY during
 an active cycle. That takes TWO deterministic signals together: (1) we are on the
 `change/<ctx>-NNN` branch that carries the cycle (S9) — on the base/build branch an ordinary
 design turn, or a stale ESCALATE / lingering change dir left by another branch's cycle, must

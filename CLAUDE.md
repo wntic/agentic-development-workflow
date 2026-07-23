@@ -4,13 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Language
 
-Dialogue with the user is in **Russian** (English technical terms are fine and expected).
-Everything that lands in the repo — skills, agents, commands, templates, code, comments,
-commit messages — is written in **English**. Exceptions: the BA's source material
-(`specs/use-cases/` stays in its original language verbatim — never translate it); the living
-spec corpus under `specs/<context>/` is written in the dialogue language (Russian) — it is input
-for the human, not for the machine (v3 §6); and the design docs (`workflow_v3_spec.md`,
-`codegen_workflow_spec.md`, `notes/`) are Russian.
+**English is the working language of everything the workflow ships and produces** — skills,
+agents, commands, templates, `.claude/` tools and their comments, code, commit messages. The
+workflow itself imposes no human language: its commands defer to *the project's* dialogue language
+(a consumer project sets its own; English if unset).
+
+For **this** project specifically: dialogue with the user is in **Russian** (a local preference —
+English technical terms are fine and expected), and — because a spec is input for the human, not
+for the machine (v3 §6) — the living spec corpus under `specs/<context>/` follows that dialogue
+language. Two further local exceptions, historical: the BA's source material (`specs/use-cases/`
+stays in its original language verbatim — never translate it), and the existing design docs
+(`workflow_v3_spec.md`, `codegen_workflow_spec.md`, `notes/`) are Russian — untranslated rationale,
+not a rule for new work.
 
 ## What this repository is
 
