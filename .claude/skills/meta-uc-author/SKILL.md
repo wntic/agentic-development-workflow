@@ -100,7 +100,7 @@ If the UC has a single main flow (no web/extension/admin variants), drop the par
 9. **Notes is the catch-all for informal context.** Performance hints, out-of-scope markers, "discuss with X", forward references to UCs that don't exist yet. Anything that informs the design but doesn't fit a flow step or a rule.
 10. **Cross-reference other UCs by number.** `see UC-02`, `same picker as UC-03`, `referenced in UC-04 A4`. Use `UC-XX` literal form so grep finds them.
 11. **Do not invent acceptance criteria, Gherkin scenarios, or formal preconditions / postconditions.** This catalog deliberately avoids that ceremony — the BA's narrative is the spec, and downstream stages do the normalization.
-12. **The business-rules heading is `## Business Rules` for new UCs.** The existing catalogue mixes English and Russian (`## Бизнес-правила`); existing files keep whatever they contain, but new files this skill writes should use English unless the user explicitly asks otherwise.
+12. **The business-rules heading is `## Business Rules` for new UCs.** An existing catalogue may mix English and non-English headings; existing files keep whatever they contain, but new files this skill writes use the English heading unless the user explicitly asks otherwise.
 
 ## Hard stops
 
