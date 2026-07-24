@@ -313,6 +313,49 @@ def test_green_tree_is_green(repo: FixtureRepo) -> None:
     assert statuses["docker.alembic"] == "SKIP"
 
 
+def test_red_localized_to_tests_when_only_tests_static_toolchain_red(tmp_path: Path) -> None:
+    # notes/18: a RED whose ONLY failure is the static toolchain over tests/** cannot be cleared
+    # by the implementer (src/** is its lane, D4). gate.py flags it so /implement hands back to
+    # the test-author instead of looping to a spurious ESCALATE. Bake the tests-side defect
+    # (own-package import ungrouped → I001) INTO the baseline so integrity passes and the
+    # localization is isolated; src/ stays clean and the tests still run green.
+    repo = make_repo(tmp_path / "app")
+    repo.write(
+        "tests/test_core.py", TESTS_CORE.replace("import pytest\n\nfrom app.core", "import pytest\nfrom app.core")
+    )
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "--amend", "--no-edit")
+    repo.git("tag", "-f", "baseline/demo-001")
+
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    verdict = repo.verdict()
+    assert verdict["result"] == "RED"
+    assert verdict["failed"] == ["toolchain.ruff-check"], verdict["failed"]
+    assert verdict["red_localized_to"] == "tests"
+    assert "red localized to: tests/**" in proc.stdout
+
+
+def test_red_localized_to_none_when_src_is_static_toolchain_red(tmp_path: Path) -> None:
+    # The mirror case: the static-toolchain RED is in src/ (the implementer's OWN lane), so it is
+    # NOT a handback — the localization signal must stay None even though the failing check id is
+    # in the handback set. The src-alone re-run is what distinguishes the two.
+    src_unsorted = '"""Fixture domain module."""\n\nimport sys\nimport os\n\n__all__ = ["add", "os", "sys"]\n\n\ndef add(a: int, b: int) -> int:\n    return a + b\n'
+    repo = make_repo(tmp_path / "app")
+    repo.write("src/app/core.py", src_unsorted)
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "--amend", "--no-edit")
+    repo.git("tag", "-f", "baseline/demo-001")
+
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    verdict = repo.verdict()
+    assert verdict["result"] == "RED"
+    assert "toolchain.ruff-check" in verdict["failed"]
+    assert verdict["red_localized_to"] is None
+    assert "red localized to: tests/**" not in proc.stdout
+
+
 def test_no_baseline_skips_integrity_loudly(tmp_path: Path) -> None:
     repo = make_repo(tmp_path / "app", tag=False)
     proc = repo.gate()

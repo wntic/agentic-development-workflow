@@ -56,6 +56,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import tomllib
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,6 +76,14 @@ PLUGIN_MODULE = "gate_ac_plugin"
 # ---------------------------------------------------------------------------------------
 
 # mypy: strict house style; explicit bases handle the src-layout without installation.
+# `plugins = pydantic.mypy` is not optional decoration: under strict mypy pydantic models
+# synthesize a typed `__init__`, so the universal pydantic-settings pattern
+# `Settings(password="raw")` (a `str` coerced to a `SecretStr` field at validation time) is a
+# hard `arg-type` error without the plugin — a wall EVERY pydantic-settings app hits, in
+# tests the implementer cannot edit. Likewise `testcontainers` ships no `py.typed`, so its
+# import is `import-untyped` in every integration conftest. Both are universal stack facts, so
+# per C6/C7 they live here (the one config home), never as per-app `# type: ignore` (which the
+# grep gate bans anyway). See notes/18 for the users/001 ESCALATE that paid for this.
 MYPY_CONFIG = """\
 [mypy]
 strict = True
@@ -82,12 +91,49 @@ warn_unreachable = True
 mypy_path = src
 explicit_package_bases = True
 namespace_packages = True
+plugins = pydantic.mypy
+
+[mypy-testcontainers.*]
+ignore_missing_imports = True
 """
 
 # ruff: select includes B (hence B006 mutable-default and B904 raise-from — spec §5.1).
 RUFF_SELECT = "E,W,F,I,N,UP,B,C4,SIM,RUF"
 RUFF_LINE_LENGTH = "120"
 RUFF_TARGET = "py312"
+
+
+def project_package(tree: Path) -> str | None:
+    """The project's own import package: pyproject [project] name with `-`→`_`, or None."""
+    pyproject = tree / "pyproject.toml"
+    if not pyproject.is_file():
+        return None
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    name = data.get("project", {}).get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    return name.strip().replace("-", "_")
+
+
+def ruff_common(tree: Path) -> list[str]:
+    """The pinned ruff CLI flags shared by every ruff invocation (C7: one home).
+
+    Includes `lint.isort.known-first-party=[<pkg>]` pinned to the project's own package.
+    Without it, ruff's isort auto-detects first-party by whether the package is on disk, so a
+    `tests/**` import block is clean at the red baseline (src absent → own pkg sorts as
+    third-party) yet `I001`-dirty at the gate (src present → own pkg sorts first-party). That
+    drift lands in tests/**, the implementer's blocked lane — an unfixable, deadlocking RED.
+    Pinning makes the classification src-independent, so baseline and gate agree by
+    construction. red_check.lint_tests calls this so the two are byte-identical."""
+    common = ["--isolated", "--line-length", RUFF_LINE_LENGTH, "--target-version", RUFF_TARGET]
+    pkg = project_package(tree)
+    if pkg:
+        common += ["--config", f'lint.isort.known-first-party=["{pkg}"]']
+    return common
+
 
 # pytest: pinned config — `--override-ini=addopts=` + fixed rootdir + no cacheprovider,
 # so silencing through conftest/pyproject addopts does not work (E-05). The rest of the
@@ -405,7 +451,7 @@ def check_ruff(ctx: GateContext) -> list[Check]:
     if not targets:
         skip = "no src/ or tests/ in tree — nothing to lint"
         return [Check("toolchain.ruff-check", "SKIP", skip), Check("toolchain.ruff-format", "SKIP", skip)]
-    common = ["--isolated", "--line-length", RUFF_LINE_LENGTH, "--target-version", RUFF_TARGET]
+    common = ruff_common(ctx.tree)
     checks: list[Check] = []
     rc, out = _run(
         [sys.executable, "-m", "ruff", "check", *common, "--no-cache", "--select", RUFF_SELECT, *targets],
@@ -428,6 +474,42 @@ def check_ruff(ctx: GateContext) -> list[Check]:
         else Check("toolchain.ruff-format", "FAIL", _tail(out))
     )
     return checks
+
+
+# Localization of a RED gate to the implementer's blocked lane (tests/**). See notes/18: a
+# static-toolchain RED confined to tests/** (own-package import order after src exists, conftest
+# typing against a package that only now exists) can NEVER be cleared by a src/** edit — looping
+# the implementer to the ESCALATE ceiling burns the whole cycle on an unwinnable hold. When this
+# fires, /implement hands back to the test-author instead (D4: tests/** is their lane) and the
+# SubagentStop hook releases the implementer without spending a block. Deliberately narrow — it
+# fires ONLY when every failure is the static per-file toolchain AND that same toolchain is clean
+# over src/ ALONE, so a src bug, a pytest/behaviour failure, or an integrity breach is never
+# mis-routed away from the implementer.
+_TESTS_HANDBACK_CHECKS = frozenset({"toolchain.mypy", "toolchain.ruff-check", "toolchain.ruff-format"})
+
+
+def _src_only_static_clean(ctx: GateContext) -> bool:
+    """True iff mypy + ruff-check + ruff-format are all clean over src/ ALONE."""
+    if not (ctx.tree / "src").is_dir():
+        return False
+    common = ruff_common(ctx.tree)
+    runs = (
+        [sys.executable, "-m", "mypy", "--config-file", str(ctx.gate_dir / "mypy.ini"), "src"],
+        [sys.executable, "-m", "ruff", "check", *common, "--no-cache", "--select", RUFF_SELECT, "src"],
+        [sys.executable, "-m", "ruff", "format", "--check", *common, "src"],
+    )
+    return all(_run(cmd, cwd=ctx.tree, env=ctx.env)[0] == 0 for cmd in runs)
+
+
+def red_localized_to(ctx: GateContext, checks: list[Check]) -> str | None:
+    """ "tests" when a RED gate's failures are entirely in tests/** — an implementer-unfixable
+    handback to the test-author; None for a GREEN gate or a normal implementer-fixable RED."""
+    failed = [c for c in checks if c.status == "FAIL"]
+    if not failed or any(c.id not in _TESTS_HANDBACK_CHECKS for c in failed):
+        return None
+    if not (ctx.tree / "tests").is_dir():
+        return None
+    return "tests" if _src_only_static_clean(ctx) else None
 
 
 def check_pytest(ctx: GateContext) -> Check:
@@ -1057,6 +1139,7 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
     failed = [c.id for c in checks if c.status == "FAIL"]
     skipped = [c.id for c in checks if c.status == "SKIP"]
     result = "GREEN" if not failed else "RED"
+    localized = red_localized_to(ctx, checks) if failed else None
 
     print(f"gate.py — workflow v3 gate run on {ctx.tree}")
     print(f"sha: {ctx.sha}{' (dirty work tree)' if ctx.dirty else ''}")
@@ -1079,6 +1162,8 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
     print(f"failed: {', '.join(failed) or '-'}")
     print(f"skipped: {', '.join(skipped) or '-'}")
     print(f"GATE: {result}")
+    if localized == "tests":
+        print("red localized to: tests/** — implementer-unfixable; test-author handback, not an ESCALATE (notes/18)")
 
     verdict = {
         "tree": str(ctx.tree),
@@ -1090,6 +1175,7 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
         "criteria_requested": criteria,
         "result": result,
         "failed": failed,
+        "red_localized_to": localized,  # "tests" ⇒ implementer-unfixable, test-author handback (notes/18)
         "skipped": skipped,
         "docker_exempt": docker_exempt,  # integration node-ids skipped under daemon-absence (T04b; accept.py surfaces)
         "junit": f"{GATE_DIR_NAME}/{JUNIT_NAME}",

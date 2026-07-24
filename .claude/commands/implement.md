@@ -96,6 +96,14 @@ own commit.
   around it. The cycle returns to **step 1** with a fresh test-author that reworks the tests
   against the corrected sketch — the sketch edit is approved by the human for an M/L change,
   otherwise by you (this session). No silent workarounds ever.
+- **TESTS-HANDBACK**: if `.gate/verdict.json` carries `"red_localized_to": "tests"` (the
+  SubagentStop hook releases the implementer with a matching systemMessage, spending **no**
+  block), the RED is entirely in `tests/**` — the implementer cannot clear it (D4), and the
+  static toolchain is already clean over `src/` alone. This is **not** an ESCALATE. Return to
+  **step 1** with a fresh test-author, handing it the gate's failing checks to fix in `tests/**`
+  (e.g. re-type `conftest` fixtures against the now-existing package, re-sort own-package
+  imports). It consumes one of the 3 full-cycle passes, so a change that keeps bouncing between
+  the two lanes still ESCALATEs rather than looping forever.
 - If an `ESCALATE` file appears, stop the loop and surface it to the human (see §5).
 
 ## 3. evaluator → verdict + flips

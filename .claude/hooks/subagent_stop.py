@@ -12,6 +12,12 @@ it to the human. Respects `stop_hook_active` and a configurable ceiling (F-4/5: 
 documented anti-loop field is `stop_hook_active`; the numeric ceiling is tracked in a
 git-ignored `.gate/` counter — see the report's finding on this drift).
 
+One RED never counts toward the ceiling: when gate.py reports `red_localized_to == "tests"`
+(the whole failure is the static toolchain over tests/**, clean over src/ alone), the
+implementer structurally cannot clear it (src/** is its lane, D4). The hook releases it
+immediately — no block, no counter, no ESCALATE — and emits a systemMessage telling /implement
+to hand back to the test-author (notes/18: the users/001 seam this closes).
+
 This hook is ergonomics + escalation plumbing; the trust anchor is still gate.py itself,
 which it simply re-runs (S8). Stdin: the SubagentStop payload. Stdout: a block JSON while
 red under ceiling, otherwise nothing. `--describe` prints a one-line self-description.
@@ -77,8 +83,8 @@ def gate_python(root: Path) -> str:
     return sys.executable
 
 
-def run_gate(root: Path) -> tuple[bool, list[str]]:
-    """Run gate.py on root. Return (green, failed_check_ids)."""
+def run_gate(root: Path) -> tuple[bool, list[str], str | None]:
+    """Run gate.py on root. Return (green, failed_check_ids, red_localized_to)."""
     gate = root / ".claude" / "tools" / "gate.py"
     subprocess.run(
         [gate_python(root), str(gate), str(root)],
@@ -90,8 +96,12 @@ def run_gate(root: Path) -> tuple[bool, list[str]]:
     try:
         verdict = json.loads(verdict_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return False, ["gate produced no verdict.json"]
-    return verdict.get("result") == "GREEN", list(verdict.get("failed") or [])
+        return False, ["gate produced no verdict.json"], None
+    return (
+        verdict.get("result") == "GREEN",
+        list(verdict.get("failed") or []),
+        verdict.get("red_localized_to"),
+    )
 
 
 def block(reason: str) -> None:
@@ -118,10 +128,31 @@ def main() -> int:
     root = Path(payload.get("cwd") or os.getcwd()).resolve()
     ceiling = int(os.environ.get("WORKFLOW_STOP_CEILING", DEFAULT_CEILING))
 
-    green, failed = run_gate(root)
+    green, failed, localized = run_gate(root)
     if green:
         write_count(root, 0)  # cycle succeeded — reset the counter
         return 0  # allow stop
+
+    # Tests-localized RED (notes/18): the gate is red ONLY on the static toolchain over tests/**,
+    # which the implementer cannot edit (src/** is its lane, D4). Blocking it here just burns the
+    # ceiling on an unwinnable hold and ends in a spurious ESCALATE. Instead release immediately —
+    # no block, no count, no ESCALATE — and tell /implement to hand back to the test-author. The
+    # counter is reset so a later, genuinely implementer-fixable red starts its ceiling fresh.
+    if localized == "tests":
+        write_count(root, 0)
+        print(
+            json.dumps(
+                {
+                    "systemMessage": (
+                        "gate RED localized to tests/** "
+                        f"({', '.join(failed) or 'see .gate/verdict.json'}) — implementer-unfixable. "
+                        "Not an ESCALATE: /implement must hand back to the test-author (D4). "
+                        "SubagentStop released the implementer without spending a block (notes/18)."
+                    )
+                }
+            )
+        )
+        return 0  # allow stop; control returns to /implement for the handback
 
     count = read_count(root)
     if count < ceiling:

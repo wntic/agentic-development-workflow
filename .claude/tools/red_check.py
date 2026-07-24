@@ -53,7 +53,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -250,9 +249,11 @@ def run_tests(tree: Path) -> dict:
 # NOT mypy: at a greenfield first change the tests import a not-yet-written package, so mypy
 # would fail import-resolution by design (that is the intended redness this whole script
 # confirms). The screen is ruff-check + ruff-format --check only — do not "complete" it with
-# mypy. The ruff config (select / line-length / target + --isolated --no-cache) is imported
-# from gate.py so "lint-clean at baseline" is byte-identical to what gate.py later enforces
-# (C7: one home for the config); this screen never restates the select string.
+# mypy. The whole ruff config comes from gate.ruff_common() so "lint-clean at baseline" is
+# byte-identical to what gate.py later enforces (C7: one home for the config); this screen
+# never restates the select string. Crucially ruff_common pins isort's known-first-party to
+# the project package, so the baseline's own-package import classification does NOT drift once
+# src/ exists at gate time (the seam that ESCALATEd users/001 — see notes/18).
 
 
 def lint_tests(tree: Path) -> list[str]:
@@ -265,7 +266,7 @@ def lint_tests(tree: Path) -> list[str]:
     if not tests_dir.is_dir():
         return []
     gate = _gate()
-    common = ["--isolated", "--line-length", gate.RUFF_LINE_LENGTH, "--target-version", gate.RUFF_TARGET]
+    common = gate.ruff_common(tree)
     env = os.environ.copy()
     for var in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "MYPYPATH"):  # E-05 class
         env.pop(var, None)
@@ -310,18 +311,8 @@ def lint_tests(tree: Path) -> list[str]:
 
 
 def project_package(tree: Path) -> str | None:
-    """The project's own import package: pyproject [project] name with `-`→`_`, or None."""
-    pyproject = tree / "pyproject.toml"
-    if not pyproject.is_file():
-        return None
-    try:
-        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return None
-    name = data.get("project", {}).get("name")
-    if not isinstance(name, str) or not name.strip():
-        return None
-    return name.strip().replace("-", "_")
+    """The project's own import package. Delegates to gate (C7: one home for the derivation)."""
+    return _gate().project_package(tree)
 
 
 _MISSING_MODULE_RE = re.compile(r"No module named ['\"]([\w.]+)['\"]")

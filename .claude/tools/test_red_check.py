@@ -287,9 +287,13 @@ def test_e2e_no_tag_flag_skips_tagging(tmp_path: Path) -> None:
 
 # --- greenfield / brownfield collection-error e2e --------------------------------------
 
+# NB the blank line: `app` is the project's OWN package, so ruff (with known-first-party pinned
+# by gate.ruff_common) sorts it into a separate first-party group even though src/ does not exist
+# yet — the baseline screen now judges own-package imports exactly as the gate later will (notes/18).
 GREENFIELD_TESTS = """\
 # the whole package is absent yet — the module import below is a greenfield collection error
 import pytest
+
 from app.restapi.main import create_app
 
 
@@ -320,6 +324,25 @@ def test_e2e_greenfield_collection_error_is_red_with_all_acs(tmp_path: Path) -> 
 
     assert _run(repo) == 0
     assert "baseline/demo-001" in repo.tags()
+
+
+def test_e2e_greenfield_own_package_import_ungrouped_refused_at_baseline(tmp_path: Path, capsys) -> None:
+    # notes/18 regression: the own-package import grouped with third-party (clean while src/ is
+    # absent under naive isort, I001 once src/ exists) is the drift that ESCALATEd users/001. With
+    # known-first-party pinned, the baseline lint screen judges it as the gate will and REFUSES the
+    # tag — so the test-author fixes it at author time, not the implementer at an unwinnable gate.
+    ungrouped = GREENFIELD_TESTS.replace("import pytest\n\nfrom app", "import pytest\nfrom app")
+    repo = _base_repo(tmp_path)
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "deps: pre-baseline")
+    repo.write("tests/test_health.py", ungrouped)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests, own-package import ungrouped")
+
+    assert _run(repo) == 1
+    assert "I001" in "".join(capsys.readouterr())
+    assert "baseline/demo-001" not in repo.tags()
 
 
 def test_e2e_brownfield_broken_import_still_fails_no_tag(tmp_path: Path) -> None:
