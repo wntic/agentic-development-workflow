@@ -18,6 +18,12 @@ conftest/pyproject does not work, E-05 class), then asserts:
      (`echo > src/foo.py`) bypasses it and a *partial* src seed can leave the tests red and
      still slip code into the baseline. Catch the artifact, not the actor (S8): any non-`tests/`
      path in the baseline commit → refuse to tag (anti-collusion, spec §4 / D3).
+  4. lint screen — the baseline's `tests/**` is ruff-clean (ruff-check + ruff-format --check,
+     gate.py's config imported not restated, C7). The implementer is tool-blocked from
+     `tests/**` and ruff is per-file, so a lint defect the test-author left there could never
+     be cleared by any `src/**` edit — it would deadlock the implementer. Screen it here, at
+     baseline time, so the test-author fixes it at author time (S4). NOT mypy — a greenfield
+     first change imports a not-yet-written package, which is the intended redness.
 
 On a project's FIRST-EVER change there is no app shell yet, so the tests fail to *collect*
 (their module-level import of the not-yet-written package raises `ModuleNotFoundError`) and the
@@ -143,6 +149,13 @@ def _criteria_lint():  # noqa: ANN202 — stdlib-only sibling import
     return criteria_lint
 
 
+def _gate():  # noqa: ANN202 — stdlib-only sibling import
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import gate
+
+    return gate
+
+
 def parse_ac_ids(criteria_text: str) -> list[str]:
     """Ordered, de-duplicated AC ids declared in criteria.md (HTML comments stripped)."""
     cl = _criteria_lint()
@@ -222,6 +235,60 @@ def run_tests(tree: Path) -> dict:
             return json.loads(inventory.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise RedCheckError(f"pytest produced no inventory (collection error?): {exc}") from None
+
+
+# ---------------------------------------------------------------------------------------
+# Baseline lint screen — refuse a lint-dirty RED baseline before tagging (T09f)
+# ---------------------------------------------------------------------------------------
+#
+# The implementer is tool-blocked from tests/** and ruff is per-file, so a lint defect the
+# test-author left in tests/** (e.g. an `I001` split-import block in conftest.py) can never
+# be cleared by any src/** edit — it deadlocks the one agent whose job is to green the gate.
+# Per S4 the fix belongs in the gate that runs at baseline time: screen tests/** for lint
+# HERE, before tagging, so the test-author fixes it at author time.
+#
+# NOT mypy: at a greenfield first change the tests import a not-yet-written package, so mypy
+# would fail import-resolution by design (that is the intended redness this whole script
+# confirms). The screen is ruff-check + ruff-format --check only — do not "complete" it with
+# mypy. The ruff config (select / line-length / target + --isolated --no-cache) is imported
+# from gate.py so "lint-clean at baseline" is byte-identical to what gate.py later enforces
+# (C7: one home for the config); this screen never restates the select string.
+
+
+def lint_tests(tree: Path) -> list[str]:
+    """Run the gate's ruff-check + ruff-format --check over the tree's tests/; return failures.
+
+    Each returned element is a human-readable failure block (the ruff output naming the
+    offending file); an empty list means the baseline is lint-clean. No tests/ dir → clean.
+    """
+    tests_dir = tree / "tests"
+    if not tests_dir.is_dir():
+        return []
+    gate = _gate()
+    common = ["--isolated", "--line-length", gate.RUFF_LINE_LENGTH, "--target-version", gate.RUFF_TARGET]
+    env = os.environ.copy()
+    for var in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "MYPYPATH"):  # E-05 class
+        env.pop(var, None)
+    failures: list[str] = []
+    check = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", *common, "--no-cache", "--select", gate.RUFF_SELECT, str(tests_dir)],
+        cwd=str(tree),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if check.returncode != 0:
+        failures.append("ruff check:\n" + (check.stdout or check.stderr).strip())
+    fmt = subprocess.run(
+        [sys.executable, "-m", "ruff", "format", "--check", *common, str(tests_dir)],
+        cwd=str(tree),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if fmt.returncode != 0:
+        failures.append("ruff format --check:\n" + (fmt.stdout or fmt.stderr).strip())
+    return failures
 
 
 # ---------------------------------------------------------------------------------------
@@ -375,7 +442,7 @@ def analyze(ac_ids: list[str], inventory: dict) -> RedCheckResult:
 # ---------------------------------------------------------------------------------------
 
 
-def format_report(change_id: str, result: RedCheckResult) -> str:
+def format_report(change_id: str, result: RedCheckResult, lint_failures: list[str] | None = None) -> str:
     lines = [f"red_check: {change_id}", ""]
     lines.append(f"criteria: {len(result.ac_ids)} AC ({', '.join(result.ac_ids) or 'none'})")
     for ac in result.ac_ids:
@@ -392,6 +459,15 @@ def format_report(change_id: str, result: RedCheckResult) -> str:
         lines.extend(f"    {nodeid}" for nodeid in result.not_red_other)
     lines.append("")
     lines.append(f"RED-CHECK: {'RED-CONFIRMED' if result.ok else 'FAILED'}")
+    if lint_failures is not None:  # the lint screen ran (redness was confirmed)
+        if lint_failures:
+            lines.append("")
+            lines.append("BASELINE LINT: FAILED — tests/** must be lint-clean before tagging (T09f);")
+            lines.append("the implementer cannot fix tests/**, so a lint-dirty baseline would deadlock it:")
+            for block in lint_failures:
+                lines.extend(f"    {ln}" for ln in block.splitlines())
+        else:
+            lines.append("BASELINE LINT: clean (ruff-check + ruff-format over tests/)")
     return "\n".join(lines)
 
 
@@ -456,9 +532,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     result = analyze(ac_ids, inventory)
-    print(format_report(change_id, result))
+
+    # The lint screen runs only after redness is confirmed (a not-yet-red baseline already
+    # fails); it is reported alongside the RED-CHECK verdict and blocks the tag on any finding.
+    lint_failures = lint_tests(tree) if result.ok else None
+    print(format_report(change_id, result, lint_failures))
 
     if not result.ok:
+        return 1
+    if lint_failures:
         return 1
 
     if not args.no_tag:

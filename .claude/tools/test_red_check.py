@@ -288,9 +288,9 @@ def test_e2e_no_tag_flag_skips_tagging(tmp_path: Path) -> None:
 # --- greenfield / brownfield collection-error e2e --------------------------------------
 
 GREENFIELD_TESTS = """\
-from app.restapi.main import create_app  # whole package absent yet — greenfield collection error
-
+# the whole package is absent yet — the module import below is a greenfield collection error
 import pytest
+from app.restapi.main import create_app
 
 
 @pytest.mark.ac("AC-1")
@@ -343,6 +343,90 @@ def test_e2e_brownfield_broken_import_still_fails_no_tag(tmp_path: Path) -> None
 
     assert _run(repo) == 1
     assert "baseline/demo-001" not in repo.tags()
+
+
+# --- baseline lint screen (T09f) -------------------------------------------------------
+#
+# A lint defect in the RED baseline's tests/** deadlocks the implementer (tool-blocked from
+# tests/**, ruff is per-file), so red_check must refuse to tag a lint-dirty baseline.
+
+# The health/001 shape: two third-party imports split into two blocks by a blank line (I001).
+I001_CONFTEST = """\
+import pytest
+
+import httpx
+
+
+@pytest.fixture
+def client() -> object:
+    return httpx.Client()
+"""
+
+
+def test_lint_tests_flags_i001_split_imports(tmp_path: Path) -> None:
+    (tmp_path / "tests" / "integration").mkdir(parents=True)
+    (tmp_path / "tests" / "integration" / "conftest.py").write_text(I001_CONFTEST)
+    failures = red_check.lint_tests(tmp_path)
+    assert failures, "an I001 split-import block must be caught"
+    assert "conftest.py" in "\n".join(failures)
+
+
+def test_lint_tests_clean_tree_returns_empty(tmp_path: Path) -> None:
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_ok.py").write_text(
+        'import pytest\n\n\n@pytest.mark.ac("AC-1")\ndef test_a() -> None:\n    assert True\n'
+    )
+    assert red_check.lint_tests(tmp_path) == []
+
+
+def test_lint_tests_catches_format_only_violation(tmp_path: Path) -> None:
+    # Lint-passing but badly formatted (extra spaces around the operator) — the format arm
+    # must catch what ruff-check alone would let through.
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_fmt.py").write_text("x = 1+2\n")
+    failures = red_check.lint_tests(tmp_path)
+    assert any("format" in f for f in failures), f"format arm should fire: {failures}"
+
+
+def _conftest_with_split_imports(repo: FixtureRepo) -> None:
+    repo.write("tests/integration/conftest.py", I001_CONFTEST)
+
+
+def test_e2e_lint_dirty_baseline_refused_no_tag(tmp_path: Path, capsys) -> None:
+    # RED baseline whose conftest.py has the health/001 I001 defect: coverage + redness pass,
+    # but the lint screen refuses to tag (else the implementer would deadlock).
+    repo = _base_repo(tmp_path)
+    repo.write("tests/test_health.py", RED_TESTS)
+    _conftest_with_split_imports(repo)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests + lint-dirty conftest")
+
+    assert _run(repo) == 1
+    combined = capsys.readouterr()
+    assert "conftest.py" in (combined.out + combined.err)
+    assert "baseline/demo-001" not in repo.tags()
+
+    # After ruff --fix on the offending file, the same command is RED-CONFIRMED and tags.
+    subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--isolated", "--fix", "--select", "I", str(repo.root / "tests")],
+        check=True,
+        capture_output=True,
+    )
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "ruff --fix conftest")
+    assert _run(repo) == 0
+    assert "baseline/demo-001" in repo.tags()
+
+
+def test_e2e_lint_clean_baseline_still_tagged(tmp_path: Path) -> None:
+    # No regression: a lint-clean RED baseline is still RED-CONFIRMED and tagged as before.
+    repo = _base_repo(tmp_path)
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+
+    assert _run(repo) == 0
+    assert "baseline/demo-001" in repo.tags()
 
 
 def test_resolve_change_autodetects_single_change_dir(tmp_path: Path) -> None:

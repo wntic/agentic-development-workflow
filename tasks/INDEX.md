@@ -95,7 +95,7 @@ impact. See `notes/greenfield-first-change-blockers.md` (cost profile + findings
   path (kills the 116m evaluator span + the SendMessage resumes). Depends: T09; easier after T06d.
   Confirmed by the 2026-07-24 `health/001` replay: all three subagents self-committed in freshness
   order, zero orchestrator commits, `accept.py` → ACCEPTABLE with no SendMessage re-pins.
-- [ ] T09f — `red_check.py` must screen the baseline for lint before tagging. A `ruff I001` in the
+- [x] T09f — `red_check.py` must screen the baseline for lint before tagging. A `ruff I001` in the
   test-author's `conftest.py` passed red_check (it checks only markers + redness), got tagged, then
   DEADLOCKED the implementer: ruff is per-file and the implementer is tool-blocked from `tests/**`,
   so it burned all 3 ESCALATE blocks over a defect outside its lane. Run the gate's ruff-check +
