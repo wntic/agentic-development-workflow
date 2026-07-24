@@ -90,9 +90,19 @@ impact. See `notes/greenfield-first-change-blockers.md` (cost profile + findings
   absent entirely and `bash_guard` protects everything but `src/`, so the two protected-tree
   agents (test-author, evaluator) must bypass the hook while the implementer sails through.
   Restore path-scoped Write OR make `bash_guard` role-aware. Depends: T06, T09.
-- [ ] T09e — The cycle agents commit their own work. implementer commits `src/**` at green;
+- [x] T09e — The cycle agents commit their own work. implementer commits `src/**` at green;
   evaluator commits criteria→verdict in freshness order — takes the orchestrator off the critical
   path (kills the 116m evaluator span + the SendMessage resumes). Depends: T09; easier after T06d.
+  Confirmed by the 2026-07-24 `health/001` replay: all three subagents self-committed in freshness
+  order, zero orchestrator commits, `accept.py` → ACCEPTABLE with no SendMessage re-pins.
+- [ ] T09f — `red_check.py` must screen the baseline for lint before tagging. A `ruff I001` in the
+  test-author's `conftest.py` passed red_check (it checks only markers + redness), got tagged, then
+  DEADLOCKED the implementer: ruff is per-file and the implementer is tool-blocked from `tests/**`,
+  so it burned all 3 ESCALATE blocks over a defect outside its lane. Run the gate's ruff-check +
+  ruff-format over baseline `tests/**` before tagging; refuse a lint-dirty baseline. NOT mypy
+  (greenfield tests import a not-yet-written package — that import failure is the intended redness).
+  Surfaced by the 2026-07-24 `health/001` run. Depends: T09b (red_check anti-collusion), T04 (gate's
+  ruff config, reused not restated — C7).
 - [ ] T10c — accept.py must not silently deny on pure formatting. Tolerant SHA parse (backticked
   hex) + accept `## Adversarial pass|review`; rename `/implement` §4 to "Adversarial review" and
   hand the evaluator the verdict template. Depends: T10, T09.
