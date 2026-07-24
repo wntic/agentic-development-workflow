@@ -62,6 +62,29 @@ escalates instead of improvising.
 - [ ] T11 — E2E probe runbook (WP7, human-driven). Greenfield e2e runs after T12: `uv init` project →
   `/spec` → `/implement` reaches green with no bootstrap and no template; thereafter brownfield.
 
+### Post-`/implement platform/001` friction fixes (2026-07-24 agent-report analysis)
+
+The first full `/implement platform/001` run was GREEN end-to-end but ~85% of wall-clock was
+friction, not agent reasoning (evaluator: 8m21s work across a 116m span). Five fixes, ordered by
+impact. See `notes/greenfield-first-change-blockers.md` (cost profile + findings #1–#4).
+
+- [ ] T06d — Give cycle subagents a sanctioned write path to their OWNED tree. Write/Edit is
+  absent entirely and `bash_guard` protects everything but `src/`, so the two protected-tree
+  agents (test-author, evaluator) must bypass the hook while the implementer sails through.
+  Restore path-scoped Write OR make `bash_guard` role-aware. Depends: T06, T09.
+- [ ] T09e — The cycle agents commit their own work. implementer commits `src/**` at green;
+  evaluator commits criteria→verdict in freshness order — takes the orchestrator off the critical
+  path (kills the 116m evaluator span + the SendMessage resumes). Depends: T09; easier after T06d.
+- [ ] T10c — accept.py must not silently deny on pure formatting. Tolerant SHA parse (backticked
+  hex) + accept `## Adversarial pass|review`; rename `/implement` §4 to "Adversarial review" and
+  hand the evaluator the verdict template. Depends: T10, T09.
+- [ ] T10d — accept.py freshness should survive a rebase (kill the re-pin cascade). Anchor L-04 to
+  tracked-tree identity, not commit identity, so a rebase that preserves the tree preserves the
+  verdict. **Design-sensitive (freshness canon) — confirm semantics before coding.** Depends: T10, T09e.
+- [ ] T03b — Interface sketch must not claim "no layers" when the mandated `restapi` shell ships a
+  domain-exception base + error schema. Wording/altitude fix so a first change lands no false V-09.
+  Depends: T03.
+
 ## Dependency order
 
 ```
