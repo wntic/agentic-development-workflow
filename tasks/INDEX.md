@@ -103,7 +103,7 @@ impact. See `notes/greenfield-first-change-blockers.md` (cost profile + findings
   (greenfield tests import a not-yet-written package — that import failure is the intended redness).
   Surfaced by the 2026-07-24 `health/001` run. Depends: T09b (red_check anti-collusion), T04 (gate's
   ruff config, reused not restated — C7).
-- [ ] T10c — accept.py must not silently deny on pure formatting. Tolerant SHA parse (backticked
+- [x] T10c — accept.py must not silently deny on pure formatting. Tolerant SHA parse (backticked
   hex) + accept `## Adversarial pass|review`; rename `/implement` §4 to "Adversarial review" and
   hand the evaluator the verdict template. Depends: T10, T09.
 - [ ] T10d — accept.py freshness should survive a rebase (kill the re-pin cascade). Anchor L-04 to
