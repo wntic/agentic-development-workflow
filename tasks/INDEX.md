@@ -109,7 +109,7 @@ impact. See `notes/greenfield-first-change-blockers.md` (cost profile + findings
 - [x] T10d — accept.py freshness should survive a rebase (kill the re-pin cascade). Anchor L-04 to
   tracked-tree identity, not commit identity, so a rebase that preserves the tree preserves the
   verdict. **Design-sensitive (freshness canon) — confirm semantics before coding.** Depends: T10, T09e.
-- [ ] T03b — Interface sketch must not claim "no layers" when the mandated `restapi` shell ships a
+- [x] T03b — Interface sketch must not claim "no layers" when the mandated `restapi` shell ships a
   domain-exception base + error schema. Wording/altitude fix so a first change lands no false V-09.
   Depends: T03.
 
