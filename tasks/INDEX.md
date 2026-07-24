@@ -112,7 +112,7 @@ impact. See `notes/greenfield-first-change-blockers.md` (cost profile + findings
 - [x] T03b — Interface sketch must not claim "no layers" when the mandated `restapi` shell ships a
   domain-exception base + error schema. Wording/altitude fix so a first change lands no false V-09.
   Depends: T03.
-- [ ] T06e — Anchor `bash_guard`'s protected-path match to the repo root (found building T09f: it
+- [x] T06e — Anchor `bash_guard`'s protected-path match to the repo root (found building T09f: it
   denies non-owner writes to `/tmp/.../tests/...` by substring-matching the fragment anywhere).
   Cheap false-positive fix; keep T06b precision + T06d role-awareness. Depends: T06, T06b, T06d.
 
