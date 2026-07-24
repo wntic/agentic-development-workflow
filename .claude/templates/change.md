@@ -29,7 +29,17 @@ Companion: <context>/NNN       <!-- only for a paired cross-context change, dele
 <!-- M/L only. Module/class names + ctor dependencies that tests and code MUST share.
      BINDING — the one published contract the test-author and the implementer both write
      against; it changes only through the contract-change protocol (spec §6), never silently.
-     Written in the /spec session: the agent proposes, the human approves. -->
+     Written in the /spec session: the agent proposes, the human approves.
+     FIRST change of a context: the standard app shell is ALWAYS-PRESENT substrate, not a
+     business layer. create_app() + the central DomainError handler (mandated by the restapi
+     skill) drag in a domain-exception base (domain/exceptions.py), the error translator
+     (restapi/error_handler.py) and its error schema (restapi/schemas/errors.py) — the
+     implementer writes them as behaviorless shell. So scope the sketch as "no BUSINESS
+     domain / application / infrastructure — the standard app shell only"; never a blanket
+     "no domain/application/infrastructure layers". The blanket phrasing contradicts the shell
+     the skill ships and makes a correct first implementation read as out-of-scope drift (a
+     false V-09 the human must read past). -->
+
 
 ## Design notes
 <!-- L only. Approach choices, agreements. NON-BINDING — where this diverges from the code,

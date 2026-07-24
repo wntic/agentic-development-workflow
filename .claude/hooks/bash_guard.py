@@ -15,10 +15,35 @@ not fire. Because the guard is ergonomics and its cardinal sin is the false posi
 that cries wolf on `git commit` trains the operator toward `--no-verify`), when a target
 cannot be resolved with confidence it does **not** fire — the gate backstops the miss (S8).
 
+Repo-root anchored (T06e). A protected fragment (`tests/`, `specs/`, `criteria.md`, …) is a
+path *relative to the repo root*, so the match must be too. Each resolved target is made
+absolute (a relative target against the acting `cwd`) and the guard fires ONLY when that
+absolute path falls **under the repo root** AND its repo-relative form matches a protected
+fragment. A write whose target is outside the repo tree — a `/tmp` scratch dir, the user's
+home, a sibling repo — never fires, even if the path merely *contains* `tests/` somewhere.
+The root is `CLAUDE_PROJECT_DIR` (set by settings.json in production) or the git toplevel of
+the cwd; when neither can be resolved the guard degrades to the pre-T06e location-insensitive
+substring match — a documented conservative fallback, never a guess at the root (the gate
+backstops either way, S8).
+
 Write ops understood: `>`/`>>` redirections (fd-prefixed forms too; fd duplication excluded),
 `rm`, `mv`, `tee`, in-place `sed -i`, `git checkout -- <paths>`, `git restore <paths>`.
 Protected paths: tests/**, specs/<ctx>/*.md, changes/*/criteria.md|change.md|verdict.md,
 .claude/tools|hooks/**, .claude/settings.json, pyproject.toml.
+
+Role-aware owned-tree write path (T06d). The cycle subagents have NO Write/Edit tool at all
+(a path-scoped `disallowedTools: Write(...)` entry drops the tool wholesale in a subagent —
+the harness reads only the tool NAME, not the glob), so the shell is their ONLY write path to
+the very trees they own. Denying it deadlocked them into a hook bypass on every /implement run.
+So the guard reads the acting role from the PreToolUse payload's `agent_type` (the base hook
+input carries it, same field SubagentStop uses, F-2) and does NOT fire when the target is that
+role's OWNED tree: test-author -> tests/** + pyproject.toml/uv.lock; implementer -> src/**;
+evaluator -> criteria.md/verdict.md. A write to a NON-owned protected tree still fires (T06b
+precision). `src/**` is additionally closed to the two protected-tree agents (D4: src is the
+implementer's lane) — but stays open to the implementer and to an unidentified/default session,
+so the implementer's critical write path never depends on agent_type resolving. When `agent_type`
+is absent the guard degrades to the pre-T06d behavior (every protected tree fires), which is
+safe: it re-opens the friction, it never opens a foreign tree.
 
 Stdin: the PreToolUse payload. Stdout: nothing on allow; a permissionDecision=deny JSON on
 a denied command. `--describe` prints a one-line self-description.
@@ -27,17 +52,22 @@ a denied command. `--describe` prints a one-line self-description.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
+import subprocess
 import sys
+from pathlib import Path
 
 DESCRIBE = (
-    "bash_guard.py: PreToolUse(Bash) — best-effort deny of shell writes to protected paths "
-    "(tests, specs, .claude/tools|hooks, pyproject); ergonomics, trust is gate.py (S8)."
+    "bash_guard.py: PreToolUse(Bash) — best-effort, role-aware deny of shell writes to "
+    "protected paths UNDER the repo root (never fires on the acting role's OWNED tree, nor "
+    "outside the repo); ergonomics, trust is gate.py (S8)."
 )
 
-# Protected-path fragments. Substring match against a *resolved target* token (not the whole
-# command line) — deliberately loose, best-effort tier.
+# Protected-path fragments. Substring match against the target's *repo-relative* path (T06e):
+# the fragment is anchored to the repo root, so a `/tmp/.../tests/x` outside the tree never
+# fires. Deliberately loose within the repo — best-effort tier.
 PROTECTED_FRAGMENTS = (
     "tests/",
     "specs/",
@@ -50,6 +80,22 @@ PROTECTED_FRAGMENTS = (
     ".claude/settings.json",
     "pyproject.toml",
 )
+
+# The owned-tree write path (T06d). Per acting role (`agent_type`), the fragments of a target
+# that the role legitimately writes — a target matching one is allowed even if it also matches
+# a PROTECTED_FRAGMENTS entry (owned overrides protected). Role names match the agent
+# frontmatter `name`s (and subagent_stop.py's IMPLEMENTER_AGENT).
+ROLE_OWNED = {
+    "test-author": ("tests/", "pyproject.toml", "uv.lock"),
+    "evaluator": ("criteria.md", "verdict.md"),
+    "implementer": ("src/",),
+}
+
+# `src/**` is the implementer's lane (D4). It is NOT in PROTECTED_FRAGMENTS (so the implementer
+# and the default session write it freely, no agent_type dependency), but it IS closed to the
+# other two cycle roles — a test-author or evaluator writing src is denied.
+SRC_CLOSED_TO = ("test-author", "evaluator")
+SRC_FRAGMENT = "src/"
 
 # A redirection token: optional fd digits, `>` or `>>`, then an optional glued target.
 # Anchored at ^ so a stray `>` inside a word (e.g. a `<brackets>` in a commit message that
@@ -118,11 +164,88 @@ def _write_targets(command: str) -> list[str]:
     return targets
 
 
-def offending(command: str) -> str | None:
-    """Return the matched protected fragment, or None if no write hits a protected path."""
+def _repo_root(cwd: str) -> str | None:
+    """The repo root: `CLAUDE_PROJECT_DIR` (production) or the git toplevel of `cwd`.
+
+    None when neither can be resolved — the caller then degrades to the pre-T06e
+    location-insensitive substring match (a documented conservative fallback, not a guess).
+    """
+    env = os.environ.get("CLAUDE_PROJECT_DIR")
+    if env:
+        return env
+    try:
+        proc = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip() or None
+
+
+def _repo_relative(target: str, repo_root: str, cwd: str) -> str | None:
+    """`target` as a POSIX path relative to `repo_root`, or None if it falls outside the repo.
+
+    A relative target is resolved against the acting `cwd` (shell semantics); symlinks are
+    canonicalised so a macOS `/tmp` (→ `/private/tmp`) scratch dir is correctly seen as
+    outside the repo tree.
+    """
+    try:
+        abs_target = Path(target)
+        if not abs_target.is_absolute():
+            abs_target = Path(cwd) / abs_target
+        rel = abs_target.resolve().relative_to(Path(repo_root).resolve())
+    except (ValueError, OSError):
+        return None  # ValueError: not under the repo root — do not fire
+    return rel.as_posix()
+
+
+def _protected_for(role: str | None) -> tuple[str, ...]:
+    """The protected fragments that apply to the acting role.
+
+    Universal set for everyone; `src/**` is added for the two protected-tree agents so the
+    implementer's lane is closed to them (it stays open to the implementer and the default).
+    """
+    if role in SRC_CLOSED_TO:
+        return PROTECTED_FRAGMENTS + (SRC_FRAGMENT,)
+    return PROTECTED_FRAGMENTS
+
+
+def offending(
+    command: str,
+    role: str | None = None,
+    *,
+    repo_root: str | None = None,
+    cwd: str | None = None,
+) -> str | None:
+    """Return the matched protected fragment, or None if no write hits a protected path.
+
+    The match is anchored to `repo_root` (T06e): a target is checked by its repo-relative path,
+    and a target outside the repo tree never fires. When `repo_root` is None the guard degrades
+    to the pre-T06e location-insensitive match on the raw target token (conservative fallback).
+
+    A target the acting `role` OWNS is never offending (owned overrides protected, T06d) — so
+    the owner reaches its tree through the shell instead of a hook bypass.
+    """
+    owned = ROLE_OWNED.get(role or "", ())
+    protected = _protected_for(role)
+    cwd = cwd or os.getcwd()
     for target in _write_targets(command):
-        for frag in PROTECTED_FRAGMENTS:
-            if frag in target:
+        if repo_root is None:
+            candidate = target  # fallback: raw, location-insensitive substring
+        else:
+            rel = _repo_relative(target, repo_root, cwd)
+            if rel is None:
+                continue  # outside the repo tree — never fires (T06e)
+            candidate = rel
+        if any(frag in candidate for frag in owned):
+            continue  # the acting role owns this tree — sanctioned write path
+        for frag in protected:
+            if frag in candidate:
                 return frag
     return None
 
@@ -153,13 +276,16 @@ def main() -> int:
         return 0  # ergonomics only — never block on a malformed payload
 
     command = (payload.get("tool_input") or {}).get("command", "")
-    frag = offending(command)
+    role = payload.get("agent_type")
+    cwd = payload.get("cwd") or os.getcwd()
+    frag = offending(command, role, repo_root=_repo_root(cwd), cwd=cwd)
     if frag is not None:
         deny(
-            f"shell write to a protected path ({frag}) denied. Owned paths: tests/** via "
-            "the test-author, src/** via the implementer, criteria/change/verdict via the "
-            "cycle, spec prose via /spec. This is only ergonomics — the gate diffs these "
-            "trees against the baseline regardless (S8)."
+            f"shell write to a protected path ({frag}) denied for role "
+            f"'{role or 'default'}'. Owned write paths: test-author -> tests/** + "
+            "pyproject.toml/uv.lock; implementer -> src/**; evaluator -> "
+            "criteria.md/verdict.md; spec prose via /spec. This is only ergonomics — the "
+            "gate diffs these trees against the baseline regardless (S8)."
         )
     return 0
 

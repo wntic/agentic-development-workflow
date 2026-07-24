@@ -18,6 +18,12 @@ conftest/pyproject does not work, E-05 class), then asserts:
      (`echo > src/foo.py`) bypasses it and a *partial* src seed can leave the tests red and
      still slip code into the baseline. Catch the artifact, not the actor (S8): any non-`tests/`
      path in the baseline commit → refuse to tag (anti-collusion, spec §4 / D3).
+  4. lint screen — the baseline's `tests/**` is ruff-clean (ruff-check + ruff-format --check,
+     gate.py's config imported not restated, C7). The implementer is tool-blocked from
+     `tests/**` and ruff is per-file, so a lint defect the test-author left there could never
+     be cleared by any `src/**` edit — it would deadlock the implementer. Screen it here, at
+     baseline time, so the test-author fixes it at author time (S4). NOT mypy — a greenfield
+     first change imports a not-yet-written package, which is the intended redness.
 
 On a project's FIRST-EVER change there is no app shell yet, so the tests fail to *collect*
 (their module-level import of the not-yet-written package raises `ModuleNotFoundError`) and the
@@ -27,12 +33,16 @@ the missing module is the project's OWN package and `src/<pkg>/` does not exist 
 brownfield test (a real import typo, package present) is never masked.
 
 Usage:
-    red_check.py [--change <context>/NNN] [--no-tag] [--force-tag] [tree]
+    red_check.py [--change <context>/NNN] [--no-tag] [--force-tag] [--rebaseline] [tree]
 
-  tree         root of the change work tree (default: cwd); must be a git work tree to tag.
-  --change     change id <context>/NNN; else a single specs/*/changes/*/ dir is auto-detected.
-  --no-tag     run the checks only, do not create the baseline tag (used by callers/tests).
-  --force-tag  move an existing baseline tag (legal only during the red phase, before code).
+  tree          root of the change work tree (default: cwd); must be a git work tree to tag.
+  --change      change id <context>/NNN; else a single specs/*/changes/*/ dir is auto-detected.
+  --no-tag      run the checks only, do not create the baseline tag (used by callers/tests).
+  --force-tag   move an existing baseline tag (legal only during the red phase, before code).
+  --rebaseline  move an existing baseline tag onto HEAD after a TESTS-HANDBACK: verifies the
+                corrected tests in a throwaway worktree (redness, where src/ is absent) AND in
+                the live tree (mypy, where src/ is present), refusing any move that drops an
+                ac-marked test or writes outside tests/**. See the section note and notes/18.
 
 Exit code 0 only when coverage + redness both hold (and the tag step, if any, succeeded).
 """
@@ -41,13 +51,14 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
-import tomllib
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -143,6 +154,13 @@ def _criteria_lint():  # noqa: ANN202 — stdlib-only sibling import
     return criteria_lint
 
 
+def _gate():  # noqa: ANN202 — stdlib-only sibling import
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import gate
+
+    return gate
+
+
 def parse_ac_ids(criteria_text: str) -> list[str]:
     """Ordered, de-duplicated AC ids declared in criteria.md (HTML comments stripped)."""
     cl = _criteria_lint()
@@ -225,6 +243,62 @@ def run_tests(tree: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------------------
+# Baseline lint screen — refuse a lint-dirty RED baseline before tagging (T09f)
+# ---------------------------------------------------------------------------------------
+#
+# The implementer is tool-blocked from tests/** and ruff is per-file, so a lint defect the
+# test-author left in tests/** (e.g. an `I001` split-import block in conftest.py) can never
+# be cleared by any src/** edit — it deadlocks the one agent whose job is to green the gate.
+# Per S4 the fix belongs in the gate that runs at baseline time: screen tests/** for lint
+# HERE, before tagging, so the test-author fixes it at author time.
+#
+# NOT mypy: at a greenfield first change the tests import a not-yet-written package, so mypy
+# would fail import-resolution by design (that is the intended redness this whole script
+# confirms). The screen is ruff-check + ruff-format --check only — do not "complete" it with
+# mypy. The whole ruff config comes from gate.ruff_common() so "lint-clean at baseline" is
+# byte-identical to what gate.py later enforces (C7: one home for the config); this screen
+# never restates the select string. Crucially ruff_common pins isort's known-first-party to
+# the project package, so the baseline's own-package import classification does NOT drift once
+# src/ exists at gate time (the seam that ESCALATEd users/001 — see notes/18).
+
+
+def lint_tests(tree: Path) -> list[str]:
+    """Run the gate's ruff-check + ruff-format --check over the tree's tests/; return failures.
+
+    Each returned element is a human-readable failure block (the ruff output naming the
+    offending file); an empty list means the baseline is lint-clean. No tests/ dir → clean.
+    """
+    tests_dir = tree / "tests"
+    if not tests_dir.is_dir():
+        return []
+    gate = _gate()
+    common = gate.ruff_common(tree)
+    env = os.environ.copy()
+    for var in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "MYPYPATH"):  # E-05 class
+        env.pop(var, None)
+    failures: list[str] = []
+    check = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", *common, "--no-cache", "--select", gate.RUFF_SELECT, str(tests_dir)],
+        cwd=str(tree),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if check.returncode != 0:
+        failures.append("ruff check:\n" + (check.stdout or check.stderr).strip())
+    fmt = subprocess.run(
+        [sys.executable, "-m", "ruff", "format", "--check", *common, str(tests_dir)],
+        cwd=str(tree),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if fmt.returncode != 0:
+        failures.append("ruff format --check:\n" + (fmt.stdout or fmt.stderr).strip())
+    return failures
+
+
+# ---------------------------------------------------------------------------------------
 # Greenfield fallback — a module-absent collection error is a real RED, not a missing marker
 # ---------------------------------------------------------------------------------------
 #
@@ -243,18 +317,8 @@ def run_tests(tree: Path) -> dict:
 
 
 def project_package(tree: Path) -> str | None:
-    """The project's own import package: pyproject [project] name with `-`→`_`, or None."""
-    pyproject = tree / "pyproject.toml"
-    if not pyproject.is_file():
-        return None
-    try:
-        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return None
-    name = data.get("project", {}).get("name")
-    if not isinstance(name, str) or not name.strip():
-        return None
-    return name.strip().replace("-", "_")
+    """The project's own import package. Delegates to gate (C7: one home for the derivation)."""
+    return _gate().project_package(tree)
 
 
 _MISSING_MODULE_RE = re.compile(r"No module named ['\"]([\w.]+)['\"]")
@@ -375,7 +439,7 @@ def analyze(ac_ids: list[str], inventory: dict) -> RedCheckResult:
 # ---------------------------------------------------------------------------------------
 
 
-def format_report(change_id: str, result: RedCheckResult) -> str:
+def format_report(change_id: str, result: RedCheckResult, lint_failures: list[str] | None = None) -> str:
     lines = [f"red_check: {change_id}", ""]
     lines.append(f"criteria: {len(result.ac_ids)} AC ({', '.join(result.ac_ids) or 'none'})")
     for ac in result.ac_ids:
@@ -392,6 +456,15 @@ def format_report(change_id: str, result: RedCheckResult) -> str:
         lines.extend(f"    {nodeid}" for nodeid in result.not_red_other)
     lines.append("")
     lines.append(f"RED-CHECK: {'RED-CONFIRMED' if result.ok else 'FAILED'}")
+    if lint_failures is not None:  # the lint screen ran (redness was confirmed)
+        if lint_failures:
+            lines.append("")
+            lines.append("BASELINE LINT: FAILED — tests/** must be lint-clean before tagging (T09f);")
+            lines.append("the implementer cannot fix tests/**, so a lint-dirty baseline would deadlock it:")
+            for block in lint_failures:
+                lines.extend(f"    {ln}" for ln in block.splitlines())
+        else:
+            lines.append("BASELINE LINT: clean (ruff-check + ruff-format over tests/)")
     return "\n".join(lines)
 
 
@@ -432,12 +505,188 @@ def tag_baseline(tree: Path, change_id: str, *, force: bool) -> str:
     return tag
 
 
+# ---------------------------------------------------------------------------------------
+# Re-baseline — move the tag onto a corrected tests commit after a TESTS-HANDBACK (notes/18)
+# ---------------------------------------------------------------------------------------
+#
+# When gate.py reports `red_localized_to: "tests"`, /implement hands back to the test-author,
+# who fixes tests/** while the implementer's `src/` sits UNCOMMITTED in the work tree. The
+# baseline tag must then move onto the corrected tests commit — and doing that by hand means a
+# stash dance, because the two checks that matter want opposite worlds:
+#
+#   * redness needs `src/` ABSENT (with the package present the tests pass and prove nothing);
+#   * mypy over tests/** needs `src/` PRESENT (the conftest annotates app types, so without src
+#     every annotation is an unresolved import — the very reason red_check skips mypy at the
+#     original baseline).
+#
+# So run each check in the world where it is meaningful, and never touch the live work tree:
+# redness + lint in an isolated `git worktree` OF THE CANDIDATE COMMIT (where `src/` is absent
+# by construction — the implementer commits only on green), and mypy in the LIVE tree (where
+# `src/` exists). That last check is the one whose absence let the users/001 baseline through:
+# at re-baseline time it is finally decidable, so a handback cannot re-tag a conftest that the
+# gate will still reject.
+#
+# A baseline move must not WEAKEN what gate.py later checks against it, so two integrity
+# conditions guard it: the candidate commit touches tests/** only (anti-collusion, §4/D3 — the
+# same check the first tagging makes), and no ac-marked test present at the old baseline has
+# disappeared (otherwise moving the tag would silently legitimise a dropped test, which
+# gate.py's `integrity.test-inventory` could no longer see).
+
+
+@contextlib.contextmanager
+def worktree_at(tree: Path, ref: str) -> Iterator[Path]:
+    """A throwaway detached `git worktree` of `ref`; removed on exit. The live tree is untouched."""
+    with tempfile.TemporaryDirectory(prefix="red_check_wt_") as tmp:
+        path = Path(tmp) / "wt"
+        proc = subprocess.run(
+            ["git", "-C", str(tree), "worktree", "add", "--detach", "--quiet", str(path), ref],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise RedCheckError(f"could not create a worktree at {ref}: {(proc.stderr or proc.stdout).strip()}")
+        try:
+            yield path
+        finally:
+            subprocess.run(
+                ["git", "-C", str(tree), "worktree", "remove", "--force", str(path)],
+                capture_output=True,
+                text=True,
+            )
+
+
+def ac_inventory_at(tree: Path, ref: str) -> dict[str, list[str]]:
+    """`nodeid -> [AC ids]` for every ac-marked test in tests/** at `ref`, by static AST scan.
+
+    Static on purpose: at the old baseline the tests may not even collect (greenfield), so
+    running pytest there would prove nothing. `git show` of each blob keeps it worktree-free."""
+    listing = subprocess.run(
+        ["git", "-C", str(tree), "ls-tree", "-r", "--name-only", ref, "tests/"],
+        capture_output=True,
+        text=True,
+    )
+    if listing.returncode != 0:
+        raise RedCheckError(f"could not list tests/ at {ref}: {(listing.stderr or listing.stdout).strip()}")
+    found: dict[str, list[str]] = {}
+    for rel in (line.strip() for line in listing.stdout.splitlines()):
+        if not rel.endswith(".py"):
+            continue
+        blob = subprocess.run(["git", "-C", str(tree), "show", f"{ref}:{rel}"], capture_output=True, text=True)
+        if blob.returncode == 0:
+            found.update(scan_ac_markers(blob.stdout, rel))
+    return found
+
+
+def mypy_tests(tree: Path) -> list[str] | None:
+    """The gate's mypy findings that land in tests/**; None when `src/` is absent (undecidable).
+
+    Runs the gate's exact `MYPY_CONFIG` over `src tests` — the invocation gate.py will make —
+    then keeps only the tests/** lines, since src/** belongs to the implementer, not this screen."""
+    if not (tree / "src").is_dir():
+        return None
+    gate = _gate()
+    with tempfile.TemporaryDirectory(prefix="red_check_mypy_") as tmp:
+        config = Path(tmp) / "mypy.ini"
+        config.write_text(gate.MYPY_CONFIG + f"cache_dir = {Path(tmp) / 'cache'}\n", encoding="utf-8")
+        env = os.environ.copy()
+        for var in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "MYPYPATH"):  # E-05 class
+            env.pop(var, None)
+        proc = subprocess.run(
+            [sys.executable, "-m", "mypy", "--config-file", str(config), "src", "tests"],
+            cwd=str(tree),
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+    if proc.returncode == 0:
+        return []
+    return [line for line in (proc.stdout or proc.stderr).splitlines() if line.startswith("tests/")]
+
+
+def rebaseline(tree: Path, change_id: str, ac_ids: list[str]) -> int:
+    """Move `baseline/<ctx>-NNN` onto HEAD after a TESTS-HANDBACK. Return a process exit code."""
+    tag = "baseline/" + change_id.replace("/", "-")
+    resolved = subprocess.run(["git", "-C", str(tree), "rev-parse", "--verify", tag], capture_output=True, text=True)
+    if resolved.returncode != 0:
+        raise RedCheckError(f"no existing tag {tag} to move — a first baseline uses the normal red_check path")
+    old_sha = resolved.stdout.strip()
+    head = subprocess.run(["git", "-C", str(tree), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+
+    print(f"red_check --rebaseline: {change_id}")
+    print(f"  {tag}: {old_sha[:8]} -> {head[:8]} (HEAD)")
+    print()
+    if old_sha == head:
+        print("nothing to do — the tag already points at HEAD")
+        return 0
+
+    failures: list[str] = []
+
+    # (a) the candidate commit must touch tests/** only — anti-collusion (§4/D3)
+    offenders = non_tests_paths(baseline_commit_paths(tree))
+    if offenders:
+        failures.append(
+            "the re-baseline commit writes outside tests/** (anti-collusion, §4/D3):\n"
+            + "\n".join(f"    {p}" for p in offenders)
+        )
+
+    # (b) no ac-marked test may vanish across the move
+    dropped = sorted(set(ac_inventory_at(tree, old_sha)) - set(ac_inventory_at(tree, head)))
+    if dropped:
+        failures.append(
+            "ac-marked tests present at the old baseline are gone — a baseline move must not "
+            "drop a test (it would blind gate.py's integrity.test-inventory):\n"
+            + "\n".join(f"    {nodeid}" for nodeid in dropped)
+        )
+
+    # (c) redness + AC coverage + lint, judged where `src/` is ABSENT: a worktree of HEAD
+    with worktree_at(tree, head) as wt:
+        inventory = apply_greenfield_fallback(wt, run_tests(wt), project_package(wt))
+        result = analyze(ac_ids, inventory)
+        lint_failures = lint_tests(wt) if result.ok else None
+    print(format_report(change_id, result, lint_failures))
+    print()
+    if not result.ok:
+        failures.append("the corrected tests are no longer a valid RED baseline (see above)")
+    if lint_failures:
+        failures.append("tests/** is still lint-dirty (see above)")
+
+    # (d) mypy over tests/**, judged where `src/` is PRESENT: the live tree
+    mypy_failures = mypy_tests(tree)
+    if mypy_failures is None:
+        print("BASELINE MYPY: SKIPPED — no src/ in the live tree, so tests/** annotations are undecidable")
+    elif mypy_failures:
+        print("BASELINE MYPY: FAILED — tests/** must type-check against the existing src/ before")
+        print("re-tagging, or the implementer inherits a gate it cannot turn green (notes/18):")
+        for line in mypy_failures:
+            print(f"    {line}")
+        failures.append("tests/** does not type-check under the gate's mypy (see above)")
+    else:
+        print("BASELINE MYPY: clean (gate config, tests/** findings only)")
+
+    if failures:
+        print()
+        print("RE-BASELINE: REFUSED")
+        for item in failures:
+            print(f"  - {item}")
+        return 1
+
+    tag_baseline(tree, change_id, force=True)
+    print()
+    print(f"RE-BASELINE: OK — moved {tag} -> {head[:8]}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Confirm the red baseline and tag it.")
     parser.add_argument("tree", nargs="?", default=".")
     parser.add_argument("--change", dest="change", default=None)
     parser.add_argument("--no-tag", action="store_true")
     parser.add_argument("--force-tag", action="store_true")
+    parser.add_argument(
+        "--rebaseline",
+        action="store_true",
+        help="move an existing baseline tag onto HEAD after a TESTS-HANDBACK (notes/18)",
+    )
     args = parser.parse_args(argv)
 
     tree = Path(args.tree).resolve()
@@ -449,6 +698,8 @@ def main(argv: list[str] | None = None) -> int:
         ac_ids = parse_ac_ids(criteria_path.read_text(encoding="utf-8"))
         if not ac_ids:
             raise RedCheckError(f"no AC-n items found in {criteria_path}")
+        if args.rebaseline:
+            return rebaseline(tree, change_id, ac_ids)
         inventory = run_tests(tree)
         inventory = apply_greenfield_fallback(tree, inventory, project_package(tree))
     except RedCheckError as exc:
@@ -456,9 +707,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     result = analyze(ac_ids, inventory)
-    print(format_report(change_id, result))
+
+    # The lint screen runs only after redness is confirmed (a not-yet-red baseline already
+    # fails); it is reported alongside the RED-CHECK verdict and blocks the tag on any finding.
+    lint_failures = lint_tests(tree) if result.ok else None
+    print(format_report(change_id, result, lint_failures))
 
     if not result.ok:
+        return 1
+    if lint_failures:
         return 1
 
     if not args.no_tag:

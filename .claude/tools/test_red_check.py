@@ -287,10 +287,14 @@ def test_e2e_no_tag_flag_skips_tagging(tmp_path: Path) -> None:
 
 # --- greenfield / brownfield collection-error e2e --------------------------------------
 
+# NB the blank line: `app` is the project's OWN package, so ruff (with known-first-party pinned
+# by gate.ruff_common) sorts it into a separate first-party group even though src/ does not exist
+# yet — the baseline screen now judges own-package imports exactly as the gate later will (notes/18).
 GREENFIELD_TESTS = """\
-from app.restapi.main import create_app  # whole package absent yet — greenfield collection error
-
+# the whole package is absent yet — the module import below is a greenfield collection error
 import pytest
+
+from app.restapi.main import create_app
 
 
 @pytest.mark.ac("AC-1")
@@ -322,6 +326,25 @@ def test_e2e_greenfield_collection_error_is_red_with_all_acs(tmp_path: Path) -> 
     assert "baseline/demo-001" in repo.tags()
 
 
+def test_e2e_greenfield_own_package_import_ungrouped_refused_at_baseline(tmp_path: Path, capsys) -> None:
+    # notes/18 regression: the own-package import grouped with third-party (clean while src/ is
+    # absent under naive isort, I001 once src/ exists) is the drift that ESCALATEd users/001. With
+    # known-first-party pinned, the baseline lint screen judges it as the gate will and REFUSES the
+    # tag — so the test-author fixes it at author time, not the implementer at an unwinnable gate.
+    ungrouped = GREENFIELD_TESTS.replace("import pytest\n\nfrom app", "import pytest\nfrom app")
+    repo = _base_repo(tmp_path)
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "deps: pre-baseline")
+    repo.write("tests/test_health.py", ungrouped)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests, own-package import ungrouped")
+
+    assert _run(repo) == 1
+    assert "I001" in "".join(capsys.readouterr())
+    assert "baseline/demo-001" not in repo.tags()
+
+
 def test_e2e_brownfield_broken_import_still_fails_no_tag(tmp_path: Path) -> None:
     # Brownfield: the package EXISTS but a test mis-imports a submodule (typo) → a real broken
     # test. The greenfield fallback must NOT mask it: red_check fails on the missing markers.
@@ -343,6 +366,223 @@ def test_e2e_brownfield_broken_import_still_fails_no_tag(tmp_path: Path) -> None
 
     assert _run(repo) == 1
     assert "baseline/demo-001" not in repo.tags()
+
+
+# --- re-baseline after a TESTS-HANDBACK (notes/18) -------------------------------------
+#
+# The handback fixes tests/** while the implementer's src/ is UNCOMMITTED, then the baseline tag
+# must move onto the corrected tests commit. --rebaseline must do that without stashing: redness
+# judged in a worktree of the candidate commit (src/ absent there), mypy judged in the live tree
+# (src/ present). These tests pin both worlds and the two integrity refusals.
+
+SRC_SHELL = {
+    "src/app/__init__.py": "",
+    "src/app/restapi/__init__.py": "",
+    "src/app/restapi/main.py": "def create_app() -> object:\n    return object()\n",
+}
+
+
+def _handback_repo(tmp_path: Path) -> FixtureRepo:
+    """A repo at the handback moment: baseline tagged on the red tests, src/ uncommitted."""
+    repo = _base_repo(tmp_path)
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "deps: pre-baseline")
+    repo.write("tests/test_health.py", GREENFIELD_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+    assert _run(repo) == 0  # tags baseline/demo-001 on the red-tests commit
+    return repo
+
+
+def test_rebaseline_moves_the_tag_without_stashing_uncommitted_src(tmp_path: Path) -> None:
+    # The money test: the implementer's src/ is present and UNCOMMITTED in the live tree, so an
+    # in-place redness re-run would see the package and prove nothing (that is why the manual
+    # recovery had to stash). --rebaseline judges redness in a worktree of the candidate commit,
+    # where src/ is absent by construction — no stash, and the live src/ is left untouched.
+    repo = _handback_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+
+    repo.write("tests/test_health.py", GREENFIELD_TESTS.replace("# the whole", "# corrected; the whole"))
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: corrected tests (handback)")
+    for rel, content in SRC_SHELL.items():  # the implementer's work — deliberately NOT committed
+        repo.write(rel, content)
+
+    assert _run(repo, "--rebaseline") == 0
+    head = repo.git("rev-parse", "HEAD").strip()
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == head
+    assert head != old
+    for rel in SRC_SHELL:  # the live work tree survived the move
+        assert (repo.root / rel).exists()
+
+
+def test_rebaseline_refuses_a_commit_that_writes_outside_tests(tmp_path: Path) -> None:
+    # A baseline move is still the test-author's lane: src/ in the re-baseline commit is the
+    # anti-collusion case (§4/D3), refused exactly as at the first tagging.
+    repo = _handback_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    repo.write("tests/test_health.py", GREENFIELD_TESTS.replace("# the whole", "# corrected; the whole"))
+    for rel, content in SRC_SHELL.items():
+        repo.write(rel, content)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: corrected + smuggled src")
+
+    assert _run(repo, "--rebaseline") == 1
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old  # tag did NOT move
+
+
+def test_rebaseline_refuses_when_an_ac_marked_test_disappeared(tmp_path: Path, capsys) -> None:
+    # Moving the tag re-anchors gate.py's integrity.test-inventory, so a test dropped in the
+    # handback would become invisible to it. Refuse the move and name the lost node-id.
+    repo = _handback_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    dropped = GREENFIELD_TESTS.split('@pytest.mark.ac("AC-2")')[0].rstrip() + "\n"
+    repo.write("tests/test_health.py", dropped)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: corrected but AC-2 test dropped")
+
+    assert _run(repo, "--rebaseline") == 1
+    assert "tests/test_health.py::test_health_status_ok" in "".join(capsys.readouterr())
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old
+
+
+# The users/001 root-cause regression: tests that are RED and ruff-clean but do NOT type-check
+# against the existing src/. This is precisely what the old baseline screen could not see (it
+# skips mypy, undecidable while src/ is absent) and what left the implementer at an unwinnable
+# gate. At re-baseline time src/ EXISTS, so the check is finally decidable — and must refuse.
+MYPY_DIRTY_TESTS = """\
+# red in a worktree (package absent), ruff-clean, but mypy-dirty against a present src/
+import pytest
+
+from app.restapi.main import create_app
+
+
+def _built() -> object:
+    return create_app()
+
+
+@pytest.mark.ac("AC-1")
+def test_health_status_field() -> None:
+    assert _built().status is None
+
+
+@pytest.mark.ac("AC-2")
+def test_health_status_ok() -> None:
+    assert _built() is not None
+"""
+
+
+def test_rebaseline_refuses_tests_that_do_not_typecheck_against_the_present_src(tmp_path: Path, capsys) -> None:
+    repo = _handback_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    repo.write("tests/test_health.py", MYPY_DIRTY_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: corrected imports but still mypy-dirty")
+    for rel, content in SRC_SHELL.items():
+        repo.write(rel, content)
+
+    assert _run(repo, "--rebaseline") == 1
+    out = "".join(capsys.readouterr())
+    assert "BASELINE MYPY: FAILED" in out
+    assert "attr-defined" in out
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old  # tag did NOT move
+
+
+def test_rebaseline_without_an_existing_tag_is_an_error(tmp_path: Path) -> None:
+    # --rebaseline *moves* a tag; a first baseline must go through the normal red_check path.
+    repo = _base_repo(tmp_path)
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.write("tests/test_health.py", GREENFIELD_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests, never tagged")
+
+    assert _run(repo, "--rebaseline") == 2
+    assert "baseline/demo-001" not in repo.tags()
+
+
+# --- baseline lint screen (T09f) -------------------------------------------------------
+#
+# A lint defect in the RED baseline's tests/** deadlocks the implementer (tool-blocked from
+# tests/**, ruff is per-file), so red_check must refuse to tag a lint-dirty baseline.
+
+# The health/001 shape: two third-party imports split into two blocks by a blank line (I001).
+I001_CONFTEST = """\
+import pytest
+
+import httpx
+
+
+@pytest.fixture
+def client() -> object:
+    return httpx.Client()
+"""
+
+
+def test_lint_tests_flags_i001_split_imports(tmp_path: Path) -> None:
+    (tmp_path / "tests" / "integration").mkdir(parents=True)
+    (tmp_path / "tests" / "integration" / "conftest.py").write_text(I001_CONFTEST)
+    failures = red_check.lint_tests(tmp_path)
+    assert failures, "an I001 split-import block must be caught"
+    assert "conftest.py" in "\n".join(failures)
+
+
+def test_lint_tests_clean_tree_returns_empty(tmp_path: Path) -> None:
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_ok.py").write_text(
+        'import pytest\n\n\n@pytest.mark.ac("AC-1")\ndef test_a() -> None:\n    assert True\n'
+    )
+    assert red_check.lint_tests(tmp_path) == []
+
+
+def test_lint_tests_catches_format_only_violation(tmp_path: Path) -> None:
+    # Lint-passing but badly formatted (extra spaces around the operator) — the format arm
+    # must catch what ruff-check alone would let through.
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_fmt.py").write_text("x = 1+2\n")
+    failures = red_check.lint_tests(tmp_path)
+    assert any("format" in f for f in failures), f"format arm should fire: {failures}"
+
+
+def _conftest_with_split_imports(repo: FixtureRepo) -> None:
+    repo.write("tests/integration/conftest.py", I001_CONFTEST)
+
+
+def test_e2e_lint_dirty_baseline_refused_no_tag(tmp_path: Path, capsys) -> None:
+    # RED baseline whose conftest.py has the health/001 I001 defect: coverage + redness pass,
+    # but the lint screen refuses to tag (else the implementer would deadlock).
+    repo = _base_repo(tmp_path)
+    repo.write("tests/test_health.py", RED_TESTS)
+    _conftest_with_split_imports(repo)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests + lint-dirty conftest")
+
+    assert _run(repo) == 1
+    combined = capsys.readouterr()
+    assert "conftest.py" in (combined.out + combined.err)
+    assert "baseline/demo-001" not in repo.tags()
+
+    # After ruff --fix on the offending file, the same command is RED-CONFIRMED and tags.
+    subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--isolated", "--fix", "--select", "I", str(repo.root / "tests")],
+        check=True,
+        capture_output=True,
+    )
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "ruff --fix conftest")
+    assert _run(repo) == 0
+    assert "baseline/demo-001" in repo.tags()
+
+
+def test_e2e_lint_clean_baseline_still_tagged(tmp_path: Path) -> None:
+    # No regression: a lint-clean RED baseline is still RED-CONFIRMED and tagged as before.
+    repo = _base_repo(tmp_path)
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+
+    assert _run(repo) == 0
+    assert "baseline/demo-001" in repo.tags()
 
 
 def test_resolve_change_autodetects_single_change_dir(tmp_path: Path) -> None:

@@ -1,5 +1,5 @@
 ---
-description: "Run the change cycle on change/<context>-NNN: test-author (red baseline) → implementer (to green gate) → fresh evaluator (verdict + flips) → adversarial pass; ≤3 passes then a human ESCALATE"
+description: "Run the change cycle on change/<context>-NNN: test-author (red baseline) → implementer (to green gate) → fresh evaluator (verdict + flips) → adversarial review; ≤3 passes then a human ESCALATE"
 ---
 
 # /implement <context>/NNN
@@ -25,7 +25,7 @@ F-7). At most **one change per context** is in `/implement` at a time (spec §6)
    blocks *within this change's* implementer loop, so it starts at zero here.
 3. Read `change.md` to learn the **Class** (behavioral / bugfix / invisible; removal is a
    behavioral flavour) and **Depth** (S / M / L) — they decide the fast-lane and the
-   adversarial pass below.
+   adversarial review below.
 
 ## 0.5 Precondition — a Python project exists (no bootstrap, no template)
 
@@ -86,11 +86,38 @@ CONTRACT-CHANGE back to the test-author, never a `uv add`. The
 SubagentStop hook holds it while the gate is red and, at the internal ceiling (**3 blocks per
 red test**), the hook itself writes `changes/NNN-<slug>/ESCALATE` and releases it (spec §5.3).
 
+On green the implementer **commits its own `src/**` (and Alembic revision)** as the code
+commit and reports the SHA — you do **not** commit `src/` for it. If it reports green but an
+uncommitted tree, that is a bug in the run, not your cue to commit; send it back to finish its
+own commit.
+
 - **CONTRACT-CHANGE**: if the implementer reports it hit the Interface sketch (needs another
   ctor dep, a name is wrong, a lookup must return `T | None` not raise) it does **not** work
   around it. The cycle returns to **step 1** with a fresh test-author that reworks the tests
   against the corrected sketch — the sketch edit is approved by the human for an M/L change,
   otherwise by you (this session). No silent workarounds ever.
+- **TESTS-HANDBACK**: if `.gate/verdict.json` carries `"red_localized_to": "tests"` (the
+  SubagentStop hook releases the implementer with a matching systemMessage, spending **no**
+  block), the RED is entirely in `tests/**` — the implementer cannot clear it (D4), and the
+  static toolchain is already clean over `src/` alone. This is **not** an ESCALATE. Return to
+  **step 1** with a fresh test-author, handing it the gate's failing checks to fix in `tests/**`
+  (e.g. re-type `conftest` fixtures against the now-existing package, re-sort own-package
+  imports). It consumes one of the 3 full-cycle passes, so a change that keeps bouncing between
+  the two lanes still ESCALATEs rather than looping forever.
+
+  The handback's test-author commits `tests/**` only — **leave the implementer's uncommitted
+  `src/` in place, do not stash it**. Then re-anchor the baseline onto that corrected commit:
+
+  ```bash
+  uv run .claude/tools/red_check.py --change <context>/NNN --rebaseline
+  ```
+
+  It verifies each property in the world where it is decidable — redness in a throwaway worktree
+  of the candidate commit (where `src/` is absent), mypy over `tests/**` in the live tree (where
+  `src/` is present) — and refuses the move if the commit writes outside `tests/**`, drops an
+  ac-marked test, or leaves `tests/**` lint/type-dirty. On OK it moves the tag; then resume the
+  implementer, whose `src/` should carry the gate to green **unchanged**. Never move the tag with
+  `git tag -f` by hand: the move re-anchors every integrity check gate.py makes (notes/18).
 - If an `ESCALATE` file appears, stop the loop and surface it to the human (see §5).
 
 ## 3. evaluator → verdict + flips
@@ -104,7 +131,14 @@ and writes `verdict.md` (per-AC PASS / FAIL / MANUAL-candidate + proof method + 
 - For M/L and every criterion Verification provisioned an environment for, the live run is
   required; a pytest citation may not silently stand in for it (honesty rule, spec §4).
 
-## 4. Adversarial pass
+The evaluator **commits its own artifacts in the freshness-correct order** on top of the
+implementer's code commit: (1) the `criteria.md` flip alone → (2) a gate run at that HEAD whose
+SHA it pins into `verdict.md` → (3) `verdict.md` committed LAST as pure metadata (`accept.py`
+excludes the verdict.md-only commit from L-04's `changed_since`, so the verdict stays fresh).
+It reports the three SHAs. **You commit nothing** — do not offer to finalize its commits;
+a completed step 3 leaves `git status` clean and the verdict pinned.
+
+## 4. Adversarial review
 
 Mandatory for **M/L** changes and the **first change of a capability** (opt-in `--adversarial`
 for S). A fresh agent applies the assert-strength recipes from the **`testing-unit`** skill to
@@ -118,7 +152,15 @@ the change's class.
 
 - **All criteria `[x]`** (and `[m]` recorded by the human) with `verdict.md` present and no
   `ESCALATE` file → the change is ready; tell the human the next step is
-  `/accept-change <context>/NNN`.
+  `/accept-change <context>/NNN`. By now the branch is **acceptance-ready with no manual
+  commits**: the implementer committed the code, the evaluator committed criteria then verdict
+  in freshness order, and `git status` is clean — `accept.py` passes L-04 with no re-pin.
+- **Do not land canon fixes on a change mid-flight where avoidable.** Fixing `gate.py`/`accept.py`/
+  hooks/skills on the base while this change is open forces a rebase that rewrites every SHA. If it
+  is unavoidable, rebase the branch and re-tag `baseline/<context>-NNN`, but **do not re-pin the
+  verdict**: `accept.py` L-04 anchors freshness to the *tree identity* of the change's attested
+  files (T10d), so a rebase that preserves the code + criteria keeps the verdict fresh with no
+  evaluator re-run. A re-pin is needed only when a change file actually changed.
 - **Any FAIL** → send `verdict.md` (with the concrete failure) back to a new **implementer**
   dispatch (step 2). A CONTRACT-CHANGE instead returns to step 1.
 - **Full-cycle ceiling: 3 passes.** After the third pass still not all-green, write/expect the

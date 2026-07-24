@@ -21,6 +21,7 @@ import pytest
 from test_gate import CRITERIA_MD, SRC_MAIN_BROKEN, TESTS_CORE, FixtureRepo, make_repo
 
 TOOLS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = TOOLS_DIR.parent.parent  # <repo>/.claude/tools -> <repo>
 HOOKS_DIR = TOOLS_DIR.parent / "hooks"
 HOOKS = ("criteria_guard.py", "bash_guard.py", "subagent_stop.py", "session_stop.py")
 
@@ -184,6 +185,15 @@ def test_criteria_guard_case_variant_path_reword_denied(repo: FixtureRepo) -> No
 # =======================================================================================
 # bash_guard — ergonomics
 # =======================================================================================
+#
+# bash_guard anchors its protected-path match to the repo root (T06e): a relative target is
+# resolved against the cwd and only fires when its repo-relative form matches a fragment, so
+# the tests run from a realistic cwd (the repo root) with CLAUDE_PROJECT_DIR set to it.
+
+
+def run_bash_guard(payload: dict, *, root: Path = REPO_ROOT) -> subprocess.CompletedProcess[str]:
+    """Drive bash_guard anchored to `root`; protected fragments match repo-relative paths (T06e)."""
+    return run_hook("bash_guard.py", payload, cwd=root, env={"CLAUDE_PROJECT_DIR": str(root)})
 
 
 @pytest.mark.parametrize(
@@ -202,7 +212,7 @@ def test_criteria_guard_case_variant_path_reword_denied(repo: FixtureRepo) -> No
 )
 def test_bash_guard_denies_writes_to_protected_paths(command: str) -> None:
     payload = {"tool_name": "Bash", "tool_input": {"command": command}}
-    proc = run_hook("bash_guard.py", payload, cwd=TOOLS_DIR)
+    proc = run_bash_guard(payload)
     assert decision(proc) == "deny", (command, proc.stdout)
 
 
@@ -224,7 +234,118 @@ def test_bash_guard_denies_writes_to_protected_paths(command: str) -> None:
 )
 def test_bash_guard_allows_benign(command: str) -> None:
     payload = {"tool_name": "Bash", "tool_input": {"command": command}}
-    assert decision(run_hook("bash_guard.py", payload, cwd=TOOLS_DIR)) is None, command
+    assert decision(run_bash_guard(payload)) is None, command
+
+
+# =======================================================================================
+# bash_guard — role-aware owned-tree write path (T06d)
+# =======================================================================================
+#
+# The cycle subagents have no Write/Edit tool (a path-scoped disallowedTools drops the tool
+# wholesale), so the shell is their only write path to their OWNED tree. The guard reads the
+# acting role from the payload's `agent_type` and does not fire on that role's owned tree,
+# while a write to a NON-owned protected tree still fires (precision, S8 backstop unchanged).
+
+
+def _bash(command: str, agent_type: str | None = None) -> dict:
+    p = {"tool_name": "Bash", "tool_input": {"command": command}}
+    if agent_type is not None:
+        p["agent_type"] = agent_type
+    return p
+
+
+@pytest.mark.parametrize(
+    ("role", "command", "expected"),
+    [
+        # --- test-author owns tests/** + the deps files: sanctioned, no denial ---
+        ("test-author", "echo x > tests/test_foo.py", None),
+        ("test-author", "printf x | tee tests/integration/test_foo.py", None),
+        ("test-author", "sed -i '' 's/a/b/' pyproject.toml", None),
+        ("test-author", "echo locked > uv.lock", None),
+        # ... but the implementer's lane and the other cycle files stay closed to it
+        ("test-author", "echo x > src/app/core.py", "deny"),
+        ("test-author", "echo x > specs/demo/changes/001-thing/verdict.md", "deny"),
+        ("test-author", "echo x > specs/demo/changes/001-thing/criteria.md", "deny"),
+        ("test-author", "echo x >> .claude/settings.json", "deny"),
+        # --- evaluator owns criteria.md + verdict.md ---
+        ("evaluator", "echo x > specs/demo/changes/001-thing/verdict.md", None),
+        ("evaluator", "printf y >> specs/demo/changes/001-thing/criteria.md", None),
+        # ... but tests/, src/, and capability prose stay closed to it
+        ("evaluator", "echo x > tests/test_foo.py", "deny"),
+        ("evaluator", "echo x > src/app/core.py", "deny"),
+        ("evaluator", "echo x > specs/demo/core.md", "deny"),  # capability prose is /spec's
+        ("evaluator", "rm .claude/tools/gate.py", "deny"),
+        # --- implementer owns src/** (unchanged); tests/ and pyproject stay closed ---
+        ("implementer", "echo x > src/app/core.py", None),
+        ("implementer", "mkdir -p src/app/domain && echo x > src/app/domain/entities.py", None),
+        ("implementer", "echo x > tests/test_foo.py", "deny"),
+        ("implementer", "sed -i '' 's/a/b/' pyproject.toml", "deny"),  # deps are the test-author's
+        # --- an unidentified/default session: pre-T06d behavior, everyone-denied ---
+        ("default", "echo x > tests/test_foo.py", "deny"),
+        ("default", "echo x > src/app/core.py", None),  # src stays open to the default session
+    ],
+)
+def test_bash_guard_role_aware_owned_tree(role: str, command: str, expected: str | None) -> None:
+    agent_type = None if role == "default" else role
+    proc = run_bash_guard(_bash(command, agent_type))
+    assert decision(proc) == expected, (role, command, proc.stdout)
+
+
+def test_bash_guard_owner_denial_names_the_role() -> None:
+    # the deny message reports the acting role so the trace explains *why* a non-owned write fired
+    proc = run_bash_guard(_bash("echo x > src/app/core.py", "evaluator"))
+    assert decision(proc) == "deny"
+    assert "'evaluator'" in proc.stdout, proc.stdout
+
+
+# =======================================================================================
+# bash_guard — repo-root anchoring (T06e)
+# =======================================================================================
+#
+# A protected fragment (tests/, specs/, criteria.md, …) is a path RELATIVE TO THE REPO ROOT,
+# so the match must be too. A target that merely CONTAINS a fragment but resolves OUTSIDE the
+# repo tree (a /tmp scratch dir, a sibling of the repo) never fires — this is what blocked a
+# legitimate `/tmp` fixture setup. The in-repo protection is untouched: a non-owner write to a
+# protected tree inside the repo still fires (relative or absolute). The gate backstops (S8).
+
+
+def _run_anchored(command: str, *, agent_type: str | None, root: Path) -> subprocess.CompletedProcess[str]:
+    return run_hook("bash_guard.py", _bash(command, agent_type), cwd=root, env={"CLAUDE_PROJECT_DIR": str(root)})
+
+
+def test_bash_guard_absolute_in_repo_protected_denied(repo: FixtureRepo) -> None:
+    # <repo>/tests/x.py written by a non-owner (evaluator) — inside the repo, still denied.
+    cmd = f"echo x > {repo.root}/tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_absolute_outside_repo_allowed(repo: FixtureRepo, tmp_path: Path) -> None:
+    # A scratch tree that merely CONTAINS `tests/` but lives OUTSIDE the repo never fires.
+    # (`repo` is tmp_path/"app"; this scratch is a sibling, not under the repo root.)
+    scratch = tmp_path / "scratch" / "tests" / "x.py"
+    cmd = f"echo x > {scratch}"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) is None
+
+
+def test_bash_guard_tmp_scratch_write_allowed(repo: FixtureRepo) -> None:
+    # The exact friction from T09f: a /tmp fixture setup under a non-owner role must be allowed.
+    cmd = "cat > /tmp/x/tests/conftest.py"
+    assert decision(_run_anchored(cmd, agent_type="test-author", root=repo.root)) is None
+
+
+def test_bash_guard_specs_in_repo_denied(repo: FixtureRepo) -> None:
+    cmd = f"echo x > {repo.root}/specs/demo/core.md"
+    assert decision(_run_anchored(cmd, agent_type="test-author", root=repo.root)) == "deny"
+
+
+def test_bash_guard_relative_under_repo_still_denied(repo: FixtureRepo) -> None:
+    # A relative target resolving under the repo (cwd = repo root) is still protected.
+    assert decision(_run_anchored("echo x > tests/x.py", agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_owned_tree_under_repo_still_allowed(repo: FixtureRepo) -> None:
+    # T06d owned-tree allowance survives the anchoring: the test-author writes tests/ freely.
+    assert decision(_run_anchored("echo x > tests/x.py", agent_type="test-author", root=repo.root)) is None
 
 
 # =======================================================================================

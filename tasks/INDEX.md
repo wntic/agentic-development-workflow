@@ -62,6 +62,68 @@ escalates instead of improvising.
 - [ ] T11 — E2E probe runbook (WP7, human-driven). Greenfield e2e runs after T12: `uv init` project →
   `/spec` → `/implement` reaches green with no bootstrap and no template; thereafter brownfield.
 
+### Skill-catalog progressive disclosure (2026-07-24 — the T08 merge produced monolithic bodies)
+
+The §7 merge (44 → 13) was right on *theme count* but concatenated each theme into one body:
+`testing-integration` 1792 lines, `restapi` 1256, `testing-unit` 1045, `infra-persistence` 733. An
+agent writing one endpoint loads all 7 restapi artifacts. Fix = progressive disclosure *inside* a
+theme (thin `SKILL.md` router + one `<topic>.md` per artifact, read on demand). Frontmatter and the
+~13-theme map are untouched — this splits bodies, not the catalog. Contract first (T13), then apply
+(T14) — the T07→T08 shape.
+
+- [ ] T13 — Progressive-disclosure contract: rewrite CONVENTIONS.md "Skill format" (thin router +
+  bundled `<topic>.md`, with a split threshold), teach both shapes in `meta-skill-author`, clarify
+  C2 ("one theme" = one auto-invocation entry, not one file). Design-sensitive; no canon edit.
+  Depends: T08.
+- [ ] T14 — Split the over-threshold skills into router + topic files per T13, losing no paid-for
+  line. `test_skill_catalog.py` is the unedited oracle (`rglob("*.md")` already covers bundled
+  files). Frontmatter moved verbatim. On-demand-read reliability confirmed only in an e2e probe.
+  Depends: T13.
+
+### Post-`/implement platform/001` friction fixes (2026-07-24 agent-report analysis)
+
+The first full `/implement platform/001` run was GREEN end-to-end but ~85% of wall-clock was
+friction, not agent reasoning (evaluator: 8m21s work across a 116m span). Five fixes, ordered by
+impact. See `notes/greenfield-first-change-blockers.md` (cost profile + findings #1–#4).
+
+- [x] T06d — Give cycle subagents a sanctioned write path to their OWNED tree. Write/Edit is
+  absent entirely and `bash_guard` protects everything but `src/`, so the two protected-tree
+  agents (test-author, evaluator) must bypass the hook while the implementer sails through.
+  Restore path-scoped Write OR make `bash_guard` role-aware. Depends: T06, T09.
+- [x] T09e — The cycle agents commit their own work. implementer commits `src/**` at green;
+  evaluator commits criteria→verdict in freshness order — takes the orchestrator off the critical
+  path (kills the 116m evaluator span + the SendMessage resumes). Depends: T09; easier after T06d.
+  Confirmed by the 2026-07-24 `health/001` replay: all three subagents self-committed in freshness
+  order, zero orchestrator commits, `accept.py` → ACCEPTABLE with no SendMessage re-pins.
+- [x] T09f — `red_check.py` must screen the baseline for lint before tagging. A `ruff I001` in the
+  test-author's `conftest.py` passed red_check (it checks only markers + redness), got tagged, then
+  DEADLOCKED the implementer: ruff is per-file and the implementer is tool-blocked from `tests/**`,
+  so it burned all 3 ESCALATE blocks over a defect outside its lane. Run the gate's ruff-check +
+  ruff-format over baseline `tests/**` before tagging; refuse a lint-dirty baseline. NOT mypy
+  (greenfield tests import a not-yet-written package — that import failure is the intended redness).
+  Surfaced by the 2026-07-24 `health/001` run. Depends: T09b (red_check anti-collusion), T04 (gate's
+  ruff config, reused not restated — C7).
+- [x] T10c — accept.py must not silently deny on pure formatting. Tolerant SHA parse (backticked
+  hex) + accept `## Adversarial pass|review`; rename `/implement` §4 to "Adversarial review" and
+  hand the evaluator the verdict template. Depends: T10, T09.
+- [x] T10d — accept.py freshness should survive a rebase (kill the re-pin cascade). Anchor L-04 to
+  tracked-tree identity, not commit identity, so a rebase that preserves the tree preserves the
+  verdict. **Design-sensitive (freshness canon) — confirm semantics before coding.** Depends: T10, T09e.
+- [x] T03b — Interface sketch must not claim "no layers" when the mandated `restapi` shell ships a
+  domain-exception base + error schema. Wording/altitude fix so a first change lands no false V-09.
+  Depends: T03.
+- [x] T06e — Anchor `bash_guard`'s protected-path match to the repo root (found building T09f: it
+  denies non-owner writes to `/tmp/.../tests/...` by substring-matching the fragment anywhere).
+  Cheap false-positive fix; keep T06b precision + T06d role-awareness. Depends: T06, T06b, T06d.
+
+**Sign-off pending (author's canon call):** T10d is ticked but its builder resolved the
+"design-sensitive" freshness fork (commit-identity → tree-identity) WITHOUT escalating. The code is
+correct and faithful to §5.4 (freshness = does the diff intersect the change's FILES, i.e. content,
+not commit-ancestry), but the canon reading needs the author's conscious sign-off before T10d is
+truly closed. T10d also incidentally exposed + closed a **pre-existing silent false-accept hole in
+the freshness gate (shipped since T05)** — an unresolvable pin gave an empty diff → PASS; worth an
+adversarial pass over the whole acceptance script.
+
 ## Dependency order
 
 ```
@@ -86,3 +148,6 @@ v2 минус валидатор, то есть хуже v2".
 4. **Branch base during the build-out:** until `markdown-specs` merges into `main`, it plays
    `main`'s role for S9 — `change/<context>-NNN` branches base on it and `accept.py` merges
    back into it (`main` is still the v2 archive). Revisit after T11.
+5. **Cite by symbol/content, not line number** (line numbers drift — a task citing `accept.py:526`
+   was really :558). A durable finding a builder must read belongs in repo `notes/`, NOT in
+   agent-memory — task files must not point `Read first` at a path that isn't in the repo.

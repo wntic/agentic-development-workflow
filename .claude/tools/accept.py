@@ -377,10 +377,26 @@ def merge_fidelity_violations(ac_texts: list[tuple[str, str]], merged_text: str)
     return out
 
 
+def parse_verdict_sha(verdict_text: str) -> str | None:
+    """The gate SHA the evaluator pinned in verdict.md (L-04).
+
+    Tolerant to markdown around the hex: the template renders a bare `SHA: <hex>`, but an
+    evaluator that wraps it in backticks or emphasis (`` SHA: `246f84…` ``) must not be
+    silently denied over cosmetics (T10c). Match the first 7–40 hex run after the `SHA:`
+    token, skipping any backticks / emphasis punctuation between them. Freshness still
+    requires the hex to resolve to a real commit downstream — this widens the parse, not the
+    semantics; a verdict with no hex anywhere still yields None (and FAILs freshness)."""
+    m = re.search(r"SHA:[\s`*_]*([0-9a-fA-F]{7,40})", verdict_text)
+    return m.group(1) if m else None
+
+
 def freshness_state(
     verdict_sha: str | None, head: str, changed_since: set[str], change_files: set[str]
 ) -> tuple[str, str]:
-    """(status, detail) for the verdict-freshness gate (L-04)."""
+    """(status, detail) for the verdict-freshness gate when the pin is still IN HISTORY (L-04).
+
+    Used when the pinned SHA is HEAD or an ancestor of HEAD (the no-rebase path). A rebase that
+    orphans the pin is handled by rebase_freshness_state — see prechecks."""
     if verdict_sha is None:
         return FAIL, "verdict.md carries no 'SHA: <sha>' line — the evaluator must pin the gate SHA"
     if verdict_sha == head:
@@ -399,6 +415,40 @@ def freshness_state(
     return FLAG, (
         f"verdict SHA {verdict_sha[:12]} is behind HEAD {head[:12]} but the diff does not intersect the "
         "change's files — verdict still fresh (L-04)"
+    )
+
+
+def rebase_freshness_state(
+    verdict_sha: str, head: str, resolvable: bool, changed_since: set[str], change_files: set[str]
+) -> tuple[str, str]:
+    """(status, detail) for the verdict-freshness gate when the pin is NO LONGER REACHABLE from
+    HEAD — a rebase rewrote every SHA on the branch (L-04, T10d).
+
+    The pin is a proxy for a question the spec §5.4 actually asks: does the verdict still attest to
+    THIS code + criteria? A rebase (e.g. onto a canon fix landed on main mid-flight) rewrites the
+    commit identity of the whole branch, orphaning the pinned SHA, WITHOUT changing what the verdict
+    attests to. Anchoring freshness to commit identity then demands a needless evaluator re-pin on
+    every rebase (the platform/001 re-pin cascade). Anchor it instead to TREE identity of the
+    attested state: the verdict stays fresh iff none of the change's own files differ between the
+    (orphaned) pinned commit and HEAD. Base / .claude drift the rebase pulled in is expected and
+    irrelevant — it is not part of the change's attested behaviour. A change file that ACTUALLY
+    differs still fails: tree-identity is the safe relaxation, commit-identity the accidental
+    strictness. If the pinned commit is unresolvable (its object was pruned), the attested tree is
+    unknowable — FAIL rather than pass silently (the pre-T10d silent-empty-diff hazard)."""
+    if not resolvable:
+        return FAIL, (
+            f"verdict SHA {verdict_sha[:12]} is not reachable from HEAD {head[:12]} and its commit object "
+            "is gone (pruned) — the attested tree cannot be verified; re-run the evaluator and re-pin (L-04)"
+        )
+    intersect = sorted(changed_since & change_files)
+    if intersect:
+        return FAIL, (
+            f"verdict SHA {verdict_sha[:12]} was rebased away AND the change's attested files differ from "
+            f"it — the verdict no longer attests to this code+criteria (L-04): {', '.join(intersect)}"
+        )
+    return PASS, (
+        f"verdict SHA {verdict_sha[:12]} was rebased away but the change's attested tree is byte-identical "
+        f"at HEAD {head[:12]} — verdict still fresh (tree-identity survives the rebase, L-04)"
     )
 
 
@@ -441,14 +491,29 @@ def adversarial_required(change_md: str, creates_new_capability: bool) -> tuple[
     return False, "S depth on an existing capability — the adversarial pass is opt-in"
 
 
+def _adversarial_body(verdict_text: str) -> str:
+    """The adversarial-pass section body, under either canonical heading.
+
+    The template + accept prefer `## Adversarial review`; `/implement` §4 historically said
+    "adversarial pass", which misled evaluators into `## Adversarial pass`. Accept either
+    heading (case-insensitive, via `_section`) so an author-side wording slip is not a silent
+    deny (T10c)."""
+    for heading in ("Adversarial review", "Adversarial pass"):
+        body = _section(verdict_text, heading)
+        if body.strip():
+            return body
+    return ""
+
+
 def adversarial_section_filled(verdict_text: str | None) -> bool:
-    """True when verdict.md's `## Adversarial review` carries a real run — not empty, not the
+    """True when verdict.md's adversarial section carries a real run — not empty, not the
     template comment, and not a bare N/A marker (which only legitimises the not-required case).
     criteria_guard cannot tell a human evaluator from an agent, so this presence check is the
-    only structural hold on the pass having actually run for a change class that demands it."""
+    only structural hold on the pass having actually run for a change class that demands it.
+    Reads either `## Adversarial review` or `## Adversarial pass` (T10c)."""
     if verdict_text is None:
         return False
-    stripped = re.sub(r"<!--.*?-->", "", _section(verdict_text, "Adversarial review"), flags=re.DOTALL).strip()
+    stripped = re.sub(r"<!--.*?-->", "", _adversarial_body(verdict_text), flags=re.DOTALL).strip()
     if not stripped:
         return False
     return re.match(r"(?i)n/?a\b", stripped) is None
@@ -555,18 +620,27 @@ def prechecks(actx: AcceptContext) -> list[Result]:
     if actx.verdict_text is None:
         results.append(Result("verdict.freshness", FAIL, "verdict.md not found — run /implement's evaluator first"))
     else:
-        sha_m = re.search(r"SHA:\s*([0-9a-fA-F]{7,40})", actx.verdict_text)
-        verdict_sha = sha_m.group(1) if sha_m else None
+        verdict_sha = parse_verdict_sha(actx.verdict_text)
         verdict_rel = str((actx.change_dir / VERDICT_BASENAME).relative_to(actx.tree))
-        changed_since: set[str] = set()
-        change_files: set[str] = set()
-        if verdict_sha and verdict_sha != actx.head:
-            _, out = _git(actx.tree, "diff", "--name-only", f"{verdict_sha}", actx.head)
-            # the verdict.md commit itself is metadata, never a reason to recompute the verdict
-            changed_since = {line for line in out.splitlines() if line.strip() and line != verdict_rel}
+        # the verdict.md commit itself is metadata, never a reason to recompute the verdict
         _, out = _git(actx.tree, "diff", "--name-only", f"{actx.base}...{actx.head}")
         change_files = {line for line in out.splitlines() if line.strip() and line != verdict_rel}
-        status, detail = freshness_state(verdict_sha, actx.head, changed_since, change_files)
+        if verdict_sha is None or verdict_sha == actx.head:
+            status, detail = freshness_state(verdict_sha, actx.head, set(), change_files)
+        else:
+            # Is the pin still IN HISTORY (an ancestor of HEAD), or did a rebase orphan it?
+            reachable = _git(actx.tree, "merge-base", "--is-ancestor", verdict_sha, actx.head)[0] == 0
+            resolvable = _git(actx.tree, "rev-parse", "--verify", f"{verdict_sha}^{{commit}}")[0] == 0
+            changed_since: set[str] = set()
+            if resolvable:
+                # git diff works against a dangling (rebased-away) commit as long as its object
+                # survives, so the tree comparison holds across a rebase (T10d).
+                _, out = _git(actx.tree, "diff", "--name-only", f"{verdict_sha}", actx.head)
+                changed_since = {line for line in out.splitlines() if line.strip() and line != verdict_rel}
+            if reachable:
+                status, detail = freshness_state(verdict_sha, actx.head, changed_since, change_files)
+            else:
+                status, detail = rebase_freshness_state(verdict_sha, actx.head, resolvable, changed_since, change_files)
         results.append(Result("verdict.freshness", status, detail))
 
     # gate 2: Companion accepted (tag exists AND the companion dir is gone).

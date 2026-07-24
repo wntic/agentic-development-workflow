@@ -202,6 +202,17 @@ VERDICT_ADVERSARIAL = VERDICT_MD.replace(
     "## Adversarial review\nRan the assert-strength recipes over the test diff — asserts pin\nexact values; no tautologies found.",
 )
 
+# The exact platform/001 pre-fix shape (T10c): the Gate-line SHA wrapped in backticks and the
+# adversarial section under the `## Adversarial pass` heading the /implement prose misled the
+# evaluator into. accept.py must read both without a cosmetic deny.
+VERDICT_BACKTICKED_SHA_PASS_HEADING = VERDICT_ADVERSARIAL.replace("· SHA: {sha} ·", "· SHA: `{sha}` ·").replace(
+    "## Adversarial review", "## Adversarial pass"
+)
+
+# A verdict whose Gate-line pins no hex at all (only the placeholder text) — the per-criterion
+# `- sha:` lines are lowercase, so the capital `SHA:` parse finds no hex and freshness must FAIL.
+VERDICT_NO_SHA = VERDICT_MD.replace("· SHA: {sha} ·", "· SHA: (pending) ·")
+
 CHANGE_DIR = "specs/demo/changes/001-thing"
 
 
@@ -339,6 +350,32 @@ def test_freshness_state_transitions() -> None:
     assert accept.freshness_state(None, "head", set(), set())[0] == accept.FAIL
 
 
+def test_rebase_freshness_state_transitions() -> None:
+    # the pin was rebased away AND its commit object is gone -> the attested tree is unknowable,
+    # so FAIL rather than a silent pass (T10d fixes the pre-T10d empty-diff false accept).
+    gone = accept.rebase_freshness_state("dead", "head", False, set(), set())
+    assert gone[0] == accept.FAIL and "pruned" in gone[1]
+    # rebased away but resolvable, and a change file differs -> attested tree changed -> FAIL.
+    changed = accept.rebase_freshness_state("old", "head", True, {"src/app/core.py"}, {"src/app/core.py"})
+    assert changed[0] == accept.FAIL and "src/app/core.py" in changed[1]
+    # rebased away, resolvable, only base / .claude drift (no change file differs) -> tree
+    # identity of the attested state preserved -> PASS (the re-pin cascade is unnecessary).
+    ok = accept.rebase_freshness_state("old", "head", True, {"README.md"}, {"src/app/core.py"})
+    assert ok[0] == accept.PASS and "tree-identity" in ok[1]
+
+
+def test_parse_verdict_sha_tolerates_markdown_around_the_hex() -> None:
+    # the canonical bare line.
+    assert accept.parse_verdict_sha("Gate: GREEN · SHA: 246f84a · junit: x") == "246f84a"
+    # the platform/001 pre-fix shape: backticks around the hex must not break the parse (T10c).
+    assert accept.parse_verdict_sha("· SHA: `246f84abcdef` ·") == "246f84abcdef"
+    # bold / emphasis punctuation around the token is tolerated too.
+    assert accept.parse_verdict_sha("SHA: **deadbeef1234**") == "deadbeef1234"
+    # no hex anywhere -> None (freshness then FAILs — no false accept).
+    assert accept.parse_verdict_sha("Gate: GREEN · SHA: (pending) · junit: x") is None
+    assert accept.parse_verdict_sha("no sha line here at all") is None
+
+
 def test_orphan_violations() -> None:
     assert accept.orphan_violations(["gone"], "clean spec", "clean src") == []
     hit = accept.orphan_violations(["ghost"], "the ghost lingers", "")
@@ -363,6 +400,9 @@ def test_adversarial_section_filled() -> None:
     # a bare N/A marker legitimises only the not-required case, never a required one.
     assert accept.adversarial_section_filled("## Adversarial review\nN/A (S)\n") is False
     assert accept.adversarial_section_filled("## Adversarial review\nRan recipes; asserts strong.\n") is True
+    # the `## Adversarial pass` heading the /implement prose misled authors into is accepted too (T10c).
+    assert accept.adversarial_section_filled("## Adversarial pass\nRan recipes; asserts strong.\n") is True
+    assert accept.adversarial_section_filled("## Adversarial pass\n<!-- slot -->\n") is False
 
 
 def test_instantiate_and_append() -> None:
@@ -521,6 +561,58 @@ def test_stale_verdict_with_intersecting_diff_denies(repo: FixtureRepo) -> None:
     assert "src/app/core.py" in proc.stdout
 
 
+def _rebase_onto_updated_main(repo: FixtureRepo) -> None:
+    """Land a commit on main (a base/tooling fix — NOT one of the change's files) and rebase the
+    change branch onto it, so every SHA on the branch is rewritten and the verdict's pinned SHA is
+    orphaned. Re-tag the baseline to the rebased red-tests commit as the real workflow does — but
+    DO NOT re-pin the verdict SHA: that re-pin is exactly what T10d makes unnecessary."""
+    repo.git("checkout", "-q", "main")
+    repo.write("README.md", "canon fix landed on main mid-flight\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "main canon fix")
+    repo.git("checkout", "-q", "change/demo-001")
+    repo.git("rebase", "-q", "main")
+    # branch shape is baseline -> flip -> verdict, so the red-tests baseline is HEAD~2.
+    repo.git("tag", "-f", "baseline/demo-001", "HEAD~2")
+
+
+def test_freshness_survives_a_tree_preserving_rebase(repo: FixtureRepo) -> None:
+    # the platform/001 re-pin cascade, minus the re-pin: rebasing onto a canon fix rewrites every
+    # SHA and orphans the pinned verdict SHA, but the change's attested files (src + criteria) are
+    # byte-identical -> freshness PASSES with no re-pin (T10d).
+    _rebase_onto_updated_main(repo)
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "[PASS] verdict.freshness" in proc.stdout
+    assert "tree-identity" in proc.stdout
+    assert "verdict: ACCEPTABLE" in proc.stdout
+
+
+def test_rebase_then_amended_code_fails_freshness(repo: FixtureRepo) -> None:
+    # a rebase orphans the pin, then a post-rebase commit changes the code (a change file) -> the
+    # attested tree changed, so freshness FAILS even though the pin is unreachable (T10d).
+    _rebase_onto_updated_main(repo)
+    repo.write("src/app/core.py", SRC_CORE + "\n\n# post-rebase code edit\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "amend code after the rebase")
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "[FAIL] verdict.freshness" in proc.stdout
+    assert "src/app/core.py" in proc.stdout
+
+
+def test_rebase_then_changed_criteria_fails_freshness(repo: FixtureRepo) -> None:
+    # a rebase orphans the pin, then criteria.md changes after it -> attested tree changed -> FAIL.
+    _rebase_onto_updated_main(repo)
+    repo.write(f"{CHANGE_DIR}/criteria.md", CRITERIA_FLIPPED + "\n<!-- post-rebase criteria drift -->\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "touch criteria after the rebase")
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "[FAIL] verdict.freshness" in proc.stdout
+    assert "criteria.md" in proc.stdout
+
+
 def test_unbacked_flip_denies(repo: FixtureRepo) -> None:
     # a criterion flipped [x] with no ac-marked test backing it -> gate.py goes RED on
     # criteria.junit-backing, which accept surfaces as a deny.
@@ -549,6 +641,27 @@ def test_m_change_with_adversarial_section_is_acceptable(tmp_path: Path) -> None
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "[PASS] adversarial.presence" in proc.stdout
     assert "verdict: ACCEPTABLE" in proc.stdout
+
+
+def test_platform001_prefix_verdict_backticked_sha_and_pass_heading_is_acceptable(tmp_path: Path) -> None:
+    # the exact shape that DENIED platform/001 twice on cosmetics (T10c): the Gate-line SHA is
+    # wrapped in backticks and the adversarial section sits under `## Adversarial pass`. Both the
+    # freshness parse and the adversarial-presence check must now PASS on an M-depth change.
+    repo = make_repo(tmp_path / "app", change_md=M_CHANGE_MD, verdict_md=VERDICT_BACKTICKED_SHA_PASS_HEADING)
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "[PASS] verdict.freshness" in proc.stdout
+    assert "[PASS] adversarial.presence" in proc.stdout
+    assert "verdict: ACCEPTABLE" in proc.stdout
+
+
+def test_verdict_with_no_sha_hex_still_denies_on_freshness(tmp_path: Path) -> None:
+    # tolerance widens the parse, not the semantics: a Gate line pinning no hex is still a deny.
+    repo = make_repo(tmp_path / "app", verdict_md=VERDICT_NO_SHA)
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "[FAIL] verdict.freshness" in proc.stdout
+    assert "verdict: DENIED" in proc.stdout
 
 
 def test_s_change_does_not_require_adversarial(repo: FixtureRepo) -> None:
