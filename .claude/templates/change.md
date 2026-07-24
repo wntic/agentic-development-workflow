@@ -8,7 +8,11 @@ Class: behavioral    <!-- behavioral (default) | bugfix | invisible (spec §3.1)
                           invisible: refactor/deps/perf — behaviour unchanged; AC = "behaviour
                           unchanged", proof = full green gate + empty before/after OpenAPI diff
                           (+ the perf metric, if one was claimed). -->
-Affects: <capability files>    <!-- optional — delete the line and accept.py derives it itself -->
+Affects: <capability files>    <!-- brownfield: optional — delete the line and accept.py derives it
+                                    (the context's single capability file). FIRST change of a context:
+                                    there is no capability file yet, so accept.py births the one named
+                                    in overview.md's Capabilities list (else, if none, the change slug
+                                    with its NNN- prefix stripped); name it here explicitly to override. -->
 Companion: <context>/NNN       <!-- only for a paired cross-context change, delete otherwise;
                                     accept.py accepts both or neither -->
 

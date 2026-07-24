@@ -212,9 +212,30 @@ def append_invariants(text: str, invariants: list[str]) -> str:
     return text.rstrip() + "\n" + "\n".join(invariants) + "\n"
 
 
-def resolve_targets(tree: Path, ctx: str, change_md: str) -> list[str]:
-    """Capability files the invariants merge into: the Affects line, else the single
-    existing capability of the context."""
+def _overview_capabilities(tree: Path, ctx: str) -> list[str]:
+    """The `*.md` capability files named in overview.md's `## Capabilities` list — the context
+    map the /spec session authors, so it carries the human's chosen capability name."""
+    overview = tree / "specs" / ctx / "overview.md"
+    if not overview.exists():
+        return []
+    body = _section(overview.read_text(encoding="utf-8"), "Capabilities")
+    files: list[str] = []
+    for tok in re.findall(r"`?([A-Za-z0-9_.\-]+\.md)`?", body):
+        if tok != "overview.md" and tok not in files:
+            files.append(tok)
+    return files
+
+
+def resolve_targets(tree: Path, ctx: str, change_md: str, birth_slug: str | None = None) -> list[str]:
+    """Capability files the invariants merge into: the Affects line, else the single existing
+    capability of the context, else — for the FIRST change of a context, whose acceptance BIRTHS
+    the capability file — the capability the /spec author DECLARED in overview.md's Capabilities
+    list (its name is the human's, not a slug artifact), and only if overview.md names none, the
+    name derived from the change slug (the `NNN-` prefix stripped). A capability-birthing change
+    carries no capability file to fall back to, so without this a first change with no Affects
+    line has no determinable target: the change.md template marks Affects optional ("accept.py
+    derives it itself"), which only holds once a capability exists. An explicit Affects always
+    wins — the derivation is the no-Affects fallback only."""
     m = re.search(r"(?m)^Affects:\s*(.+?)\s*$", change_md)
     files: list[str] = []
     if m:
@@ -227,6 +248,14 @@ def resolve_targets(tree: Path, ctx: str, change_md: str) -> list[str]:
         caps = [p.name for p in sorted((tree / "specs" / ctx).glob("*.md")) if p.name != "overview.md"]
         if len(caps) == 1:
             files = caps
+        elif not caps:
+            declared = _overview_capabilities(tree, ctx)
+            if len(declared) == 1:
+                files = declared
+            elif not declared and birth_slug:
+                derived = re.sub(r"^\d+-", "", birth_slug).strip()
+                if derived:
+                    files = [f"{derived}.md"]
     return files
 
 
@@ -248,6 +277,7 @@ def compute_merge(
     criteria: list,
     ac_ids: dict[str, str],
     placement: dict[str, str] | None = None,
+    birth_slug: str | None = None,
 ) -> MergePlan:
     """Prepare the criteria->invariants merge.
 
@@ -255,8 +285,10 @@ def compute_merge(
     Multi-target (`Affects` names >1 file): invariant distribution is a semantic act owned by
     `/accept-change` (spec §5.4). accept.py never dumps all invariants into the first file — it
     consumes an approved placement map {ac-id -> capability file}; with no map it flags that the
-    map is needed (`needs_placement`), with an invalid map it refuses (`placement_error`)."""
-    targets = resolve_targets(tree, ctx, change_md)
+    map is needed (`needs_placement`), with an invalid map it refuses (`placement_error`).
+    `birth_slug` (the change dir name) lets a capability-birthing first change derive its target
+    when it carries no Affects line — see resolve_targets."""
+    targets = resolve_targets(tree, ctx, change_md, birth_slug)
     if not targets:
         return MergePlan(
             [],
@@ -634,7 +666,7 @@ def gate_dependent_checks(
     lines = criteria_lint._strip_html_comments(actx.criteria_text.splitlines())
     criteria = criteria_lint.iter_criteria(lines)
     ac_ids = junit_ac_test_ids(actx.tree / GATE_DIR_NAME)
-    plan = compute_merge(actx.tree, actx.ctx, actx.change_md, criteria, ac_ids, placement)
+    plan = compute_merge(actx.tree, actx.ctx, actx.change_md, criteria, ac_ids, placement, actx.change_dir.name)
     if plan.error:
         results.append(Result("merge.fidelity", FAIL, plan.error))
         return results, None
