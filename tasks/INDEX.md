@@ -62,6 +62,24 @@ escalates instead of improvising.
 - [ ] T11 — E2E probe runbook (WP7, human-driven). Greenfield e2e runs after T12: `uv init` project →
   `/spec` → `/implement` reaches green with no bootstrap and no template; thereafter brownfield.
 
+### Skill-catalog progressive disclosure (2026-07-24 — the T08 merge produced monolithic bodies)
+
+The §7 merge (44 → 13) was right on *theme count* but concatenated each theme into one body:
+`testing-integration` 1792 lines, `restapi` 1256, `testing-unit` 1045, `infra-persistence` 733. An
+agent writing one endpoint loads all 7 restapi artifacts. Fix = progressive disclosure *inside* a
+theme (thin `SKILL.md` router + one `<topic>.md` per artifact, read on demand). Frontmatter and the
+~13-theme map are untouched — this splits bodies, not the catalog. Contract first (T13), then apply
+(T14) — the T07→T08 shape.
+
+- [ ] T13 — Progressive-disclosure contract: rewrite CONVENTIONS.md "Skill format" (thin router +
+  bundled `<topic>.md`, with a split threshold), teach both shapes in `meta-skill-author`, clarify
+  C2 ("one theme" = one auto-invocation entry, not one file). Design-sensitive; no canon edit.
+  Depends: T08.
+- [ ] T14 — Split the over-threshold skills into router + topic files per T13, losing no paid-for
+  line. `test_skill_catalog.py` is the unedited oracle (`rglob("*.md")` already covers bundled
+  files). Frontmatter moved verbatim. On-demand-read reliability confirmed only in an e2e probe.
+  Depends: T13.
+
 ### Post-`/implement platform/001` friction fixes (2026-07-24 agent-report analysis)
 
 The first full `/implement platform/001` run was GREEN end-to-end but ~85% of wall-clock was
