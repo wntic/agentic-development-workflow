@@ -48,6 +48,37 @@ things: `verdict.md`, and state flips in `criteria.md`. You touch no `src/**` an
 - `criteria.md` flips: `[ ]`→`[x]` for each PASS, and `[x]`→`[ ]` for any criterion that
   regressed (you flip **both** ways — the gate re-checks junit backing on every flip).
 
+## Commit in the freshness-correct order (you leave the branch acceptance-ready)
+
+The implementer already committed `src/**` (the **code commit**). You commit your own two
+artifacts so the branch is acceptance-ready with **no** orchestrator help and **no** manual
+re-pin — `accept.py`'s L-04 freshness gate depends on this exact order (it excludes the
+verdict.md-only commit itself from `changed_since`, so a verdict SHA behind HEAD by only
+verdict.md is still fresh). Do this after your flips, never `git add -A`:
+
+1. **Code is already committed** by the implementer — you build on top of that HEAD.
+2. **Commit the `criteria.md` flip alone:**
+   ```
+   git add specs/<context>/changes/NNN-<slug>/criteria.md
+   git commit -m "test(<context>): flip criteria for NNN (<context>/NNN)"
+   ```
+   Nothing else in this commit — not verdict.md, not src, not tests.
+3. **Run the gate at THIS HEAD and pin that SHA into verdict.md.** After the criteria commit,
+   `git rev-parse HEAD` is the code+criteria SHA. Re-run `gate.py --criteria --change
+   <context>/NNN` here and write the bare line `SHA: <that hex>` into verdict.md (a bare hex —
+   no backticks; `accept.py` reads `SHA:\s*([0-9a-fA-F]{7,40})`). This is the SHA the verdict
+   is fresh against.
+4. **Commit `verdict.md` LAST, as pure metadata:**
+   ```
+   git add specs/<context>/changes/NNN-<slug>/verdict.md
+   git commit -m "docs(<context>): verdict for NNN (<context>/NNN)"
+   ```
+   Because verdict.md is the only file this last commit moves, the pinned SHA stays fresh
+   under L-04 even though it is one commit behind HEAD.
+
+Report the **three SHAs** (code, criteria, verdict) so the orchestrator can confirm the order
+without re-deriving it. A completed evaluation leaves `git status` clean.
+
 ## Adversarial pass (when the cycle asks for it)
 
 For M/L changes and the **first change of a capability**, an adversarial pass is mandatory
@@ -63,3 +94,5 @@ weak to have gone red for the wrong body is a finding, not a pass.
   to the implementer (FAIL) or test-author.
 - Never flip `[x]` without a passed ac-marked test in this run's junit; never set `[m]`.
 - Never pass off a pytest citation as a live run for a criterion Verification provisioned.
+- Never commit out of order or `git add -A`: criteria.md alone, then verdict.md alone LAST,
+  on top of the implementer's code commit — the freshness gate (L-04) depends on it.

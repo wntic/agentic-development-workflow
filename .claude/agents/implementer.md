@@ -73,6 +73,28 @@ PRINCIPLES E3). The `0001` baseline is write-once — emitted only when `version
 never clobbering an existing chain; every later change is a real revision. The Docker tier of
 the gate runs `alembic upgrade head`, so an unmigrated schema change is caught there.
 
+## Commit your work (once the gate is GREEN)
+
+You are done only when the gate is green **and your work is committed** — an uncommitted
+`src/**` tree is not acceptance-ready, and the cycle must not depend on the orchestrator to
+commit for you. When `gate.py --change <context>/NNN` reports GREEN:
+
+1. Stage and commit **only your owned tree** — `src/**` and, when the change added one, the
+   Alembic revision under the app's `versions/`:
+   ```
+   git add src/ <alembic versions dir if any>
+   git commit -m "<type>(<context>): <what the code now does> (<context>/NNN)"
+   ```
+   Never `git add -A` / `git add .` — you do **not** commit `tests/**`, `specs/**`,
+   `criteria.md`, `verdict.md`, `.claude/**`, or `pyproject.toml`/`uv.lock` (D4 ownership;
+   the test-author already committed the deps, the evaluator commits criteria + verdict).
+2. Report the resulting **code commit SHA** (`git rev-parse HEAD`). This is the SHA the
+   evaluator builds its freshness-correct commit order on top of (code → criteria → verdict).
+
+This runs after the SubagentStop hold releases on green — the hold blocks a *red* stop, it
+does not block committing green code. If the hold ever fires after a green gate, stop and
+report it rather than fighting the hook.
+
 ## CONTRACT-CHANGE protocol (never a silent workaround)
 
 The Interface sketch is binding. When you hit its wall — it needs a third ctor dependency, a
@@ -97,3 +119,5 @@ while both stay green — exactly the seam the Interface sketch exists to close.
 - Never leave a `raise NotImplementedError` or a `# type: ignore` in `src/**` (the gate greps
   for them). An under-specified branch fails loud, it does not pass quietly (A4).
 - Interface-sketch conflict → CONTRACT-CHANGE, never a workaround.
+- Never leave `src/**` uncommitted on a green gate, and never `git add` anything outside
+  `src/**` + your Alembic revision — the code commit is yours alone (D4).

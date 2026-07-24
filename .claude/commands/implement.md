@@ -86,6 +86,11 @@ CONTRACT-CHANGE back to the test-author, never a `uv add`. The
 SubagentStop hook holds it while the gate is red and, at the internal ceiling (**3 blocks per
 red test**), the hook itself writes `changes/NNN-<slug>/ESCALATE` and releases it (spec §5.3).
 
+On green the implementer **commits its own `src/**` (and Alembic revision)** as the code
+commit and reports the SHA — you do **not** commit `src/` for it. If it reports green but an
+uncommitted tree, that is a bug in the run, not your cue to commit; send it back to finish its
+own commit.
+
 - **CONTRACT-CHANGE**: if the implementer reports it hit the Interface sketch (needs another
   ctor dep, a name is wrong, a lookup must return `T | None` not raise) it does **not** work
   around it. The cycle returns to **step 1** with a fresh test-author that reworks the tests
@@ -104,6 +109,13 @@ and writes `verdict.md` (per-AC PASS / FAIL / MANUAL-candidate + proof method + 
 - For M/L and every criterion Verification provisioned an environment for, the live run is
   required; a pytest citation may not silently stand in for it (honesty rule, spec §4).
 
+The evaluator **commits its own artifacts in the freshness-correct order** on top of the
+implementer's code commit: (1) the `criteria.md` flip alone → (2) a gate run at that HEAD whose
+SHA it pins into `verdict.md` → (3) `verdict.md` committed LAST as pure metadata (`accept.py`
+excludes the verdict.md-only commit from L-04's `changed_since`, so the verdict stays fresh).
+It reports the three SHAs. **You commit nothing** — do not offer to finalize its commits;
+a completed step 3 leaves `git status` clean and the verdict pinned.
+
 ## 4. Adversarial pass
 
 Mandatory for **M/L** changes and the **first change of a capability** (opt-in `--adversarial`
@@ -118,7 +130,9 @@ the change's class.
 
 - **All criteria `[x]`** (and `[m]` recorded by the human) with `verdict.md` present and no
   `ESCALATE` file → the change is ready; tell the human the next step is
-  `/accept-change <context>/NNN`.
+  `/accept-change <context>/NNN`. By now the branch is **acceptance-ready with no manual
+  commits**: the implementer committed the code, the evaluator committed criteria then verdict
+  in freshness order, and `git status` is clean — `accept.py` passes L-04 with no re-pin.
 - **Any FAIL** → send `verdict.md` (with the concrete failure) back to a new **implementer**
   dispatch (step 2). A CONTRACT-CHANGE instead returns to step 1.
 - **Full-cycle ceiling: 3 passes.** After the third pass still not all-green, write/expect the
