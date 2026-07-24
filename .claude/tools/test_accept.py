@@ -350,6 +350,20 @@ def test_freshness_state_transitions() -> None:
     assert accept.freshness_state(None, "head", set(), set())[0] == accept.FAIL
 
 
+def test_rebase_freshness_state_transitions() -> None:
+    # the pin was rebased away AND its commit object is gone -> the attested tree is unknowable,
+    # so FAIL rather than a silent pass (T10d fixes the pre-T10d empty-diff false accept).
+    gone = accept.rebase_freshness_state("dead", "head", False, set(), set())
+    assert gone[0] == accept.FAIL and "pruned" in gone[1]
+    # rebased away but resolvable, and a change file differs -> attested tree changed -> FAIL.
+    changed = accept.rebase_freshness_state("old", "head", True, {"src/app/core.py"}, {"src/app/core.py"})
+    assert changed[0] == accept.FAIL and "src/app/core.py" in changed[1]
+    # rebased away, resolvable, only base / .claude drift (no change file differs) -> tree
+    # identity of the attested state preserved -> PASS (the re-pin cascade is unnecessary).
+    ok = accept.rebase_freshness_state("old", "head", True, {"README.md"}, {"src/app/core.py"})
+    assert ok[0] == accept.PASS and "tree-identity" in ok[1]
+
+
 def test_parse_verdict_sha_tolerates_markdown_around_the_hex() -> None:
     # the canonical bare line.
     assert accept.parse_verdict_sha("Gate: GREEN · SHA: 246f84a · junit: x") == "246f84a"
@@ -545,6 +559,58 @@ def test_stale_verdict_with_intersecting_diff_denies(repo: FixtureRepo) -> None:
     assert proc.returncode == 1
     assert "[FAIL] verdict.freshness" in proc.stdout
     assert "src/app/core.py" in proc.stdout
+
+
+def _rebase_onto_updated_main(repo: FixtureRepo) -> None:
+    """Land a commit on main (a base/tooling fix — NOT one of the change's files) and rebase the
+    change branch onto it, so every SHA on the branch is rewritten and the verdict's pinned SHA is
+    orphaned. Re-tag the baseline to the rebased red-tests commit as the real workflow does — but
+    DO NOT re-pin the verdict SHA: that re-pin is exactly what T10d makes unnecessary."""
+    repo.git("checkout", "-q", "main")
+    repo.write("README.md", "canon fix landed on main mid-flight\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "main canon fix")
+    repo.git("checkout", "-q", "change/demo-001")
+    repo.git("rebase", "-q", "main")
+    # branch shape is baseline -> flip -> verdict, so the red-tests baseline is HEAD~2.
+    repo.git("tag", "-f", "baseline/demo-001", "HEAD~2")
+
+
+def test_freshness_survives_a_tree_preserving_rebase(repo: FixtureRepo) -> None:
+    # the platform/001 re-pin cascade, minus the re-pin: rebasing onto a canon fix rewrites every
+    # SHA and orphans the pinned verdict SHA, but the change's attested files (src + criteria) are
+    # byte-identical -> freshness PASSES with no re-pin (T10d).
+    _rebase_onto_updated_main(repo)
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "[PASS] verdict.freshness" in proc.stdout
+    assert "tree-identity" in proc.stdout
+    assert "verdict: ACCEPTABLE" in proc.stdout
+
+
+def test_rebase_then_amended_code_fails_freshness(repo: FixtureRepo) -> None:
+    # a rebase orphans the pin, then a post-rebase commit changes the code (a change file) -> the
+    # attested tree changed, so freshness FAILS even though the pin is unreachable (T10d).
+    _rebase_onto_updated_main(repo)
+    repo.write("src/app/core.py", SRC_CORE + "\n\n# post-rebase code edit\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "amend code after the rebase")
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "[FAIL] verdict.freshness" in proc.stdout
+    assert "src/app/core.py" in proc.stdout
+
+
+def test_rebase_then_changed_criteria_fails_freshness(repo: FixtureRepo) -> None:
+    # a rebase orphans the pin, then criteria.md changes after it -> attested tree changed -> FAIL.
+    _rebase_onto_updated_main(repo)
+    repo.write(f"{CHANGE_DIR}/criteria.md", CRITERIA_FLIPPED + "\n<!-- post-rebase criteria drift -->\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "touch criteria after the rebase")
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "[FAIL] verdict.freshness" in proc.stdout
+    assert "criteria.md" in proc.stdout
 
 
 def test_unbacked_flip_denies(repo: FixtureRepo) -> None:

@@ -133,6 +133,12 @@ the change's class.
   `/accept-change <context>/NNN`. By now the branch is **acceptance-ready with no manual
   commits**: the implementer committed the code, the evaluator committed criteria then verdict
   in freshness order, and `git status` is clean — `accept.py` passes L-04 with no re-pin.
+- **Do not land canon fixes on a change mid-flight where avoidable.** Fixing `gate.py`/`accept.py`/
+  hooks/skills on the base while this change is open forces a rebase that rewrites every SHA. If it
+  is unavoidable, rebase the branch and re-tag `baseline/<context>-NNN`, but **do not re-pin the
+  verdict**: `accept.py` L-04 anchors freshness to the *tree identity* of the change's attested
+  files (T10d), so a rebase that preserves the code + criteria keeps the verdict fresh with no
+  evaluator re-run. A re-pin is needed only when a change file actually changed.
 - **Any FAIL** → send `verdict.md` (with the concrete failure) back to a new **implementer**
   dispatch (step 2). A CONTRACT-CHANGE instead returns to step 1.
 - **Full-cycle ceiling: 3 passes.** After the third pass still not all-green, write/expect the

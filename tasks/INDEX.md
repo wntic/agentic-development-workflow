@@ -106,7 +106,7 @@ impact. See `notes/greenfield-first-change-blockers.md` (cost profile + findings
 - [x] T10c — accept.py must not silently deny on pure formatting. Tolerant SHA parse (backticked
   hex) + accept `## Adversarial pass|review`; rename `/implement` §4 to "Adversarial review" and
   hand the evaluator the verdict template. Depends: T10, T09.
-- [ ] T10d — accept.py freshness should survive a rebase (kill the re-pin cascade). Anchor L-04 to
+- [x] T10d — accept.py freshness should survive a rebase (kill the re-pin cascade). Anchor L-04 to
   tracked-tree identity, not commit identity, so a rebase that preserves the tree preserves the
   verdict. **Design-sensitive (freshness canon) — confirm semantics before coding.** Depends: T10, T09e.
 - [ ] T03b — Interface sketch must not claim "no layers" when the mandated `restapi` shell ships a

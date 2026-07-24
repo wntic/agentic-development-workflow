@@ -393,7 +393,10 @@ def parse_verdict_sha(verdict_text: str) -> str | None:
 def freshness_state(
     verdict_sha: str | None, head: str, changed_since: set[str], change_files: set[str]
 ) -> tuple[str, str]:
-    """(status, detail) for the verdict-freshness gate (L-04)."""
+    """(status, detail) for the verdict-freshness gate when the pin is still IN HISTORY (L-04).
+
+    Used when the pinned SHA is HEAD or an ancestor of HEAD (the no-rebase path). A rebase that
+    orphans the pin is handled by rebase_freshness_state — see prechecks."""
     if verdict_sha is None:
         return FAIL, "verdict.md carries no 'SHA: <sha>' line — the evaluator must pin the gate SHA"
     if verdict_sha == head:
@@ -412,6 +415,40 @@ def freshness_state(
     return FLAG, (
         f"verdict SHA {verdict_sha[:12]} is behind HEAD {head[:12]} but the diff does not intersect the "
         "change's files — verdict still fresh (L-04)"
+    )
+
+
+def rebase_freshness_state(
+    verdict_sha: str, head: str, resolvable: bool, changed_since: set[str], change_files: set[str]
+) -> tuple[str, str]:
+    """(status, detail) for the verdict-freshness gate when the pin is NO LONGER REACHABLE from
+    HEAD — a rebase rewrote every SHA on the branch (L-04, T10d).
+
+    The pin is a proxy for a question the spec §5.4 actually asks: does the verdict still attest to
+    THIS code + criteria? A rebase (e.g. onto a canon fix landed on main mid-flight) rewrites the
+    commit identity of the whole branch, orphaning the pinned SHA, WITHOUT changing what the verdict
+    attests to. Anchoring freshness to commit identity then demands a needless evaluator re-pin on
+    every rebase (the platform/001 re-pin cascade). Anchor it instead to TREE identity of the
+    attested state: the verdict stays fresh iff none of the change's own files differ between the
+    (orphaned) pinned commit and HEAD. Base / .claude drift the rebase pulled in is expected and
+    irrelevant — it is not part of the change's attested behaviour. A change file that ACTUALLY
+    differs still fails: tree-identity is the safe relaxation, commit-identity the accidental
+    strictness. If the pinned commit is unresolvable (its object was pruned), the attested tree is
+    unknowable — FAIL rather than pass silently (the pre-T10d silent-empty-diff hazard)."""
+    if not resolvable:
+        return FAIL, (
+            f"verdict SHA {verdict_sha[:12]} is not reachable from HEAD {head[:12]} and its commit object "
+            "is gone (pruned) — the attested tree cannot be verified; re-run the evaluator and re-pin (L-04)"
+        )
+    intersect = sorted(changed_since & change_files)
+    if intersect:
+        return FAIL, (
+            f"verdict SHA {verdict_sha[:12]} was rebased away AND the change's attested files differ from "
+            f"it — the verdict no longer attests to this code+criteria (L-04): {', '.join(intersect)}"
+        )
+    return PASS, (
+        f"verdict SHA {verdict_sha[:12]} was rebased away but the change's attested tree is byte-identical "
+        f"at HEAD {head[:12]} — verdict still fresh (tree-identity survives the rebase, L-04)"
     )
 
 
@@ -585,15 +622,25 @@ def prechecks(actx: AcceptContext) -> list[Result]:
     else:
         verdict_sha = parse_verdict_sha(actx.verdict_text)
         verdict_rel = str((actx.change_dir / VERDICT_BASENAME).relative_to(actx.tree))
-        changed_since: set[str] = set()
-        change_files: set[str] = set()
-        if verdict_sha and verdict_sha != actx.head:
-            _, out = _git(actx.tree, "diff", "--name-only", f"{verdict_sha}", actx.head)
-            # the verdict.md commit itself is metadata, never a reason to recompute the verdict
-            changed_since = {line for line in out.splitlines() if line.strip() and line != verdict_rel}
+        # the verdict.md commit itself is metadata, never a reason to recompute the verdict
         _, out = _git(actx.tree, "diff", "--name-only", f"{actx.base}...{actx.head}")
         change_files = {line for line in out.splitlines() if line.strip() and line != verdict_rel}
-        status, detail = freshness_state(verdict_sha, actx.head, changed_since, change_files)
+        if verdict_sha is None or verdict_sha == actx.head:
+            status, detail = freshness_state(verdict_sha, actx.head, set(), change_files)
+        else:
+            # Is the pin still IN HISTORY (an ancestor of HEAD), or did a rebase orphan it?
+            reachable = _git(actx.tree, "merge-base", "--is-ancestor", verdict_sha, actx.head)[0] == 0
+            resolvable = _git(actx.tree, "rev-parse", "--verify", f"{verdict_sha}^{{commit}}")[0] == 0
+            changed_since: set[str] = set()
+            if resolvable:
+                # git diff works against a dangling (rebased-away) commit as long as its object
+                # survives, so the tree comparison holds across a rebase (T10d).
+                _, out = _git(actx.tree, "diff", "--name-only", f"{verdict_sha}", actx.head)
+                changed_since = {line for line in out.splitlines() if line.strip() and line != verdict_rel}
+            if reachable:
+                status, detail = freshness_state(verdict_sha, actx.head, changed_since, change_files)
+            else:
+                status, detail = rebase_freshness_state(verdict_sha, actx.head, resolvable, changed_since, change_files)
         results.append(Result("verdict.freshness", status, detail))
 
     # gate 2: Companion accepted (tag exists AND the companion dir is gone).
