@@ -228,6 +228,67 @@ def test_bash_guard_allows_benign(command: str) -> None:
 
 
 # =======================================================================================
+# bash_guard — role-aware owned-tree write path (T06d)
+# =======================================================================================
+#
+# The cycle subagents have no Write/Edit tool (a path-scoped disallowedTools drops the tool
+# wholesale), so the shell is their only write path to their OWNED tree. The guard reads the
+# acting role from the payload's `agent_type` and does not fire on that role's owned tree,
+# while a write to a NON-owned protected tree still fires (precision, S8 backstop unchanged).
+
+
+def _bash(command: str, agent_type: str | None = None) -> dict:
+    p = {"tool_name": "Bash", "tool_input": {"command": command}}
+    if agent_type is not None:
+        p["agent_type"] = agent_type
+    return p
+
+
+@pytest.mark.parametrize(
+    ("role", "command", "expected"),
+    [
+        # --- test-author owns tests/** + the deps files: sanctioned, no denial ---
+        ("test-author", "echo x > tests/test_foo.py", None),
+        ("test-author", "printf x | tee tests/integration/test_foo.py", None),
+        ("test-author", "sed -i '' 's/a/b/' pyproject.toml", None),
+        ("test-author", "echo locked > uv.lock", None),
+        # ... but the implementer's lane and the other cycle files stay closed to it
+        ("test-author", "echo x > src/app/core.py", "deny"),
+        ("test-author", "echo x > specs/demo/changes/001-thing/verdict.md", "deny"),
+        ("test-author", "echo x > specs/demo/changes/001-thing/criteria.md", "deny"),
+        ("test-author", "echo x >> .claude/settings.json", "deny"),
+        # --- evaluator owns criteria.md + verdict.md ---
+        ("evaluator", "echo x > specs/demo/changes/001-thing/verdict.md", None),
+        ("evaluator", "printf y >> specs/demo/changes/001-thing/criteria.md", None),
+        # ... but tests/, src/, and capability prose stay closed to it
+        ("evaluator", "echo x > tests/test_foo.py", "deny"),
+        ("evaluator", "echo x > src/app/core.py", "deny"),
+        ("evaluator", "echo x > specs/demo/core.md", "deny"),  # capability prose is /spec's
+        ("evaluator", "rm .claude/tools/gate.py", "deny"),
+        # --- implementer owns src/** (unchanged); tests/ and pyproject stay closed ---
+        ("implementer", "echo x > src/app/core.py", None),
+        ("implementer", "mkdir -p src/app/domain && echo x > src/app/domain/entities.py", None),
+        ("implementer", "echo x > tests/test_foo.py", "deny"),
+        ("implementer", "sed -i '' 's/a/b/' pyproject.toml", "deny"),  # deps are the test-author's
+        # --- an unidentified/default session: pre-T06d behavior, everyone-denied ---
+        ("default", "echo x > tests/test_foo.py", "deny"),
+        ("default", "echo x > src/app/core.py", None),  # src stays open to the default session
+    ],
+)
+def test_bash_guard_role_aware_owned_tree(role: str, command: str, expected: str | None) -> None:
+    agent_type = None if role == "default" else role
+    proc = run_hook("bash_guard.py", _bash(command, agent_type), cwd=TOOLS_DIR)
+    assert decision(proc) == expected, (role, command, proc.stdout)
+
+
+def test_bash_guard_owner_denial_names_the_role() -> None:
+    # the deny message reports the acting role so the trace explains *why* a non-owned write fired
+    proc = run_hook("bash_guard.py", _bash("echo x > src/app/core.py", "evaluator"), cwd=TOOLS_DIR)
+    assert decision(proc) == "deny"
+    assert "'evaluator'" in proc.stdout, proc.stdout
+
+
+# =======================================================================================
 # session_stop — ergonomics
 # =======================================================================================
 

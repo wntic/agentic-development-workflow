@@ -68,7 +68,7 @@ The first full `/implement platform/001` run was GREEN end-to-end but ~85% of wa
 friction, not agent reasoning (evaluator: 8m21s work across a 116m span). Five fixes, ordered by
 impact. See `notes/greenfield-first-change-blockers.md` (cost profile + findings #1–#4).
 
-- [ ] T06d — Give cycle subagents a sanctioned write path to their OWNED tree. Write/Edit is
+- [x] T06d — Give cycle subagents a sanctioned write path to their OWNED tree. Write/Edit is
   absent entirely and `bash_guard` protects everything but `src/`, so the two protected-tree
   agents (test-author, evaluator) must bypass the hook while the implementer sails through.
   Restore path-scoped Write OR make `bash_guard` role-aware. Depends: T06, T09.
