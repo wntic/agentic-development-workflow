@@ -33,12 +33,16 @@ the missing module is the project's OWN package and `src/<pkg>/` does not exist 
 brownfield test (a real import typo, package present) is never masked.
 
 Usage:
-    red_check.py [--change <context>/NNN] [--no-tag] [--force-tag] [tree]
+    red_check.py [--change <context>/NNN] [--no-tag] [--force-tag] [--rebaseline] [tree]
 
-  tree         root of the change work tree (default: cwd); must be a git work tree to tag.
-  --change     change id <context>/NNN; else a single specs/*/changes/*/ dir is auto-detected.
-  --no-tag     run the checks only, do not create the baseline tag (used by callers/tests).
-  --force-tag  move an existing baseline tag (legal only during the red phase, before code).
+  tree          root of the change work tree (default: cwd); must be a git work tree to tag.
+  --change      change id <context>/NNN; else a single specs/*/changes/*/ dir is auto-detected.
+  --no-tag      run the checks only, do not create the baseline tag (used by callers/tests).
+  --force-tag   move an existing baseline tag (legal only during the red phase, before code).
+  --rebaseline  move an existing baseline tag onto HEAD after a TESTS-HANDBACK: verifies the
+                corrected tests in a throwaway worktree (redness, where src/ is absent) AND in
+                the live tree (mypy, where src/ is present), refusing any move that drops an
+                ac-marked test or writes outside tests/**. See the section note and notes/18.
 
 Exit code 0 only when coverage + redness both hold (and the tag step, if any, succeeded).
 """
@@ -47,12 +51,14 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -499,12 +505,188 @@ def tag_baseline(tree: Path, change_id: str, *, force: bool) -> str:
     return tag
 
 
+# ---------------------------------------------------------------------------------------
+# Re-baseline — move the tag onto a corrected tests commit after a TESTS-HANDBACK (notes/18)
+# ---------------------------------------------------------------------------------------
+#
+# When gate.py reports `red_localized_to: "tests"`, /implement hands back to the test-author,
+# who fixes tests/** while the implementer's `src/` sits UNCOMMITTED in the work tree. The
+# baseline tag must then move onto the corrected tests commit — and doing that by hand means a
+# stash dance, because the two checks that matter want opposite worlds:
+#
+#   * redness needs `src/` ABSENT (with the package present the tests pass and prove nothing);
+#   * mypy over tests/** needs `src/` PRESENT (the conftest annotates app types, so without src
+#     every annotation is an unresolved import — the very reason red_check skips mypy at the
+#     original baseline).
+#
+# So run each check in the world where it is meaningful, and never touch the live work tree:
+# redness + lint in an isolated `git worktree` OF THE CANDIDATE COMMIT (where `src/` is absent
+# by construction — the implementer commits only on green), and mypy in the LIVE tree (where
+# `src/` exists). That last check is the one whose absence let the users/001 baseline through:
+# at re-baseline time it is finally decidable, so a handback cannot re-tag a conftest that the
+# gate will still reject.
+#
+# A baseline move must not WEAKEN what gate.py later checks against it, so two integrity
+# conditions guard it: the candidate commit touches tests/** only (anti-collusion, §4/D3 — the
+# same check the first tagging makes), and no ac-marked test present at the old baseline has
+# disappeared (otherwise moving the tag would silently legitimise a dropped test, which
+# gate.py's `integrity.test-inventory` could no longer see).
+
+
+@contextlib.contextmanager
+def worktree_at(tree: Path, ref: str) -> Iterator[Path]:
+    """A throwaway detached `git worktree` of `ref`; removed on exit. The live tree is untouched."""
+    with tempfile.TemporaryDirectory(prefix="red_check_wt_") as tmp:
+        path = Path(tmp) / "wt"
+        proc = subprocess.run(
+            ["git", "-C", str(tree), "worktree", "add", "--detach", "--quiet", str(path), ref],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise RedCheckError(f"could not create a worktree at {ref}: {(proc.stderr or proc.stdout).strip()}")
+        try:
+            yield path
+        finally:
+            subprocess.run(
+                ["git", "-C", str(tree), "worktree", "remove", "--force", str(path)],
+                capture_output=True,
+                text=True,
+            )
+
+
+def ac_inventory_at(tree: Path, ref: str) -> dict[str, list[str]]:
+    """`nodeid -> [AC ids]` for every ac-marked test in tests/** at `ref`, by static AST scan.
+
+    Static on purpose: at the old baseline the tests may not even collect (greenfield), so
+    running pytest there would prove nothing. `git show` of each blob keeps it worktree-free."""
+    listing = subprocess.run(
+        ["git", "-C", str(tree), "ls-tree", "-r", "--name-only", ref, "tests/"],
+        capture_output=True,
+        text=True,
+    )
+    if listing.returncode != 0:
+        raise RedCheckError(f"could not list tests/ at {ref}: {(listing.stderr or listing.stdout).strip()}")
+    found: dict[str, list[str]] = {}
+    for rel in (line.strip() for line in listing.stdout.splitlines()):
+        if not rel.endswith(".py"):
+            continue
+        blob = subprocess.run(["git", "-C", str(tree), "show", f"{ref}:{rel}"], capture_output=True, text=True)
+        if blob.returncode == 0:
+            found.update(scan_ac_markers(blob.stdout, rel))
+    return found
+
+
+def mypy_tests(tree: Path) -> list[str] | None:
+    """The gate's mypy findings that land in tests/**; None when `src/` is absent (undecidable).
+
+    Runs the gate's exact `MYPY_CONFIG` over `src tests` — the invocation gate.py will make —
+    then keeps only the tests/** lines, since src/** belongs to the implementer, not this screen."""
+    if not (tree / "src").is_dir():
+        return None
+    gate = _gate()
+    with tempfile.TemporaryDirectory(prefix="red_check_mypy_") as tmp:
+        config = Path(tmp) / "mypy.ini"
+        config.write_text(gate.MYPY_CONFIG + f"cache_dir = {Path(tmp) / 'cache'}\n", encoding="utf-8")
+        env = os.environ.copy()
+        for var in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "MYPYPATH"):  # E-05 class
+            env.pop(var, None)
+        proc = subprocess.run(
+            [sys.executable, "-m", "mypy", "--config-file", str(config), "src", "tests"],
+            cwd=str(tree),
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+    if proc.returncode == 0:
+        return []
+    return [line for line in (proc.stdout or proc.stderr).splitlines() if line.startswith("tests/")]
+
+
+def rebaseline(tree: Path, change_id: str, ac_ids: list[str]) -> int:
+    """Move `baseline/<ctx>-NNN` onto HEAD after a TESTS-HANDBACK. Return a process exit code."""
+    tag = "baseline/" + change_id.replace("/", "-")
+    resolved = subprocess.run(["git", "-C", str(tree), "rev-parse", "--verify", tag], capture_output=True, text=True)
+    if resolved.returncode != 0:
+        raise RedCheckError(f"no existing tag {tag} to move — a first baseline uses the normal red_check path")
+    old_sha = resolved.stdout.strip()
+    head = subprocess.run(["git", "-C", str(tree), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+
+    print(f"red_check --rebaseline: {change_id}")
+    print(f"  {tag}: {old_sha[:8]} -> {head[:8]} (HEAD)")
+    print()
+    if old_sha == head:
+        print("nothing to do — the tag already points at HEAD")
+        return 0
+
+    failures: list[str] = []
+
+    # (a) the candidate commit must touch tests/** only — anti-collusion (§4/D3)
+    offenders = non_tests_paths(baseline_commit_paths(tree))
+    if offenders:
+        failures.append(
+            "the re-baseline commit writes outside tests/** (anti-collusion, §4/D3):\n"
+            + "\n".join(f"    {p}" for p in offenders)
+        )
+
+    # (b) no ac-marked test may vanish across the move
+    dropped = sorted(set(ac_inventory_at(tree, old_sha)) - set(ac_inventory_at(tree, head)))
+    if dropped:
+        failures.append(
+            "ac-marked tests present at the old baseline are gone — a baseline move must not "
+            "drop a test (it would blind gate.py's integrity.test-inventory):\n"
+            + "\n".join(f"    {nodeid}" for nodeid in dropped)
+        )
+
+    # (c) redness + AC coverage + lint, judged where `src/` is ABSENT: a worktree of HEAD
+    with worktree_at(tree, head) as wt:
+        inventory = apply_greenfield_fallback(wt, run_tests(wt), project_package(wt))
+        result = analyze(ac_ids, inventory)
+        lint_failures = lint_tests(wt) if result.ok else None
+    print(format_report(change_id, result, lint_failures))
+    print()
+    if not result.ok:
+        failures.append("the corrected tests are no longer a valid RED baseline (see above)")
+    if lint_failures:
+        failures.append("tests/** is still lint-dirty (see above)")
+
+    # (d) mypy over tests/**, judged where `src/` is PRESENT: the live tree
+    mypy_failures = mypy_tests(tree)
+    if mypy_failures is None:
+        print("BASELINE MYPY: SKIPPED — no src/ in the live tree, so tests/** annotations are undecidable")
+    elif mypy_failures:
+        print("BASELINE MYPY: FAILED — tests/** must type-check against the existing src/ before")
+        print("re-tagging, or the implementer inherits a gate it cannot turn green (notes/18):")
+        for line in mypy_failures:
+            print(f"    {line}")
+        failures.append("tests/** does not type-check under the gate's mypy (see above)")
+    else:
+        print("BASELINE MYPY: clean (gate config, tests/** findings only)")
+
+    if failures:
+        print()
+        print("RE-BASELINE: REFUSED")
+        for item in failures:
+            print(f"  - {item}")
+        return 1
+
+    tag_baseline(tree, change_id, force=True)
+    print()
+    print(f"RE-BASELINE: OK — moved {tag} -> {head[:8]}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Confirm the red baseline and tag it.")
     parser.add_argument("tree", nargs="?", default=".")
     parser.add_argument("--change", dest="change", default=None)
     parser.add_argument("--no-tag", action="store_true")
     parser.add_argument("--force-tag", action="store_true")
+    parser.add_argument(
+        "--rebaseline",
+        action="store_true",
+        help="move an existing baseline tag onto HEAD after a TESTS-HANDBACK (notes/18)",
+    )
     args = parser.parse_args(argv)
 
     tree = Path(args.tree).resolve()
@@ -516,6 +698,8 @@ def main(argv: list[str] | None = None) -> int:
         ac_ids = parse_ac_ids(criteria_path.read_text(encoding="utf-8"))
         if not ac_ids:
             raise RedCheckError(f"no AC-n items found in {criteria_path}")
+        if args.rebaseline:
+            return rebaseline(tree, change_id, ac_ids)
         inventory = run_tests(tree)
         inventory = apply_greenfield_fallback(tree, inventory, project_package(tree))
     except RedCheckError as exc:

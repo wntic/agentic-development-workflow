@@ -104,6 +104,20 @@ own commit.
   (e.g. re-type `conftest` fixtures against the now-existing package, re-sort own-package
   imports). It consumes one of the 3 full-cycle passes, so a change that keeps bouncing between
   the two lanes still ESCALATEs rather than looping forever.
+
+  The handback's test-author commits `tests/**` only — **leave the implementer's uncommitted
+  `src/` in place, do not stash it**. Then re-anchor the baseline onto that corrected commit:
+
+  ```bash
+  uv run .claude/tools/red_check.py --change <context>/NNN --rebaseline
+  ```
+
+  It verifies each property in the world where it is decidable — redness in a throwaway worktree
+  of the candidate commit (where `src/` is absent), mypy over `tests/**` in the live tree (where
+  `src/` is present) — and refuses the move if the commit writes outside `tests/**`, drops an
+  ac-marked test, or leaves `tests/**` lint/type-dirty. On OK it moves the tag; then resume the
+  implementer, whose `src/` should carry the gate to green **unchanged**. Never move the tag with
+  `git tag -f` by hand: the move re-anchors every integrity check gate.py makes (notes/18).
 - If an `ESCALATE` file appears, stop the loop and surface it to the human (see §5).
 
 ## 3. evaluator → verdict + flips

@@ -368,6 +368,139 @@ def test_e2e_brownfield_broken_import_still_fails_no_tag(tmp_path: Path) -> None
     assert "baseline/demo-001" not in repo.tags()
 
 
+# --- re-baseline after a TESTS-HANDBACK (notes/18) -------------------------------------
+#
+# The handback fixes tests/** while the implementer's src/ is UNCOMMITTED, then the baseline tag
+# must move onto the corrected tests commit. --rebaseline must do that without stashing: redness
+# judged in a worktree of the candidate commit (src/ absent there), mypy judged in the live tree
+# (src/ present). These tests pin both worlds and the two integrity refusals.
+
+SRC_SHELL = {
+    "src/app/__init__.py": "",
+    "src/app/restapi/__init__.py": "",
+    "src/app/restapi/main.py": "def create_app() -> object:\n    return object()\n",
+}
+
+
+def _handback_repo(tmp_path: Path) -> FixtureRepo:
+    """A repo at the handback moment: baseline tagged on the red tests, src/ uncommitted."""
+    repo = _base_repo(tmp_path)
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "deps: pre-baseline")
+    repo.write("tests/test_health.py", GREENFIELD_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+    assert _run(repo) == 0  # tags baseline/demo-001 on the red-tests commit
+    return repo
+
+
+def test_rebaseline_moves_the_tag_without_stashing_uncommitted_src(tmp_path: Path) -> None:
+    # The money test: the implementer's src/ is present and UNCOMMITTED in the live tree, so an
+    # in-place redness re-run would see the package and prove nothing (that is why the manual
+    # recovery had to stash). --rebaseline judges redness in a worktree of the candidate commit,
+    # where src/ is absent by construction — no stash, and the live src/ is left untouched.
+    repo = _handback_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+
+    repo.write("tests/test_health.py", GREENFIELD_TESTS.replace("# the whole", "# corrected; the whole"))
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: corrected tests (handback)")
+    for rel, content in SRC_SHELL.items():  # the implementer's work — deliberately NOT committed
+        repo.write(rel, content)
+
+    assert _run(repo, "--rebaseline") == 0
+    head = repo.git("rev-parse", "HEAD").strip()
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == head
+    assert head != old
+    for rel in SRC_SHELL:  # the live work tree survived the move
+        assert (repo.root / rel).exists()
+
+
+def test_rebaseline_refuses_a_commit_that_writes_outside_tests(tmp_path: Path) -> None:
+    # A baseline move is still the test-author's lane: src/ in the re-baseline commit is the
+    # anti-collusion case (§4/D3), refused exactly as at the first tagging.
+    repo = _handback_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    repo.write("tests/test_health.py", GREENFIELD_TESTS.replace("# the whole", "# corrected; the whole"))
+    for rel, content in SRC_SHELL.items():
+        repo.write(rel, content)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: corrected + smuggled src")
+
+    assert _run(repo, "--rebaseline") == 1
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old  # tag did NOT move
+
+
+def test_rebaseline_refuses_when_an_ac_marked_test_disappeared(tmp_path: Path, capsys) -> None:
+    # Moving the tag re-anchors gate.py's integrity.test-inventory, so a test dropped in the
+    # handback would become invisible to it. Refuse the move and name the lost node-id.
+    repo = _handback_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    dropped = GREENFIELD_TESTS.split('@pytest.mark.ac("AC-2")')[0].rstrip() + "\n"
+    repo.write("tests/test_health.py", dropped)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: corrected but AC-2 test dropped")
+
+    assert _run(repo, "--rebaseline") == 1
+    assert "tests/test_health.py::test_health_status_ok" in "".join(capsys.readouterr())
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old
+
+
+# The users/001 root-cause regression: tests that are RED and ruff-clean but do NOT type-check
+# against the existing src/. This is precisely what the old baseline screen could not see (it
+# skips mypy, undecidable while src/ is absent) and what left the implementer at an unwinnable
+# gate. At re-baseline time src/ EXISTS, so the check is finally decidable — and must refuse.
+MYPY_DIRTY_TESTS = """\
+# red in a worktree (package absent), ruff-clean, but mypy-dirty against a present src/
+import pytest
+
+from app.restapi.main import create_app
+
+
+def _built() -> object:
+    return create_app()
+
+
+@pytest.mark.ac("AC-1")
+def test_health_status_field() -> None:
+    assert _built().status is None
+
+
+@pytest.mark.ac("AC-2")
+def test_health_status_ok() -> None:
+    assert _built() is not None
+"""
+
+
+def test_rebaseline_refuses_tests_that_do_not_typecheck_against_the_present_src(tmp_path: Path, capsys) -> None:
+    repo = _handback_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    repo.write("tests/test_health.py", MYPY_DIRTY_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: corrected imports but still mypy-dirty")
+    for rel, content in SRC_SHELL.items():
+        repo.write(rel, content)
+
+    assert _run(repo, "--rebaseline") == 1
+    out = "".join(capsys.readouterr())
+    assert "BASELINE MYPY: FAILED" in out
+    assert "attr-defined" in out
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old  # tag did NOT move
+
+
+def test_rebaseline_without_an_existing_tag_is_an_error(tmp_path: Path) -> None:
+    # --rebaseline *moves* a tag; a first baseline must go through the normal red_check path.
+    repo = _base_repo(tmp_path)
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.write("tests/test_health.py", GREENFIELD_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests, never tagged")
+
+    assert _run(repo, "--rebaseline") == 2
+    assert "baseline/demo-001" not in repo.tags()
+
+
 # --- baseline lint screen (T09f) -------------------------------------------------------
 #
 # A lint defect in the RED baseline's tests/** deadlocks the implementer (tool-blocked from
