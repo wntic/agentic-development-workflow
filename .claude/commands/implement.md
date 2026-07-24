@@ -1,5 +1,5 @@
 ---
-description: "Run the change cycle on change/<context>-NNN: test-author (red baseline) → implementer (to green gate) → fresh evaluator (verdict + flips) → adversarial pass; ≤3 passes then a human ESCALATE"
+description: "Run the change cycle on change/<context>-NNN: test-author (red baseline) → implementer (to green gate) → fresh evaluator (verdict + flips) → adversarial review; ≤3 passes then a human ESCALATE"
 ---
 
 # /implement <context>/NNN
@@ -25,7 +25,7 @@ F-7). At most **one change per context** is in `/implement` at a time (spec §6)
    blocks *within this change's* implementer loop, so it starts at zero here.
 3. Read `change.md` to learn the **Class** (behavioral / bugfix / invisible; removal is a
    behavioral flavour) and **Depth** (S / M / L) — they decide the fast-lane and the
-   adversarial pass below.
+   adversarial review below.
 
 ## 0.5 Precondition — a Python project exists (no bootstrap, no template)
 
@@ -116,7 +116,7 @@ excludes the verdict.md-only commit from L-04's `changed_since`, so the verdict 
 It reports the three SHAs. **You commit nothing** — do not offer to finalize its commits;
 a completed step 3 leaves `git status` clean and the verdict pinned.
 
-## 4. Adversarial pass
+## 4. Adversarial review
 
 Mandatory for **M/L** changes and the **first change of a capability** (opt-in `--adversarial`
 for S). A fresh agent applies the assert-strength recipes from the **`testing-unit`** skill to

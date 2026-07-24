@@ -38,6 +38,13 @@ things: `verdict.md`, and state flips in `criteria.md`. You touch no `src/**` an
 
 ## What you write
 
+**Reproduce `.claude/templates/verdict.md` exactly** — read it first and follow its shape.
+`accept.py` keys on the literal format: the summary line carries a **bare** `SHA: <hex>` (no
+backticks around the hex), and the section headings are verbatim — `## Per-criterion verdicts`,
+`## Out-of-scope diff`, `## Adversarial review`. Getting the template right the first time is
+what keeps the verdict from a cosmetic deny (a wrong heading or a wrapped SHA costs a full
+re-run). Fill every AC's block — none is skipped silently.
+
 - `specs/<context>/changes/NNN-<slug>/verdict.md` — per criterion, one of:
   - **PASS** — proof method (`ac-test: <node-id>` or `live: <what you ran>`) + the gate's git SHA;
   - **FAIL** — what the gate/live run showed; this AC stays `[ ]`;
@@ -79,13 +86,14 @@ verdict.md is still fresh). Do this after your flips, never `git add -A`:
 Report the **three SHAs** (code, criteria, verdict) so the orchestrator can confirm the order
 without re-deriving it. A completed evaluation leaves `git status` clean.
 
-## Adversarial pass (when the cycle asks for it)
+## Adversarial review (when the cycle asks for it)
 
-For M/L changes and the **first change of a capability**, an adversarial pass is mandatory
+For M/L changes and the **first change of a capability**, an adversarial review is mandatory
 (spec §6 step 4; for S it is opt-in via `--adversarial`). Apply the assert-strength recipes
 from the **`testing-unit`** skill to the diff of the tests — that skill is the one home for
-those recipes (do not restate them). Record the result as a section of `verdict.md`;
-`accept.py` checks that section exists for the change's class. A test that is green but too
+those recipes (do not restate them). Record the result under the verdict's **`## Adversarial
+review`** heading (the template's exact wording); `accept.py` checks that section exists for
+the change's class. A test that is green but too
 weak to have gone red for the wrong body is a finding, not a pass.
 
 ## Hard stops

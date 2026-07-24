@@ -377,6 +377,19 @@ def merge_fidelity_violations(ac_texts: list[tuple[str, str]], merged_text: str)
     return out
 
 
+def parse_verdict_sha(verdict_text: str) -> str | None:
+    """The gate SHA the evaluator pinned in verdict.md (L-04).
+
+    Tolerant to markdown around the hex: the template renders a bare `SHA: <hex>`, but an
+    evaluator that wraps it in backticks or emphasis (`` SHA: `246f84…` ``) must not be
+    silently denied over cosmetics (T10c). Match the first 7–40 hex run after the `SHA:`
+    token, skipping any backticks / emphasis punctuation between them. Freshness still
+    requires the hex to resolve to a real commit downstream — this widens the parse, not the
+    semantics; a verdict with no hex anywhere still yields None (and FAILs freshness)."""
+    m = re.search(r"SHA:[\s`*_]*([0-9a-fA-F]{7,40})", verdict_text)
+    return m.group(1) if m else None
+
+
 def freshness_state(
     verdict_sha: str | None, head: str, changed_since: set[str], change_files: set[str]
 ) -> tuple[str, str]:
@@ -441,14 +454,29 @@ def adversarial_required(change_md: str, creates_new_capability: bool) -> tuple[
     return False, "S depth on an existing capability — the adversarial pass is opt-in"
 
 
+def _adversarial_body(verdict_text: str) -> str:
+    """The adversarial-pass section body, under either canonical heading.
+
+    The template + accept prefer `## Adversarial review`; `/implement` §4 historically said
+    "adversarial pass", which misled evaluators into `## Adversarial pass`. Accept either
+    heading (case-insensitive, via `_section`) so an author-side wording slip is not a silent
+    deny (T10c)."""
+    for heading in ("Adversarial review", "Adversarial pass"):
+        body = _section(verdict_text, heading)
+        if body.strip():
+            return body
+    return ""
+
+
 def adversarial_section_filled(verdict_text: str | None) -> bool:
-    """True when verdict.md's `## Adversarial review` carries a real run — not empty, not the
+    """True when verdict.md's adversarial section carries a real run — not empty, not the
     template comment, and not a bare N/A marker (which only legitimises the not-required case).
     criteria_guard cannot tell a human evaluator from an agent, so this presence check is the
-    only structural hold on the pass having actually run for a change class that demands it."""
+    only structural hold on the pass having actually run for a change class that demands it.
+    Reads either `## Adversarial review` or `## Adversarial pass` (T10c)."""
     if verdict_text is None:
         return False
-    stripped = re.sub(r"<!--.*?-->", "", _section(verdict_text, "Adversarial review"), flags=re.DOTALL).strip()
+    stripped = re.sub(r"<!--.*?-->", "", _adversarial_body(verdict_text), flags=re.DOTALL).strip()
     if not stripped:
         return False
     return re.match(r"(?i)n/?a\b", stripped) is None
@@ -555,8 +583,7 @@ def prechecks(actx: AcceptContext) -> list[Result]:
     if actx.verdict_text is None:
         results.append(Result("verdict.freshness", FAIL, "verdict.md not found — run /implement's evaluator first"))
     else:
-        sha_m = re.search(r"SHA:\s*([0-9a-fA-F]{7,40})", actx.verdict_text)
-        verdict_sha = sha_m.group(1) if sha_m else None
+        verdict_sha = parse_verdict_sha(actx.verdict_text)
         verdict_rel = str((actx.change_dir / VERDICT_BASENAME).relative_to(actx.tree))
         changed_since: set[str] = set()
         change_files: set[str] = set()
