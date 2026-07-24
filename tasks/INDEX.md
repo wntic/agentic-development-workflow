@@ -112,6 +112,17 @@ impact. See `notes/greenfield-first-change-blockers.md` (cost profile + findings
 - [x] T03b — Interface sketch must not claim "no layers" when the mandated `restapi` shell ships a
   domain-exception base + error schema. Wording/altitude fix so a first change lands no false V-09.
   Depends: T03.
+- [ ] T06e — Anchor `bash_guard`'s protected-path match to the repo root (found building T09f: it
+  denies non-owner writes to `/tmp/.../tests/...` by substring-matching the fragment anywhere).
+  Cheap false-positive fix; keep T06b precision + T06d role-awareness. Depends: T06, T06b, T06d.
+
+**Sign-off pending (author's canon call):** T10d is ticked but its builder resolved the
+"design-sensitive" freshness fork (commit-identity → tree-identity) WITHOUT escalating. The code is
+correct and faithful to §5.4 (freshness = does the diff intersect the change's FILES, i.e. content,
+not commit-ancestry), but the canon reading needs the author's conscious sign-off before T10d is
+truly closed. T10d also incidentally exposed + closed a **pre-existing silent false-accept hole in
+the freshness gate (shipped since T05)** — an unresolvable pin gave an empty diff → PASS; worth an
+adversarial pass over the whole acceptance script.
 
 ## Dependency order
 
@@ -137,3 +148,6 @@ v2 минус валидатор, то есть хуже v2".
 4. **Branch base during the build-out:** until `markdown-specs` merges into `main`, it plays
    `main`'s role for S9 — `change/<context>-NNN` branches base on it and `accept.py` merges
    back into it (`main` is still the v2 archive). Revisit after T11.
+5. **Cite by symbol/content, not line number** (line numbers drift — a task citing `accept.py:526`
+   was really :558). A durable finding a builder must read belongs in repo `notes/`, NOT in
+   agent-memory — task files must not point `Read first` at a path that isn't in the repo.
