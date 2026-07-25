@@ -130,7 +130,7 @@ resumes. The T09e/T10c friction fixes worked: the round-trip cascade that domina
 is gone. The adversarial pass earned its keep by mutation-testing (8 injected mutations, 6 died).
 What it surfaced is below. Every claim re-derived from source before filing.
 
-- [ ] T10e — `_orphan_sweep` classifies removal-flavour by grepping prose: `#*` is zero-or-more, so
+- [x] T10e — `_orphan_sweep` classifies removal-flavour by grepping prose: `#*` is zero-or-more, so
   a wrapped sketch line ("removed id, or `None`…") reads as a heading, and the term capture then
   anchors on the *first* "removed" anywhere and harvests 19 generic identifiers (`id`, `save`,
   `None`). Blocks `/accept-change users/002` on a change that removes nothing. Classify off `Class:`
