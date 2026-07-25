@@ -144,15 +144,36 @@ What it surfaced is below. Every claim re-derived from source before filing.
   Also dissolves the "one stray `tests/` token vetoes a legal `src/` command" symptom, same fix.
   **Rescoped 2026-07-25 into Part A + Part B** (two concerns, batched so both land before the single
   users/002 rebase): Part A adds the filename-fragment precision fix found building T10e (protected
-  `change.md` matched `fixtures/users-002-change.md` by substring; the builder renamed the fixture to
-  dodge it, i.e. the guard is dictating filenames). Part B closes the **V-02 fail-open T10e opened** —
+  `change.md` matched `fixtures/users-002-change.md` by substring — so fragments now match whole path
+  components; `pyproject.toml` no longer matches `pyproject.toml.bak`). **Correction (T06f finding 1):
+  the filing claimed T10e's builder dodged that denial by renaming the fixture — false. Both the
+  original and renamed paths are denied identically, by `.claude/tools`, and the builder actually used
+  the `Write` tool. The rename was cargo-cult, prompted by the misleading `(change.md)` reason string;
+  the fix makes the reason truthful, it does not open the path.** Part B closes the **V-02 fail-open T10e opened** —
   its findings #2+#3 combine so a genuine removal change can reach acceptance with the sweep silently
   not running; class-declared-without-heading becomes FLAG instead of SKIP. Depends: T06, T06b, T06d,
   T06e, T10e.
+- [ ] T06g — `bash_guard` tokenises heredoc **bodies**, so prose inside a multi-line commit message
+  is read as a redirect: `git commit -F - <<'EOF' … "the prose mentions > tests/x.py" … EOF` is
+  DENIED, while the same heredoc without a `>` token passes. Found building T06f (its finding 3, on
+  its own commit message) and reconfirmed against the live hook. Worse than a normal false positive
+  on two counts — it fires on message *content* rather than command shape (so it looks
+  unreproducible), and it hits the repo's own multi-line commit convention, i.e. every agent. T06b
+  fixed the quoted `-m "…"` case; the heredoc case survived it. Last known member of the
+  tokeniser-precision family (T06b → T06e → T06f → this); one function. The correctness boundary:
+  a redirect on the heredoc's own command line (`cat > tests/x.py <<'EOF'`) must **still** fire.
+  Depends: T06, T06b, T06f.
 - [ ] T10f — Adversarial pass over `accept.py`'s own gates. Three defects now found by *using* the
   script (T10c, T10e, and the T05-era freshness hole), and the freshness one fails **open** — the
   worst possible direction for the backstop the whole S8 trust model rests on. All three share a
-  defect class: degenerate/empty input, not wrong logic. Depends: T10e.
+  defect class: degenerate/empty input, not wrong logic. **Concrete input from T06f finding 6:** Part
+  B moved the V-02 fail-open one step in but did not close the family — a `## Removed` heading whose
+  body carries no backticked symbol still returns **PASS** ("lists no concrete removed symbols to
+  sweep"), so the sweep quietly does nothing. Pinned in a test as deliberate-for-now; the real fix
+  pairs with the T03 vocabulary decision below. Also cheap: `spec.lint` emits duplicate findings (no
+  dedupe on a repeated ref). **Sequencing:** off the acceptance path — T10f edits the very script that
+  must judge `users/002`, and batching it early saves no rebase (after acceptance nothing is in
+  flight), so run it AFTER `users/002` merges. Depends: T10e.
 - [ ] T12b — The app the cycle ships is not an importable package: `pyproject.toml` has no
   `[build-system]`, and `gate.py` injects `PYTHONPATH=src` itself — so the gate constructs the app
   under an import path only the gate provides, and `uvicorn` by hand fails. An **A4** finding (the
