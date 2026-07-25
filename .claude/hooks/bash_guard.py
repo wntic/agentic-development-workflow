@@ -22,9 +22,30 @@ absolute path falls **under the repo root** AND its repo-relative form matches a
 fragment. A write whose target is outside the repo tree — a `/tmp` scratch dir, the user's
 home, a sibling repo — never fires, even if the path merely *contains* `tests/` somewhere.
 The root is `CLAUDE_PROJECT_DIR` (set by settings.json in production) or the git toplevel of
-the cwd; when neither can be resolved the guard degrades to the pre-T06e location-insensitive
-substring match — a documented conservative fallback, never a guess at the root (the gate
-backstops either way, S8).
+the cwd; when neither can be resolved the guard degrades to the pre-T06e root-insensitive
+match on the raw target token — a documented conservative fallback, never a guess at the
+root (the gate backstops either way, S8).
+
+`cd`-aware resolution (T06f). "Relative to the repo root" is only meaningful once a relative
+target is resolved against the cwd the write actually happens in, and the `cwd` in the
+PreToolUse payload is the **session** cwd — not the effective one after `cd /tmp/scratch &&`.
+So the tokeniser tracks the command's effective cwd across the `cd <dir> && …` / `pushd`
+idiom agents emit; a relative target is resolved against that, which lets a write into a
+scratch copy of the tree fall outside the repo and never fire (it twice denied the mutation
+pass of an adversarial evaluator, which then rerouted — the guard training the bypass reflex
+it exists to prevent). This is NOT a shell: whenever the effective cwd cannot be determined
+with confidence — a bare `cd`, `cd -`, an expansion/glob in the directory, `popd`, or a `cd`
+inside a subshell / command substitution — the relative target is **dropped, not guessed**
+(T06b precision bias). Absolute targets are unaffected, so T06e's anchoring is intact, and
+`cd .. && … > <repo>/tests/x` still resolves back into the repo and still fires: this narrows
+resolution, never ownership.
+
+Fragments match on **component boundaries**, never as bare substrings (T06f). A fragment is
+a path relative to the repo root, so `change.md` matches `…/change.md` but not
+`fixtures/users-002-change.md`, and `pyproject.toml` does not match `pyproject.toml.bak` —
+otherwise the guard dictates filenames, and its explanation misnames the real reason for a
+denial (that misnaming is what sent a builder renaming a fixture that was in fact denied for
+living under `.claude/tools`).
 
 Write ops understood: `>`/`>>` redirections (fd-prefixed forms too; fd duplication excluded),
 `rm`, `mv`, `tee`, in-place `sed -i`, `git checkout -- <paths>`, `git restore <paths>`.
@@ -57,6 +78,7 @@ import re
 import shlex
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 DESCRIBE = (
@@ -65,9 +87,11 @@ DESCRIBE = (
     "outside the repo); ergonomics, trust is gate.py (S8)."
 )
 
-# Protected-path fragments. Substring match against the target's *repo-relative* path (T06e):
-# the fragment is anchored to the repo root, so a `/tmp/.../tests/x` outside the tree never
-# fires. Deliberately loose within the repo — best-effort tier.
+# Protected-path fragments. Component-wise match against the target's *repo-relative* path
+# (T06e + T06f): the fragment is anchored to the repo root, so a `/tmp/.../tests/x` outside the
+# tree never fires, and it matches whole path components, so a filename that merely *contains*
+# `change.md` is not a change.md. Deliberately loose about depth within the repo — a fragment
+# matches at any level — because this is the best-effort tier.
 PROTECTED_FRAGMENTS = (
     "tests/",
     "specs/",
@@ -105,6 +129,32 @@ REDIRECT = re.compile(r"^(\d*)(>>?)(.*)$")
 # Shell control operators — a write op's argument list stops here.
 CONTROL = frozenset({"|", "||", "&&", ";", "&", "|&"})
 
+# `cd`-awareness (T06f). Builtins that move the cwd (`cd <dir>`, `pushd <dir>`) and the one that
+# pops a stack this guard does not model (`popd` → cwd indeterminate).
+CD_BUILTINS = frozenset({"cd", "pushd"})
+CD_OPAQUE = frozenset({"popd"})
+
+# Grouping / substitution punctuation. `(cd x && …)` scopes the cd to a subshell and `$(cd …)`
+# hides it entirely — beyond this guard's one-line model, so a `cd` in such a command makes the
+# effective cwd indeterminate for the whole command (relative targets are then dropped).
+GROUPING = re.compile(r"[(){}`]|\$\(")
+
+# A `cd` argument that cannot be evaluated without a shell: expansion, glob, `~`, backtick.
+OPAQUE_DIR = re.compile(r"[$*?`~]")
+
+
+@dataclass(frozen=True)
+class WriteTarget:
+    """A write op's target token plus the cwd a RELATIVE token resolves against (T06f).
+
+    `cwd is None` means the effective cwd is indeterminate (an unhandled `cd` idiom): the
+    relative target is then dropped rather than guessed (precision bias — the gate backstops,
+    S8). An ABSOLUTE token ignores `cwd`, so cd-tracking never loosens T06e's anchoring.
+    """
+
+    token: str
+    cwd: str | None
+
 
 def _slice_until_control(tokens: list[str], start: int) -> list[str]:
     out: list[str] = []
@@ -115,8 +165,20 @@ def _slice_until_control(tokens: list[str], start: int) -> list[str]:
     return out
 
 
-def _write_targets(command: str) -> list[str]:
-    """Best-effort list of resolved write-target tokens for the command.
+def _cd_target(cwd: str | None, args: list[str]) -> str | None:
+    """The cwd after a `cd`/`pushd`, or None when it cannot be determined with confidence.
+
+    None for a bare `cd` (the home directory), `cd -` (the previous directory), an argument
+    holding an expansion/glob/`~`, or a `cd` whose own starting point is already lost.
+    """
+    dirs = [a for a in args if not a.startswith("-")]
+    if cwd is None or len(dirs) != 1 or OPAQUE_DIR.search(dirs[0]):
+        return None
+    return dirs[0] if Path(dirs[0]).is_absolute() else str(Path(cwd) / dirs[0])
+
+
+def _write_targets(command: str, cwd: str) -> list[WriteTarget]:
+    """Best-effort list of write targets for the command, each with its effective cwd.
 
     Empty when nothing writes, or when the command cannot be tokenised with confidence
     (unbalanced quotes) — precision bias: do not fire, the gate catches a miss (S8).
@@ -126,10 +188,27 @@ def _write_targets(command: str) -> list[str]:
     except ValueError:
         return []
 
-    targets: list[str] = []
+    # A `cd` inside a subshell / command substitution is scoped in ways this guard does not
+    # model, so its effect on the cwd is unknowable from the token stream: give up on relative
+    # resolution for the whole command rather than resolve against the wrong directory.
+    eff: str | None = cwd
+    if GROUPING.search(command) and any(tok.strip("(){}") in CD_BUILTINS | CD_OPAQUE for tok in tokens):
+        eff = None
+
+    targets: list[WriteTarget] = []
     i, n = 0, len(tokens)
     while i < n:
         tok = tokens[i]
+
+        # Directory changes: the effective cwd for every relative target that follows.
+        if tok in CD_BUILTINS:
+            eff = _cd_target(eff, _slice_until_control(tokens, i + 1))
+            i += 1
+            continue
+        if tok in CD_OPAQUE:
+            eff = None
+            i += 1
+            continue
 
         # Redirections: `>` `>>` `1>` `2>>` ... with the target glued or in the next token.
         m = REDIRECT.match(tok)
@@ -138,26 +217,26 @@ def _write_targets(command: str) -> list[str]:
             if rest.startswith("&"):
                 pass  # fd duplication (`2>&1`, `>&2`) — not a file write
             elif rest:
-                targets.append(rest)
+                targets.append(WriteTarget(rest, eff))
             elif i + 1 < n and tokens[i + 1] not in CONTROL:
-                targets.append(tokens[i + 1])
+                targets.append(WriteTarget(tokens[i + 1], eff))
                 i += 1
             i += 1
             continue
 
         # Explicit mutators — the target is an argument, not the mere presence of the word.
         if tok in ("rm", "mv", "tee"):
-            targets.extend(a for a in _slice_until_control(tokens, i + 1) if not a.startswith("-"))
+            targets.extend(WriteTarget(a, eff) for a in _slice_until_control(tokens, i + 1) if not a.startswith("-"))
         elif tok == "sed":
             args = _slice_until_control(tokens, i + 1)
             if any(a == "-i" or a.startswith("-i") or a.startswith("--in-place") for a in args):
-                targets.extend(a for a in args if not a.startswith("-"))
+                targets.extend(WriteTarget(a, eff) for a in args if not a.startswith("-"))
         elif tok == "git" and i + 1 < n and tokens[i + 1] == "checkout":
             args = _slice_until_control(tokens, i + 2)
             if "--" in args:  # `git checkout -- <paths>` restores files; a plain branch switch does not
-                targets.extend(a for a in args[args.index("--") + 1 :] if not a.startswith("-"))
+                targets.extend(WriteTarget(a, eff) for a in args[args.index("--") + 1 :] if not a.startswith("-"))
         elif tok == "git" and i + 1 < n and tokens[i + 1] == "restore":
-            targets.extend(a for a in _slice_until_control(tokens, i + 2) if not a.startswith("-"))
+            targets.extend(WriteTarget(a, eff) for a in _slice_until_control(tokens, i + 2) if not a.startswith("-"))
 
         i += 1
 
@@ -187,21 +266,39 @@ def _repo_root(cwd: str) -> str | None:
     return proc.stdout.strip() or None
 
 
-def _repo_relative(target: str, repo_root: str, cwd: str) -> str | None:
+def _repo_relative(target: WriteTarget, repo_root: str) -> str | None:
     """`target` as a POSIX path relative to `repo_root`, or None if it falls outside the repo.
 
-    A relative target is resolved against the acting `cwd` (shell semantics); symlinks are
-    canonicalised so a macOS `/tmp` (→ `/private/tmp`) scratch dir is correctly seen as
-    outside the repo tree.
+    A relative target is resolved against the command's effective cwd (shell semantics, T06f);
+    when that cwd is indeterminate the target is dropped — the same "do not fire" answer as a
+    target outside the tree. Symlinks are canonicalised so a macOS `/tmp` (→ `/private/tmp`)
+    scratch dir is correctly seen as outside the repo tree.
     """
     try:
-        abs_target = Path(target)
+        abs_target = Path(target.token)
         if not abs_target.is_absolute():
-            abs_target = Path(cwd) / abs_target
+            if target.cwd is None:
+                return None  # effective cwd unknown — never guess (T06f)
+            abs_target = Path(target.cwd) / abs_target
         rel = abs_target.resolve().relative_to(Path(repo_root).resolve())
     except (ValueError, OSError):
         return None  # ValueError: not under the repo root — do not fire
     return rel.as_posix()
+
+
+def _matches(frag: str, candidate: str) -> bool:
+    """True when `candidate` (a POSIX path) contains `frag` as a run of whole components.
+
+    A fragment is a path relative to the repo root, so it matches on component boundaries and
+    never as a bare substring (T06f): `change.md` matches `specs/x/changes/001-y/change.md`
+    but not `fixtures/users-002-change.md`; `pyproject.toml` does not match `pyproject.toml.bak`.
+    A trailing slash marks a DIRECTORY fragment — it matches only with something below it, so
+    `tests/` fires on `tests/x.py` at any depth but not on a file merely named `tests`.
+    """
+    want = [p for p in frag.split("/") if p]
+    parts = [p for p in candidate.split("/") if p and p != "."]
+    tail = 1 if frag.endswith("/") else 0  # a directory fragment needs a component below it
+    return any(parts[i : i + len(want)] == want for i in range(len(parts) - len(want) - tail + 1))
 
 
 def _protected_for(role: str | None) -> tuple[str, ...]:
@@ -224,9 +321,10 @@ def offending(
 ) -> str | None:
     """Return the matched protected fragment, or None if no write hits a protected path.
 
-    The match is anchored to `repo_root` (T06e): a target is checked by its repo-relative path,
-    and a target outside the repo tree never fires. When `repo_root` is None the guard degrades
-    to the pre-T06e location-insensitive match on the raw target token (conservative fallback).
+    The match is anchored to `repo_root` (T06e): a target is checked by its repo-relative path
+    — a relative one resolved against the command's effective cwd (T06f) — and a target outside
+    the repo tree never fires. When `repo_root` is None the guard degrades to the pre-T06e
+    root-insensitive match on the raw target token (conservative fallback).
 
     A target the acting `role` OWNS is never offending (owned overrides protected, T06d) — so
     the owner reaches its tree through the shell instead of a hook bypass.
@@ -234,18 +332,18 @@ def offending(
     owned = ROLE_OWNED.get(role or "", ())
     protected = _protected_for(role)
     cwd = cwd or os.getcwd()
-    for target in _write_targets(command):
+    for target in _write_targets(command, cwd):
         if repo_root is None:
-            candidate = target  # fallback: raw, location-insensitive substring
+            candidate = target.token  # fallback: the raw token, root-insensitive
         else:
-            rel = _repo_relative(target, repo_root, cwd)
+            rel = _repo_relative(target, repo_root)
             if rel is None:
-                continue  # outside the repo tree — never fires (T06e)
+                continue  # outside the repo tree, or unresolvable — never fires (T06e/T06f)
             candidate = rel
-        if any(frag in candidate for frag in owned):
+        if any(_matches(frag, candidate) for frag in owned):
             continue  # the acting role owns this tree — sanctioned write path
         for frag in protected:
-            if frag in candidate:
+            if _matches(frag, candidate):
                 return frag
     return None
 

@@ -349,6 +349,126 @@ def test_bash_guard_owned_tree_under_repo_still_allowed(repo: FixtureRepo) -> No
 
 
 # =======================================================================================
+# bash_guard — cd-aware resolution of relative targets (T06f)
+# =======================================================================================
+#
+# T06e anchored the ABSOLUTE variant; the relative one stayed broken because the payload's
+# `cwd` is the SESSION cwd and the tokeniser had no `cd` awareness — so a write into a scratch
+# copy of the tree (`cd /tmp/mut && cat > tests/...`) resolved under the repo root and fired.
+# It denied the users/002 adversarial mutation pass twice; the evaluator rerouted and finished
+# anyway, i.e. the guard trained the bypass reflex it exists to prevent. A relative target is
+# now resolved against the command's EFFECTIVE cwd; when that cannot be determined with
+# confidence the target is dropped, never guessed (T06b precision bias, S8 backstop).
+
+
+def test_bash_guard_cd_into_scratch_then_relative_write_allowed(repo: FixtureRepo, tmp_path: Path) -> None:
+    # users/002 denial #1, replayed: a probe test written into a throwaway mutation copy.
+    cmd = f"cd {tmp_path / 'mut'} && cat > tests/integration/x_test.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) is None
+
+
+def test_bash_guard_cd_into_scratch_dissolves_the_compound_veto(repo: FixtureRepo, tmp_path: Path) -> None:
+    # users/002 denial #2, replayed: the real mutations are in src/, and the command died only
+    # because a leading `rm -f tests/...` shared the line. A PreToolUse hook can only allow or
+    # deny the whole call, so the fix is that BOTH targets now resolve into the /tmp copy.
+    cmd = f"cd {tmp_path / 'mut'} && rm -f tests/x.py && cat > src/y.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) is None
+
+
+def test_bash_guard_relative_write_without_cd_still_denied(repo: FixtureRepo) -> None:
+    # No cd: the session cwd IS the repo, so the protection is exactly as before.
+    assert decision(_run_anchored("cat > tests/x.py", agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_cd_does_not_excuse_an_absolute_in_repo_target(repo: FixtureRepo, tmp_path: Path) -> None:
+    # T06e's anchoring is untouched: an absolute target ignores the effective cwd.
+    cmd = f"cd {tmp_path / 'mut'} && cat > {repo.root}/tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_cd_out_and_back_in_still_denied(repo: FixtureRepo) -> None:
+    # The escalate-if case of T06f: cd-tracking must NOT open `cd .. && > <repo>/tests/x`.
+    # Resolution narrows, ownership does not: the target lands back inside the repo and fires.
+    cmd = f"cd .. && cat > {repo.root.name}/tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_cd_from_scratch_into_the_repo_is_denied(repo: FixtureRepo, tmp_path: Path) -> None:
+    # The mirror image: a relative target resolves INTO the repo through the cd, and fires.
+    # The session cwd is the scratch tree, so only the cd tells the guard where the write lands.
+    scratch = tmp_path / "mut"
+    scratch.mkdir()
+    cmd = f"cd {repo.root}/tests && cat > x.py"
+    proc = run_hook("bash_guard.py", _bash(cmd, "evaluator"), cwd=scratch, env={"CLAUDE_PROJECT_DIR": str(repo.root)})
+    assert decision(proc) == "deny"
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "cd &&",  # bare cd -> the home directory
+        "cd - &&",  # the previous directory
+        "cd $SCRATCH &&",  # an expansion this guard cannot evaluate
+        "cd ~/mut &&",  # an unexpanded ~
+        "pushd /x >/dev/null && popd >/dev/null &&",  # a stack this guard does not model
+    ],
+)
+def test_bash_guard_indeterminate_cwd_does_not_fire(repo: FixtureRepo, prefix: str) -> None:
+    # Precision bias: an effective cwd that cannot be determined drops the relative target
+    # rather than guessing the session cwd. The gate's baseline diff backstops the miss (S8).
+    assert decision(_run_anchored(f"{prefix} cat > tests/x.py", agent_type="evaluator", root=repo.root)) is None
+
+
+def test_bash_guard_cd_in_a_subshell_does_not_fire(repo: FixtureRepo, tmp_path: Path) -> None:
+    # `(cd x && …)` scopes the cd to a subshell — beyond a one-line model, so indeterminate.
+    cmd = f"(cd {tmp_path / 'mut'} && cat > tests/x.py)"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) is None
+
+
+def test_bash_guard_cd_preserves_the_owned_tree_allowance(repo: FixtureRepo) -> None:
+    # T06d survives: the test-author still writes its own tree through a cd-prefixed command.
+    cmd = f"cd {repo.root} && cat > tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="test-author", root=repo.root)) is None
+
+
+# =======================================================================================
+# bash_guard — fragments match path COMPONENTS, not bare substrings (T06f)
+# =======================================================================================
+#
+# `change.md` is a filename relative to the repo root, so a file whose name merely CONTAINS
+# it is not it. Found building T10e: `git show … > .claude/tools/fixtures/users-002-change.md`
+# was reported as a write to `change.md`, which sent the builder renaming the fixture. That
+# path is in fact protected — it lives under `.claude/tools` — and the denial now says so.
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo x > notes/users-002-change.md",  # not a change.md
+        "echo x > notes/verdict.md.draft",  # not a verdict.md
+        "sed -i '' 's/a/b/' pyproject.toml.bak",  # not pyproject.toml
+        "echo x > notes/mycriteria.md",  # not a criteria.md
+    ],
+)
+def test_bash_guard_filename_fragment_needs_a_whole_component(repo: FixtureRepo, command: str) -> None:
+    assert decision(_run_anchored(command, agent_type="test-author", root=repo.root)) is None, command
+
+
+def test_bash_guard_real_change_md_still_denied(repo: FixtureRepo) -> None:
+    cmd = "echo x > specs/demo/changes/001-thing/change.md"
+    assert decision(_run_anchored(cmd, agent_type="test-author", root=repo.root)) == "deny"
+
+
+def test_bash_guard_protected_dir_denial_names_the_directory(repo: FixtureRepo) -> None:
+    # The T10e write: still denied — `.claude/tools` is a protected tree whoever the fixture
+    # is named for — but the reported fragment is now the real reason, not the filename.
+    cmd = "git show HEAD:x > .claude/tools/fixtures/users-002-change.md"
+    proc = _run_anchored(cmd, agent_type="test-author", root=repo.root)
+    assert decision(proc) == "deny"
+    assert ".claude/tools" in proc.stdout and "(change.md)" not in proc.stdout, proc.stdout
+
+
+# =======================================================================================
 # session_stop — ergonomics
 # =======================================================================================
 
