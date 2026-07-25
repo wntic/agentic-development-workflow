@@ -22,6 +22,8 @@ import pytest
 
 TOOLS_DIR = Path(__file__).resolve().parent
 TOOL_FILES = ("gate.py", "criteria_lint.py", "accept.py")
+# Verbatim snapshots of real change documents used as regression fixtures (T10e).
+FIXTURES_DIR = TOOLS_DIR / "fixtures"
 
 
 def _load(name: str, filename: str):
@@ -380,6 +382,131 @@ def test_orphan_violations() -> None:
     assert accept.orphan_violations(["gone"], "clean spec", "clean src") == []
     hit = accept.orphan_violations(["ghost"], "the ghost lingers", "")
     assert hit and "ghost" in hit[0]
+
+
+# ---------------------------------------------------------------------------------------
+# removal-flavour classification (T10e) — structural, never grepped out of prose
+# ---------------------------------------------------------------------------------------
+
+USERS_002_CHANGE_MD = (FIXTURES_DIR / "users-002-change-spec.md").read_text(encoding="utf-8")
+
+REMOVAL_CHANGE_MD = """\
+# demo/007 — drop the legacy export
+
+Class: behavioral, removal flavour
+Affects: export.md
+
+## Interface sketch
+
+- `ExportHandler.handle(cmd) -> bool` — `True` when a row was removed, `False` when no row
+  held that id; the removed id is echoed in the log line.
+
+## Removed
+
+- `LegacyExportHandler` — the whole handler goes, with its route.
+- `tests/test_export.py::test_legacy_export` — obsolete, deleted by this change's test-author.
+
+## Acceptance criteria
+
+- AC-1: `GET /export/legacy` returns 404.
+"""
+
+
+def test_classify_removal_does_not_fire_on_users_002() -> None:
+    """Regression (T10e): the verbatim users/002 change.md — `Class: behavioral`, no `Removed`
+    heading, but two prose spots saying "removed" — must NOT read as a removal-flavour change.
+    The pre-T10e classifier fired on the wrapped sketch line and then harvested 19 generic
+    identifiers (`id`, `save`, `None`, …), denying acceptance of a change that removes nothing."""
+    flavour = accept.classify_removal(USERS_002_CHANGE_MD)
+    assert flavour.fires is False
+    assert flavour.by_class is False
+    assert flavour.sections == ()
+    assert flavour.terms == ()
+    # the fixture is the real document, not a sanitised one: both triggering spots are present.
+    assert "removed id, or `None` when no user held it." in USERS_002_CHANGE_MD
+    assert "`True` when a row was removed" in USERS_002_CHANGE_MD
+
+
+def test_classify_removal_fires_on_a_real_heading_and_captures_only_its_terms() -> None:
+    flavour = accept.classify_removal(REMOVAL_CHANGE_MD)
+    assert flavour.fires is True
+    assert flavour.by_class is True  # the `Class:` line declares the flavour
+    # the capture is anchored to the heading, so the sketch's own "removed" prose and its
+    # backticked `True` / `False` / `ExportHandler` never enter the term list.
+    assert set(flavour.terms) == {"LegacyExportHandler", "test_legacy_export"}
+
+
+def test_classify_removal_ignores_prose_without_a_heading() -> None:
+    prose = (
+        "# demo/008 — patch a user\n\nClass: behavioral\n\n## Task\n"
+        "  removed id, or `None` when no user held it.\n"
+        "removed the `Widget` from the response? no — this line is prose, not a heading.\n"
+    )
+    flavour = accept.classify_removal(prose)
+    assert flavour.fires is False and flavour.terms == ()
+
+
+def test_classify_removal_ignores_the_template_comment_vocabulary() -> None:
+    """The change.md template's own HTML comment on the `Class:` line explains the removal
+    flavour ("behavioral, removal flavour: list the removed behaviour explicitly"). A change
+    that kept the comment must not classify as a removal."""
+    template = (TOOLS_DIR.parent / "templates" / "change.md").read_text(encoding="utf-8")
+    assert "removal flavour" in template  # the trap is really in the template
+    assert accept.classify_removal(template).fires is False
+
+
+def _sweep_context(tmp_path: Path, change_md: str, *, spec_text: str = "", src_text: str = "") -> object:
+    (tmp_path / "specs" / "demo" / "changes" / "007-x").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "specs" / "demo" / "export.md").write_text(spec_text, encoding="utf-8")
+    (tmp_path / "src").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "src" / "core.py").write_text(src_text, encoding="utf-8")
+    return accept.AcceptContext(
+        tree=tmp_path,
+        change_id="demo/007",
+        ctx="demo",
+        nnn="007",
+        change_dir=tmp_path / "specs" / "demo" / "changes" / "007-x",
+        base="main",
+        branch="change/demo-007",
+        head="0" * 40,
+        change_md=change_md,
+        criteria_text="",
+        verdict_text=None,
+    )
+
+
+def test_orphan_sweep_skips_a_non_removal_change(tmp_path: Path) -> None:
+    result = accept._orphan_sweep(_sweep_context(tmp_path, USERS_002_CHANGE_MD))
+    assert result.status == accept.SKIP
+    assert "not a removal-flavour change" in result.detail
+
+
+def test_orphan_sweep_skips_when_class_declares_removal_but_no_heading_lists_it(tmp_path: Path) -> None:
+    change_md = "# demo/007 — drop it\n\nClass: behavioral, removal flavour\n\n## Task\n\nDrop `LegacyExportHandler`.\n"
+    result = accept._orphan_sweep(_sweep_context(tmp_path, change_md, src_text="class LegacyExportHandler: ...\n"))
+    # no heading -> nothing structural to sweep; the sweep never falls back to free prose.
+    assert result.status == accept.SKIP
+    assert "no `Removed` heading" in result.detail
+
+
+def test_orphan_sweep_still_fails_on_a_symbol_that_survived(tmp_path: Path) -> None:
+    ctx = _sweep_context(
+        tmp_path,
+        REMOVAL_CHANGE_MD,
+        spec_text="- the legacy export is served by `LegacyExportHandler` (verified by: x)\n",
+        src_text="class LegacyExportHandler:\n    pass\n",
+    )
+    result = accept._orphan_sweep(ctx)
+    assert result.status == accept.FAIL
+    assert "LegacyExportHandler" in result.detail
+    assert "spec text" in result.detail and "src symbols" in result.detail
+
+
+def test_orphan_sweep_passes_when_the_removed_symbols_are_gone(tmp_path: Path) -> None:
+    ctx = _sweep_context(tmp_path, REMOVAL_CHANGE_MD, spec_text="- export is gone\n", src_text="x = 1\n")
+    result = accept._orphan_sweep(ctx)
+    assert result.status == accept.PASS
+    assert "2 removed symbol(s)" in result.detail
 
 
 def test_adversarial_required_by_depth_and_novelty() -> None:

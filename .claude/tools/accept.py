@@ -452,6 +452,57 @@ def rebase_freshness_state(
     )
 
 
+@dataclass(frozen=True)
+class RemovalFlavour:
+    """Structural classification of a change as removal-flavour, plus the symbols to sweep.
+
+    `by_class`  — the `Class:` line declares the removal flavour (spec §3.1's `REMOVED`).
+    `sections`  — the body under every real `#+ Removed…` heading (the ONLY place terms
+                  are harvested from).
+    `terms`     — node-ids / backticked symbol names found in those sections.
+    """
+
+    by_class: bool
+    sections: tuple[str, ...]
+    terms: tuple[str, ...]
+
+    @property
+    def fires(self) -> bool:
+        return self.by_class or bool(self.sections)
+
+
+# The removal flavour is declared structurally, never grepped out of prose (T10e): either the
+# `Class:` line carries it (spec §3.1: "Removal-вкус (`REMOVED`)") or the change.md has a REAL
+# heading — `#+`, one-or-more, so a wrapped sketch line starting with "removed …" cannot pass
+# for one. The pre-T10e classifier used `#*` (zero-or-more) and matched exactly that.
+_REMOVAL_ON_CLASS_LINE = re.compile(r"(?im)^Class:[^\n]*\bremov(?:al|als|ed|es|ing)\b")
+_REMOVED_HEADING = re.compile(r"(?m)^#+[ \t]*Removed\b[^\n]*$")
+_ANY_HEADING = re.compile(r"(?m)^#+[ \t]")
+
+
+def classify_removal(change_md: str) -> RemovalFlavour:
+    """Classify a change's removal flavour from STRUCTURE and harvest the removed symbols
+    from the matched heading's own section only.
+
+    Two defects this replaces (both blocked `users/002`, a change that removes nothing):
+    a classifier that fired on any line beginning with "removed", and a term capture anchored
+    on the FIRST "removed" anywhere in the file — which harvested half the Interface sketch
+    (`id`, `save`, `None`, …) and would drown a genuine removal's real signal too.
+    """
+    text = re.sub(r"<!--.*?-->", "", change_md, flags=re.DOTALL)  # the template's own comment says "removal flavour"
+    by_class = bool(_REMOVAL_ON_CLASS_LINE.search(text))
+    sections: list[str] = []
+    for match in _REMOVED_HEADING.finditer(text):
+        rest = text[match.end() :]
+        nxt = _ANY_HEADING.search(rest)
+        sections.append(rest[: nxt.start()] if nxt else rest)
+    terms: list[str] = []
+    for body in sections:
+        terms += re.findall(r"::(\w+)", body)
+        terms += re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", body)
+    return RemovalFlavour(by_class=by_class, sections=tuple(sections), terms=tuple(terms))
+
+
 def orphan_violations(removed_terms: list[str], spec_text: str, src_text: str) -> list[str]:
     """A removal-flavour change's removed behaviour must survive nowhere (V-02)."""
     out: list[str] = []
@@ -865,14 +916,21 @@ def _spec_lint(actx: AcceptContext) -> Result:
 
 
 def _orphan_sweep(actx: AcceptContext) -> Result:
-    if not re.search(r"(?im)^#*\s*removed\b|removal flavour|`REMOVED`", actx.change_md):
-        return Result("orphan.sweep", SKIP, "not a removal-flavour change")
-    # terms = node-ids / symbol names listed under a "Removed" list in change.md
-    removed_section = ""
-    m = re.search(r"(?is)removed[^\n]*\n(.*?)(?:\n##|\Z)", actx.change_md)
-    if m:
-        removed_section = m.group(1)
-    terms = re.findall(r"::(\w+)", removed_section) + re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", removed_section)
+    flavour = classify_removal(actx.change_md)
+    if not flavour.fires:
+        return Result(
+            "orphan.sweep",
+            SKIP,
+            "not a removal-flavour change (no removal flavour on the `Class:` line, no `Removed` heading)",
+        )
+    if not flavour.sections:
+        return Result(
+            "orphan.sweep",
+            SKIP,
+            "the `Class:` line declares the removal flavour but change.md carries no `Removed` heading — "
+            "there is no structural list of removed behaviour to sweep (the sweep never harvests free prose)",
+        )
+    terms = list(flavour.terms)
     if not terms:
         return Result("orphan.sweep", PASS, "removal-flavour change lists no concrete removed symbols to sweep")
     spec_text = "\n".join(
