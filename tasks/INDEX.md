@@ -142,7 +142,13 @@ What it surfaced is below. Every claim re-derived from source before filing.
   variant and never checked the other). Twice denied the `users/002` adversarial evaluator, which
   rerouted and finished anyway — i.e. the guard trained the bypass reflex it exists to prevent.
   Also dissolves the "one stray `tests/` token vetoes a legal `src/` command" symptom, same fix.
-  Depends: T06, T06b, T06d, T06e.
+  **Rescoped 2026-07-25 into Part A + Part B** (two concerns, batched so both land before the single
+  users/002 rebase): Part A adds the filename-fragment precision fix found building T10e (protected
+  `change.md` matched `fixtures/users-002-change.md` by substring; the builder renamed the fixture to
+  dodge it, i.e. the guard is dictating filenames). Part B closes the **V-02 fail-open T10e opened** —
+  its findings #2+#3 combine so a genuine removal change can reach acceptance with the sweep silently
+  not running; class-declared-without-heading becomes FLAG instead of SKIP. Depends: T06, T06b, T06d,
+  T06e, T10e.
 - [ ] T10f — Adversarial pass over `accept.py`'s own gates. Three defects now found by *using* the
   script (T10c, T10e, and the T05-era freshness hole), and the freshness one fails **open** — the
   worst possible direction for the backstop the whole S8 trust model rests on. All three share a
@@ -154,6 +160,16 @@ What it surfaced is below. Every claim re-derived from source before filing.
   the run reports filed it as. Carries a canon question — is this repo's shared meta+target
   `pyproject.toml` meant to be installable at all — that must be escalated, not defaulted.
   Depends: T12, T04.
+
+**OPEN DECISION the author owes T03 (from T10e findings #1/#2):** the removal-flavour vocabulary is
+not pinned anywhere. `workflow_v3_spec.md §3.1` says `REMOVED`, the `change.md` template comment says
+"removal flavour", `/spec` (`commands/spec.md:38`) says only "listed explicitly", and
+`.claude/agents/test-author.md:79-82` instructs a "Removed tests block" that exists in **no
+template**. T10e's classifier is deliberately tolerant of all three spellings on the `Class:` line;
+T06f Part B makes a missing `## Removed` heading a visible FLAG. Neither is the fix. Choose: **(a)**
+pin one spelling in the template + ship a `## Removed` section skeleton, then narrow the classifier
+to it; or **(b)** keep the classifier tolerant and accept that `/spec` may emit any spelling. Until
+this lands, V-02's coverage on a genuine removal rests on a heading nothing instructs anyone to write.
 
 **Not tooling defects — routed back into the change (F1/F2).** The adversarial pass found two
 surviving mutations, both future-regression exposure rather than shipped bugs (verified: the shipped
