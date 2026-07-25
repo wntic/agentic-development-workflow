@@ -36,7 +36,9 @@ Gates, in the §5.4 order:
   5. spec-lint: dangling refs, duplicate capabilities, >300-line files, a capability missing
      from overview.md (L-07/O-13).
   6. orphan sweep (removal flavour): removed behaviour lingers neither in spec text nor as
-     dead src symbols (V-02/§5.4).
+     dead src symbols (V-02/§5.4) — and a change that DECLARES a removal on its `Class:` line
+     without a `## Removed` heading is a FLAG, not silence: the sweep cannot run on free prose,
+     so the human sees that V-02 did not run (S4).
 
 Plus one cross-§ gate on the evaluator↔accept seam T09 opened (spec §6 step 4): the
 `## Adversarial review` section of verdict.md must be filled when the change class demands the
@@ -924,11 +926,18 @@ def _orphan_sweep(actx: AcceptContext) -> Result:
             "not a removal-flavour change (no removal flavour on the `Class:` line, no `Removed` heading)",
         )
     if not flavour.sections:
+        # FLAG, not SKIP: the change DECLARES a removal, so V-02 is owed — but there is no
+        # structural list to sweep (the sweep never harvests free prose), and no command emits
+        # a `## Removed` heading yet, so blocking here would deadlock every removal change.
+        # Surfaced-but-non-blocking keeps the absent sweep visible in the human's review output
+        # instead of silently not running (S4: a gate that can quietly not-run does not exist).
         return Result(
             "orphan.sweep",
-            SKIP,
-            "the `Class:` line declares the removal flavour but change.md carries no `Removed` heading — "
-            "there is no structural list of removed behaviour to sweep (the sweep never harvests free prose)",
+            FLAG,
+            "the `Class:` line declares the removal flavour but change.md carries no `## Removed` heading — "
+            "V-02 did NOT run: there is no structural list of removed behaviour to sweep (the sweep never "
+            "harvests free prose). Add a `## Removed` section listing the removed symbols/node-ids, or "
+            "confirm in review that nothing is orphaned",
         )
     terms = list(flavour.terms)
     if not terms:

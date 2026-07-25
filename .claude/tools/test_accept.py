@@ -481,12 +481,33 @@ def test_orphan_sweep_skips_a_non_removal_change(tmp_path: Path) -> None:
     assert "not a removal-flavour change" in result.detail
 
 
-def test_orphan_sweep_skips_when_class_declares_removal_but_no_heading_lists_it(tmp_path: Path) -> None:
-    change_md = "# demo/007 — drop it\n\nClass: behavioral, removal flavour\n\n## Task\n\nDrop `LegacyExportHandler`.\n"
+CLASS_DECLARED_NO_HEADING = (
+    "# demo/007 — drop it\n\nClass: behavioral, removal flavour\n\n## Task\n\nDrop `LegacyExportHandler`.\n"
+)
+
+
+def test_orphan_sweep_flags_when_class_declares_removal_but_no_heading_lists_it(tmp_path: Path) -> None:
+    """T06f part B: a DECLARED removal with nothing structural to sweep is FLAG, not SKIP.
+
+    The sweep never falls back to free prose (T10e), and no command emits a `## Removed`
+    heading yet — so SKIP here let a genuine removal reach acceptance with V-02 never running
+    and nothing said about it. A gate that can silently not-run does not exist (S4); FLAG is
+    surfaced-but-non-blocking, so the human sees the absent sweep without a deadlock."""
+    result = accept._orphan_sweep(
+        _sweep_context(tmp_path, CLASS_DECLARED_NO_HEADING, src_text="class LegacyExportHandler: ...\n")
+    )
+    assert result.status == accept.FLAG
+    assert result.status not in (accept.SKIP, accept.PASS)
+    assert "## Removed" in result.detail and "did NOT run" in result.detail
+
+
+def test_orphan_sweep_does_not_flag_when_the_heading_is_present(tmp_path: Path) -> None:
+    """The FLAG is about a MISSING heading only: once the heading is there the sweep ran, so a
+    body with no harvestable symbol is PASS — never the FLAG (nor a FAIL that would deadlock)."""
+    change_md = CLASS_DECLARED_NO_HEADING + "\n## Removed\n\nThe legacy export endpoint, entirely.\n"
     result = accept._orphan_sweep(_sweep_context(tmp_path, change_md, src_text="class LegacyExportHandler: ...\n"))
-    # no heading -> nothing structural to sweep; the sweep never falls back to free prose.
-    assert result.status == accept.SKIP
-    assert "no `Removed` heading" in result.detail
+    assert result.status == accept.PASS
+    assert "no concrete removed symbols" in result.detail
 
 
 def test_orphan_sweep_still_fails_on_a_symbol_that_survived(tmp_path: Path) -> None:
