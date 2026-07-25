@@ -469,6 +469,73 @@ def test_bash_guard_protected_dir_denial_names_the_directory(repo: FixtureRepo) 
 
 
 # =======================================================================================
+# bash_guard — a heredoc BODY is data, not command (T06g)
+# =======================================================================================
+#
+# `git commit -F - <<'EOF' … EOF` is how every agent in this repo writes a multi-line message,
+# and the tokeniser read the body as part of the command — so prose that happened to contain
+# `>` followed by a protected path was denied as a redirect, while the identical idiom with a
+# clean message passed. It fired on message CONTENT, not command shape (hence "unreproducible").
+# Bodies are now stripped before tokenising; the opener's own line stays, so a real redirect
+# there still fires — that boundary is the whole correctness question of the fix.
+
+COMMIT_HEREDOC = "git commit -F - <<'EOF'\nfix: something\n\nthe prose mentions > tests/x.py as an example\nEOF"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # the verbatim reproduction: a redirect-looking token inside the message body
+        COMMIT_HEREDOC,
+        # unterminated: the remainder is body, and an unresolvable command never fires (S8)
+        "git commit -F - <<'EOF'\nthe prose mentions > tests/x.py\n",
+        # two heredocs in one command — the SECOND body carries the protected token
+        "cmd <<A <<B\nbodyA\nA\nthe prose mentions > tests/x.py\nB",
+        # `<<-` strips tabs, so its terminator may be indented
+        "git commit -F - <<-EOF\n\tthe prose mentions > tests/x.py\n\tEOF",
+        # the body's own quoting must not matter either (an apostrophe used to break shlex)
+        "git commit -F - <<'EOF'\ndon't hand-edit > tests/x.py\nEOF",
+    ],
+)
+def test_bash_guard_heredoc_body_is_not_a_write(repo: FixtureRepo, command: str) -> None:
+    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) is None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > tests/x.py <<'EOF'\nbody\nEOF",  # the `>` precedes the heredoc tag
+        "cat <<'EOF' > tests/x.py\nbody\nEOF",  # ... and after it: still the command line
+        "cat <<EOF >> tests/x.py\nbody\nEOF",  # append form, bare tag
+        "git commit -F - <<'EOF'\nmsg\nEOF\nrm tests/y.py",  # a real write AFTER the terminator
+    ],
+)
+def test_bash_guard_redirect_on_the_heredoc_command_line_still_fires(repo: FixtureRepo, command: str) -> None:
+    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) == "deny", command
+
+
+def test_bash_guard_herestring_is_not_a_heredoc(repo: FixtureRepo) -> None:
+    # `<<<` is a different construct (one shlex word, no body): the redirect after it still fires.
+    cmd = "grep foo <<< 'a b' > tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_heredoc_preserves_cd_awareness(repo: FixtureRepo, tmp_path: Path) -> None:
+    # T06f regression: cd-tracking and heredoc-stripping compose — the body is dropped and the
+    # opener line's relative target still resolves against the EFFECTIVE cwd, not the session one.
+    scratch = f"cd {tmp_path / 'mut'} && cat > tests/x.py <<'EOF'\nbody\nEOF"
+    assert decision(_run_anchored(scratch, agent_type="evaluator", root=repo.root)) is None
+    in_repo = "cat > tests/x.py <<'EOF'\nbody\nEOF"
+    assert decision(_run_anchored(in_repo, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_heredoc_preserves_the_owned_tree_allowance(repo: FixtureRepo) -> None:
+    # T06d regression: the owner still writes its own tree through a heredoc.
+    cmd = "cat > tests/x.py <<'EOF'\nbody\nEOF"
+    assert decision(_run_anchored(cmd, agent_type="test-author", root=repo.root)) is None
+
+
+# =======================================================================================
 # session_stop — ergonomics
 # =======================================================================================
 

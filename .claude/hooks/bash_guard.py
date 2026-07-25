@@ -40,6 +40,15 @@ inside a subshell / command substitution — the relative target is **dropped, n
 `cd .. && … > <repo>/tests/x` still resolves back into the repo and still fires: this narrows
 resolution, never ownership.
 
+Heredoc **bodies** are not part of the command (T06g). `git commit -F - <<'EOF' … EOF` is how
+every agent here writes a multi-line message, and the body is data: a `>` in the prose is not a
+redirect. So the bodies of `<<TAG` / `<<'TAG'` / `<<"TAG"` / `<<-TAG` (any number of them, in
+the order bash reads them) are removed before tokenising, up to the terminating `TAG` line —
+while the heredoc's own command line stays, so a real redirect there (`cat > tests/x.py <<'EOF'`,
+`cat <<'EOF' > tests/x.py`) still fires. An unterminated heredoc leaves the whole remainder as
+body: nothing fires (precision bias again — the gate backstops, S8). `<<<` is a herestring, a
+different construct, and is left alone.
+
 Fragments match on **component boundaries**, never as bare substrings (T06f). A fragment is
 a path relative to the repo root, so `change.md` matches `…/change.md` but not
 `fixtures/users-002-change.md`, and `pyproject.toml` does not match `pyproject.toml.bak` —
@@ -142,6 +151,10 @@ GROUPING = re.compile(r"[(){}`]|\$\(")
 # A `cd` argument that cannot be evaluated without a shell: expansion, glob, `~`, backtick.
 OPAQUE_DIR = re.compile(r"[$*?`~]")
 
+# A heredoc opener at a given offset: `<<`, an optional tab-stripping `-`, then the delimiter
+# either quoted (`'TAG'` / `"TAG"`, body not expanded) or bare (optionally backslash-escaped).
+HEREDOC_OPEN = re.compile(r"<<(-?)[ \t]*(?:'([^']*)'|\"([^\"]*)\"|\\?([A-Za-z_][\w.\-]*))")
+
 
 @dataclass(frozen=True)
 class WriteTarget:
@@ -154,6 +167,65 @@ class WriteTarget:
 
     token: str
     cwd: str | None
+
+
+def _heredoc_tags(line: str) -> list[tuple[str, bool]]:
+    """The heredoc delimiters opened on `line`, in the order bash reads their bodies.
+
+    Each entry is `(tag, strips_tabs)` — `strips_tabs` for the `<<-TAG` form, whose terminator
+    may be indented. Quoting is tracked so a `<<` inside a quoted argument is not read as an
+    opener; `<<<` (herestring) is skipped, it is a different construct. Per line only: this is
+    a tokeniser, not a shell.
+    """
+    tags: list[tuple[str, bool]] = []
+    quote: str | None = None
+    i, n = 0, len(line)
+    while i < n:
+        ch = line[i]
+        if quote is not None:
+            quote = None if ch == quote else quote
+            i += 1
+        elif ch in "'\"":
+            quote = ch
+            i += 1
+        elif ch == "\\":
+            i += 2
+        elif line.startswith("<<<", i):
+            i += 3  # herestring — already one shlex word, no body follows
+        elif line.startswith("<<", i):
+            m = HEREDOC_OPEN.match(line, i)
+            if m is None:
+                i += 2  # not a delimiter this guard recognises (`<<` alone, an expansion, …)
+                continue
+            tag = next(g for g in m.groups()[1:] if g is not None)
+            tags.append((tag, bool(m.group(1))))
+            i = m.end()
+        else:
+            i += 1
+    return tags
+
+
+def _strip_heredoc_bodies(command: str) -> str:
+    """`command` with every heredoc body (and its terminator line) removed (T06g).
+
+    A heredoc body is data, not command: the `>` in a commit message's prose is not a redirect.
+    The opener's own line is KEPT, so a redirect sitting there still reads as one. An
+    unterminated heredoc swallows the remainder of the command — precision bias, the gate
+    backstops the miss (S8).
+    """
+    if "<<" not in command:
+        return command
+    kept: list[str] = []
+    pending: list[tuple[str, bool]] = []
+    for line in command.split("\n"):
+        if pending:
+            tag, strips_tabs = pending[0]
+            if (line.strip() if strips_tabs else line.rstrip()) == tag:
+                pending.pop(0)
+            continue  # body lines and the terminator are not part of the command
+        kept.append(line)
+        pending.extend(_heredoc_tags(line))
+    return "\n".join(kept)
 
 
 def _slice_until_control(tokens: list[str], start: int) -> list[str]:
@@ -183,6 +255,7 @@ def _write_targets(command: str, cwd: str) -> list[WriteTarget]:
     Empty when nothing writes, or when the command cannot be tokenised with confidence
     (unbalanced quotes) — precision bias: do not fire, the gate catches a miss (S8).
     """
+    command = _strip_heredoc_bodies(command)  # a heredoc body is data, not command (T06g)
     try:
         tokens = shlex.split(command, posix=True)
     except ValueError:
