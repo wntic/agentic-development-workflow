@@ -136,7 +136,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   `None`). Blocks `/accept-change users/002` on a change that removes nothing. Classify off `Class:`
   + `#+\s*Removed`; anchor the capture to the heading. **Blocks users/002 acceptance.**
   Depends: T10, T05, T03.
-- [ ] T06f — `bash_guard` denies relative writes into a scratch tree reached by `cd`: it resolves
+- [x] T06f — `bash_guard` denies relative writes into a scratch tree reached by `cd`: it resolves
   relative targets against the *session* cwd because `_write_targets()` has no `cd` awareness. Not
   the bug T06e closed (that was the absolute-path variant of the same finding — T06e closed on one
   variant and never checked the other). Twice denied the `users/002` adversarial evaluator, which
