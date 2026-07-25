@@ -153,7 +153,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   its findings #2+#3 combine so a genuine removal change can reach acceptance with the sweep silently
   not running; class-declared-without-heading becomes FLAG instead of SKIP. Depends: T06, T06b, T06d,
   T06e, T10e.
-- [ ] T06g — `bash_guard` tokenises heredoc **bodies**, so prose inside a multi-line commit message
+- [x] T06g — `bash_guard` tokenises heredoc **bodies**, so prose inside a multi-line commit message
   is read as a redirect: `git commit -F - <<'EOF' … "the prose mentions > tests/x.py" … EOF` is
   DENIED, while the same heredoc without a `>` token passes. Found building T06f (its finding 3, on
   its own commit message) and reconfirmed against the live hook. Worse than a normal false positive
