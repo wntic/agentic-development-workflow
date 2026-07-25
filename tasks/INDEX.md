@@ -116,13 +116,60 @@ impact. See `notes/greenfield-first-change-blockers.md` (cost profile + findings
   denies non-owner writes to `/tmp/.../tests/...` by substring-matching the fragment anywhere).
   Cheap false-positive fix; keep T06b precision + T06d role-awareness. Depends: T06, T06b, T06d.
 
-**Sign-off pending (author's canon call):** T10d is ticked but its builder resolved the
-"design-sensitive" freshness fork (commit-identity → tree-identity) WITHOUT escalating. The code is
-correct and faithful to §5.4 (freshness = does the diff intersect the change's FILES, i.e. content,
-not commit-ancestry), but the canon reading needs the author's conscious sign-off before T10d is
-truly closed. T10d also incidentally exposed + closed a **pre-existing silent false-accept hole in
-the freshness gate (shipped since T05)** — an unresolvable pin gave an empty diff → PASS; worth an
-adversarial pass over the whole acceptance script.
+**T10d — SIGNED OFF (2026-07-25, author).** Freshness is anchored to **tracked-tree identity**, not
+commit identity: the question §5.4 asks is *does the diff intersect the change's FILES* (content),
+not *is the verdict's commit still an ancestor*. A rebase that preserves the tree therefore preserves
+the verdict, and no evaluator re-run is owed. T10d is closed. The fail-open hole it incidentally
+exposed (unresolvable pin → empty diff → PASS, shipped since T05) is carried forward as **T10f**.
+
+### Post-`/implement users/002` findings (2026-07-25 report analysis)
+
+`users/002` (user CRUD, 14 AC) ran the cycle in **one clean pass** — zero orchestrator commits, all
+four agents self-committing in freshness order, 38 min total active compute with no SendMessage
+resumes. The T09e/T10c friction fixes worked: the round-trip cascade that dominated `platform/001`
+is gone. The adversarial pass earned its keep by mutation-testing (8 injected mutations, 6 died).
+What it surfaced is below. Every claim re-derived from source before filing.
+
+- [ ] T10e — `_orphan_sweep` classifies removal-flavour by grepping prose: `#*` is zero-or-more, so
+  a wrapped sketch line ("removed id, or `None`…") reads as a heading, and the term capture then
+  anchors on the *first* "removed" anywhere and harvests 19 generic identifiers (`id`, `save`,
+  `None`). Blocks `/accept-change users/002` on a change that removes nothing. Classify off `Class:`
+  + `#+\s*Removed`; anchor the capture to the heading. **Blocks users/002 acceptance.**
+  Depends: T10, T05, T03.
+- [ ] T06f — `bash_guard` denies relative writes into a scratch tree reached by `cd`: it resolves
+  relative targets against the *session* cwd because `_write_targets()` has no `cd` awareness. Not
+  the bug T06e closed (that was the absolute-path variant of the same finding — T06e closed on one
+  variant and never checked the other). Twice denied the `users/002` adversarial evaluator, which
+  rerouted and finished anyway — i.e. the guard trained the bypass reflex it exists to prevent.
+  Also dissolves the "one stray `tests/` token vetoes a legal `src/` command" symptom, same fix.
+  Depends: T06, T06b, T06d, T06e.
+- [ ] T10f — Adversarial pass over `accept.py`'s own gates. Three defects now found by *using* the
+  script (T10c, T10e, and the T05-era freshness hole), and the freshness one fails **open** — the
+  worst possible direction for the backstop the whole S8 trust model rests on. All three share a
+  defect class: degenerate/empty input, not wrong logic. Depends: T10e.
+- [ ] T12b — The app the cycle ships is not an importable package: `pyproject.toml` has no
+  `[build-system]`, and `gate.py` injects `PYTHONPATH=src` itself — so the gate constructs the app
+  under an import path only the gate provides, and `uvicorn` by hand fails. An **A4** finding (the
+  gate isn't exercising the real failure mode, it's papering over it), not the ergonomics annoyance
+  the run reports filed it as. Carries a canon question — is this repo's shared meta+target
+  `pyproject.toml` meant to be installable at all — that must be escalated, not defaulted.
+  Depends: T12, T04.
+
+**Not tooling defects — routed back into the change (F1/F2).** The adversarial pass found two
+surviving mutations, both future-regression exposure rather than shipped bugs (verified: the shipped
+`save()`/`delete()` both carry `.where(id == …)`):
+- **F1** — dropping `.where()` from `save()` rewrites every row and all 19 tests stay green. AC-8 and
+  AC-9 each create exactly one user; AC-10 has a bystander but its PATCH 409s, so no test performs a
+  *successful* PATCH with another row present. Correctly self-diagnosed as a **criteria** defect
+  first: the AC text never mentions other users, so no test satisfying it literally could catch it.
+- **F2** — a filtering soft delete passes AC-13, though `change.md` forbids tombstones. "No
+  tombstones" is устройство and unenforceable as a criterion (S1) — but the *consequence* the pass
+  found is observable and belongs as an AC: re-creating a deleted user's email would 409.
+
+Routed via **TESTS-HANDBACK on `users/002`** (author's call, 2026-07-25) rather than deferred to a
+follow-up change — the baseline tag has to move for the T10e/T06f rebase anyway, so
+`red_check --rebaseline` runs once for both, and it exercises the handback path end-to-end for the
+first time. Criteria text is edited by the human (S3).
 
 ## Dependency order
 
