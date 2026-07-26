@@ -1,6 +1,6 @@
 ---
 name: domain-ports
-description: House style for domain contracts and services: repository protocols (`IFooRepository`, async CRUD-shaped), capability protocols (`ICan<Verb>`, single-action), and stateless domain services that take injected protocols to enforce rules needing cross-aggregate state.
+description: "House style for domain contracts and services: repository protocols (`IFooRepository`, async CRUD-shaped), capability protocols (`ICan<Verb>`, single-action), and stateless domain services that take injected protocols to enforce rules needing cross-aggregate state."
 when_to_use: Producing a domain repository protocol, a capability protocol, or a domain service — the ports the application depends on and infrastructure implements by structural subtyping.
 ---
 # Domain ports — protocols & services

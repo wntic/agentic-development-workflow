@@ -1,6 +1,6 @@
 ---
 name: infra-persistence
-description: House style for persistence adapters under polyglot storage: relational repositories on SQLAlchemy Core (never the ORM) with an IntegrityError-to-domain-exception translator, the write-once `Table` scaffold, client-style store repositories (vector / cache / document), and the Alembic revision discipline the implementer owns.
+description: "House style for persistence adapters under polyglot storage: relational repositories on SQLAlchemy Core (never the ORM) with an IntegrityError-to-domain-exception translator, the write-once `Table` scaffold, client-style store repositories (vector / cache / document), and the Alembic revision discipline the implementer owns."
 when_to_use: Producing a repository adapter (relational or client-style store), a SQLAlchemy `Table`, or authoring the Alembic revision that pairs with a schema change.
 ---
 # Infrastructure — persistence

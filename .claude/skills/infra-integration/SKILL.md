@@ -1,6 +1,6 @@
 ---
 name: infra-integration
-description: House style for non-persistence infrastructure: capability adapters wrapping SDKs (`ICan<Verb>` implementations with an SDK-exception-to-domain-exception translator at the boundary), `pydantic-settings` classes (one per integration, env prefix stemming on the product), and `dependency-injector` container wiring (the `Singleton` vs `Factory` choice and declaration order).
+description: "House style for non-persistence infrastructure: capability adapters wrapping SDKs (`ICan<Verb>` implementations with an SDK-exception-to-domain-exception translator at the boundary), `pydantic-settings` classes (one per integration, env prefix stemming on the product), and `dependency-injector` container wiring (the `Singleton` vs `Factory` choice and declaration order)."
 when_to_use: Producing a capability adapter, a settings class, or wiring a class into `containers.py`.
 ---
 # Infrastructure — integration (adapters, settings, DI)

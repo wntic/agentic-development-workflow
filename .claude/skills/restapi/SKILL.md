@@ -1,7 +1,7 @@
 ---
 name: restapi
-description: House style for the whole FastAPI REST layer: the one-shot app bootstrap shell (`main.py`, central `DomainError` handler, CORS, DI wiring), thin endpoints in `routers/`, Pydantic request/response schemas, the auth-dependency decision (`get_current_user` vs `require_role`), route-level error advertisement, multipart upload / streaming download, and custom middleware ordering.
-when_to_use: Producing or editing any REST-layer artifact: the app shell, an endpoint, a schema, the auth dependency, error responses, a file-transfer route, or a middleware.
+description: "House style for the whole FastAPI REST layer: the one-shot app bootstrap shell (`main.py`, central `DomainError` handler, CORS, DI wiring), thin endpoints in `routers/`, Pydantic request/response schemas, the auth-dependency decision (`get_current_user` vs `require_role`), route-level error advertisement, multipart upload / streaming download, and custom middleware ordering."
+when_to_use: "Producing or editing any REST-layer artifact: the app shell, an endpoint, a schema, the auth dependency, error responses, a file-transfer route, or a middleware."
 ---
 # REST API
 

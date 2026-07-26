@@ -1,6 +1,6 @@
 ---
 name: testing-unit
-description: House style for fast, no-IO unit tests and the whole unit tier's constitution: domain entity / value-object / enum / service tests, application handler tests with in-memory fakes, the fake-repository pattern (stores and returns copies with an updated log, honours every param, a missing fake is a stop not an improvisation), the seven assert-strength recipes, the `@pytest.mark.ac("AC-n")` criteria marker, and the grep-firewall architecture rule. Carries the testing pyramid, conftest hierarchy, fixture-vs-builder rule, no-mocks contract and per-layer speed targets.
+description: "House style for fast, no-IO unit tests and the whole unit tier's constitution: domain entity / value-object / enum / service tests, application handler tests with in-memory fakes, the fake-repository pattern (stores and returns copies with an updated log, honours every param, a missing fake is a stop not an improvisation), the seven assert-strength recipes, the `@pytest.mark.ac(\"AC-n\")` criteria marker, and the grep-firewall architecture rule. Carries the testing pyramid, conftest hierarchy, fixture-vs-builder rule, no-mocks contract and per-layer speed targets."
 when_to_use: Writing a unit test for a domain object, an application handler, a fake repository, or a static architecture invariant.
 ---
 # Testing — unit tier

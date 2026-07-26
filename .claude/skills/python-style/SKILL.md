@@ -1,6 +1,6 @@
 ---
 name: python-style
-description: Cross-cutting Python style for every layer: typing conventions (`X | None`, immutable collections in the domain, `Any` only at raw boundaries, the project-wide prohibition on `from __future__ import annotations`) and logging (`structlog` setup, per-layer rules, success-only events in `application/`, never log-and-re-raise).
+description: "Cross-cutting Python style for every layer: typing conventions (`X | None`, immutable collections in the domain, `Any` only at raw boundaries, the project-wide prohibition on `from __future__ import annotations`) and logging (`structlog` setup, per-layer rules, success-only events in `application/`, never log-and-re-raise)."
 when_to_use: Writing or reviewing any Python module and deciding an annotation form, a collection type, or how and where to log. Consulted alongside the artifact-specific skill, not instead of it.
 ---
 # Python style — typing & logging

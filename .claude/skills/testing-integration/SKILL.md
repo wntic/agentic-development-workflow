@@ -1,6 +1,6 @@
 ---
 name: testing-integration
-description: House style for real-backend integration tests via testcontainers: repository contract tests (relational and client-style store), REST endpoint tests, discovery-invariant tests over `app.routes` / `app.openapi()`, capability-adapter tests, and the isolation / authed-client fixtures. Carries the testcontainers discipline, per-test rollback and per-namespace isolation, and the Docker-absence skip rule (a clean `pytest.skip`, never a fixture that raises).
+description: "House style for real-backend integration tests via testcontainers: repository contract tests (relational and client-style store), REST endpoint tests, discovery-invariant tests over `app.routes` / `app.openapi()`, capability-adapter tests, and the isolation / authed-client fixtures. Carries the testcontainers discipline, per-test rollback and per-namespace isolation, and the Docker-absence skip rule (a clean `pytest.skip`, never a fixture that raises)."
 when_to_use: Writing an integration test that touches a real store, the real FastAPI app, or an external adapter — anything under `tests/integration/`.
 ---
 # Testing — integration tier

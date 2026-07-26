@@ -1,6 +1,6 @@
 ---
 name: application
-description: House style for the application (CQRS) layer: command handlers (frozen command DTO + handler returning `UUID | None`, success-only logging), query handlers (frozen query DTO + optional `*Result` DTO), the compensating-transaction pattern (the sanctioned try/except: catch external side-effect, undo, re-raise), and the unit-of-work pattern (one atomic commit across two or more repositories).
+description: "House style for the application (CQRS) layer: command handlers (frozen command DTO + handler returning `UUID | None`, success-only logging), query handlers (frozen query DTO + optional `*Result` DTO), the compensating-transaction pattern (the sanctioned try/except: catch external side-effect, undo, re-raise), and the unit-of-work pattern (one atomic commit across two or more repositories)."
 when_to_use: Producing an application command or query handler, or shaping a handler that needs a compensating undo or a multi-repository atomic commit.
 ---
 # Application — CQRS handlers & sanctioned try/except

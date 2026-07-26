@@ -1,3 +1,7 @@
+---
+description: "Dispatch one v3-builder on a single tasks/TNN-*.md build task and relay its report verbatim"
+---
+
 # /build-task — execute one v3 build task
 
 Dispatch the `v3-builder` agent on one task file from `tasks/` and relay its report.
