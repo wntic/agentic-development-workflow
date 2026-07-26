@@ -35,6 +35,12 @@ things: `verdict.md`, and state flips in `criteria.md`. You touch no `src/**` an
    two you used.
 3. **Fast-lane for S-depth changes:** the evaluator *is* `gate.py --criteria` — no live run.
    (The full live pass is for M/L and any criterion Verification provisioned.)
+4. **`Class: invisible`** — the class's proof is the gate itself (spec §3.1): its
+   `invisible.openapi-diff` check constructs the app at the baseline commit and at HEAD and FAILs
+   on any difference in the OpenAPI operation set. So a GREEN gate already carries "behaviour did
+   not change"; cite that check by name in the verdict alongside each AC's ac-marked test, and never
+   substitute your own reading of the diff for it. A `SKIP` there (no HTTP surface on either side)
+   is part of the report, not something to paper over: say so in the verdict.
 
 ## What you write
 

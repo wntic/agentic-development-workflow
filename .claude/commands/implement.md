@@ -29,7 +29,8 @@ F-7). At most **one change per context** is in `/implement` at a time (spec §6)
    blocks *within this change's* implementer loop, so it starts at zero here.
 3. Read `change.md` to learn the **Class** (behavioral / bugfix / invisible / hardening; a removal
    is the behavioral flavour marked `REMOVED`, spec §3.1) and **Depth** (S / M / L) — they decide the fast-lane, the
-   adversarial review, and — for `hardening` — the route through steps 1–2 below.
+   adversarial review, and — for `hardening` and `invisible`, the two classes with no red phase —
+   the route through steps 1–2 below.
 
 ## 0.5 Precondition — a Python project exists (no bootstrap, no template)
 
@@ -108,6 +109,32 @@ adversarial pass earns when it finds a mutation the suite did not kill). It has 
   (gate integrity, E-12); no agent in this cycle edits it to make the check pass. A surviving
   mutation means the strengthened tests still do not catch the wrong code they were written for,
   which is the whole finding this change exists to close.
+
+## 1.6 `Class: invisible` — the change whose OBSERVABLE SURFACE must not move
+
+An **invisible** change (refactor / dependency upgrade / performance) claims that behaviour does not
+change, so its ACs pin behaviour that *already* holds. That removes the red phase — and nothing
+else: step 2 runs normally, because the refactor itself is ordinary `src/**` work.
+
+- **Step 1 stands, minus redness.** The same `red-check` command reads the `Class:` line and asks
+  this class's question: every ac-marked test **passes** at the candidate commit (green on arrival
+  is correct here — do not ask the test-author for redness, and never accept a test weakened until
+  it fails), and the baseline's app **constructs**, because the next bullet's diff reads the frozen
+  baseline tree. It then tags `baseline/<context>-NNN` as usual.
+- **The gate carries the class's second proof half.** `gate.py` runs
+  `invisible.openapi-diff`: it constructs the app at the baseline commit and at HEAD and compares
+  the METHOD+path operation sets. An added or removed endpoint is **RED**, named. So for this class
+  "the gate is green" IS spec §3.1's "green gate + empty before/after OpenAPI diff".
+- **A surface FAIL is a decision, not a retry.** Either the surface change was accidental (the
+  implementer reverts it — an ordinary `src/**` fix), or it was intended, in which case the change
+  is **not** invisible: stop and send it back to `/adw:spec` for a behavioral change with an
+  observable AC. Do not let the implementer burn its ceiling on it.
+- **Two shapes this class cannot prove, both loud.** A tree with no HTTP surface on either side (a
+  domain-only refactor) reports the diff as having nothing to compare — legitimate, and the proof
+  then rests on the whole baseline suite staying green (gate E-05). A **breaking** dependency
+  upgrade whose baseline source will not import under the new versions makes the before-side
+  UNDETERMINED, which `red_check` refuses at baseline time: that change needs another class, and no
+  amount of `src/**` work will change the answer.
 
 ## 2. implementer → green gate
 

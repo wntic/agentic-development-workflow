@@ -84,7 +84,16 @@ implementer as a **CONTRACT-CHANGE** (it cannot `uv add`), which routes back to 
    give). `red_check` proves it by applying every mutation in a throwaway worktree. Never weaken a
    test to make it red here, and never edit `## Mutations` — it is the human's, frozen in the
    baseline; a mutation nothing kills is a finding for the human, not a spec to adjust.
-4. **`Class: behavioral, REMOVED`** (spec §3.1's removal flavour): you own deleting or reworking
+4. **`Class: invisible`** (a refactor / dependency upgrade / performance change — behaviour stays
+   identical): your tests pin behaviour that **already holds**, so they are **green on arrival** and
+   that is correct. Write them against the code as it stands *before* the refactor: they are the
+   witness that the AC describes existing behaviour, not the new implementation. Never weaken one
+   until it fails, and do not "reach ahead" into the shape the refactor will have — the names it
+   moves are the implementer's business, and a test written against a not-yet-existing module would
+   fail at baseline. `red_check` proves this class by asking that every marked test passes at the
+   candidate commit and that the app still **constructs** there (the second proof half, the gate's
+   before/after OpenAPI diff, reads the baseline tree). The report says `INVISIBLE-CHECK`.
+5. **`Class: behavioral, REMOVED`** (spec §3.1's removal flavour): you own deleting or reworking
    the now-obsolete tests. The tests you may delete are the ones whose node-ids change.md's
    **`## Removed`** section already lists (written in `/adw:spec`, before your baseline) — the
    gate's baseline test-inventory treats only those as legally removed, and anything else missing
@@ -104,7 +113,9 @@ uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" red-check --change <context>/NNN
 It asserts every `AC-n` has at least one marked test and every marked test is RED, then tags
 `baseline/<context>-NNN` on the commit. (For a `hardening` change the same command asks that
 class's question instead — every marked test **passes** on the unmutated code and each declared
-mutation makes the AC it names go RED; the report says `HARDENING-CHECK` rather than `RED-CHECK`.) The commit order is: (1) the `deps:` commit (above),
+mutation makes the AC it names go RED; the report says `HARDENING-CHECK` rather than `RED-CHECK`.
+For an `invisible` change it asks for `INVISIBLE-CHECK` — every marked test passes at the candidate
+commit and the app constructs there.) The commit order is: (1) the `deps:` commit (above),
 then (2) your tests-only baseline commit. Commit the tests **before** running `red_check` (the
 red commit is the integrity baseline for the whole cycle, spec §5.1/§6). On a greenfield first
 change a test whose module import fails because the package is not written yet counts as RED

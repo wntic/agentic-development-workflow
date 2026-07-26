@@ -50,6 +50,12 @@ sections: `.claude/templates/change.md` (sections, classes, binding/non-binding 
      the human write it here**, lifting the surviving mutations from the `## Adversarial review`
      table of the change that found them. It is the class's baseline proof, so an agent inside the
      cycle must never author it — the template states what `red_check` then enforces.
+     An **invisible** change (refactor / dependency upgrade / performance) writes its AC as the
+     behaviour that must stay **unchanged**, phrased so a test can pin it *before* the refactor:
+     its proof is a green gate plus an empty before/after OpenAPI diff (`gate.py`'s
+     `invisible.openapi-diff`), and `red_check` asks that the ac-marked tests already **pass** at
+     the baseline. So it is brownfield-only by construction — behaviour that does not exist yet
+     cannot be left unchanged.
    - **Depth** — S/M/L (spec §3.2); litmus: if the diff fits one sentence, S is enough. Only
      Acceptance criteria are mandatory; do not inflate ceremony.
    - **Interface sketch** (M/L) — propose module/class names + ctor dependencies; once the

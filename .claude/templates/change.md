@@ -11,7 +11,14 @@ Class: behavioral    <!-- behavioral (default) | bugfix | invisible | hardening 
                           AC = a reference to that invariant + a regression test.
                           invisible: refactor/deps/perf — behaviour unchanged; AC = "behaviour
                           unchanged", proof = full green gate + empty before/after OpenAPI diff
-                          (+ the perf metric, if one was claimed).
+                          (+ the perf metric, if one was claimed). Both halves are enforced: the
+                          diff is gate.py's `invisible.openapi-diff` check (the baseline commit's
+                          app is constructed and its METHOD+path operation set compared with the
+                          work tree's — an added or removed endpoint is RED), and because its ACs
+                          pin behaviour that ALREADY holds there is no red phase: red_check asks
+                          instead that every ac-marked test PASSES at the baseline and that the
+                          baseline's app constructs. Brownfield only, therefore: a first change
+                          has no "before" to leave unchanged.
                           hardening: the TESTS get stronger while behaviour stays identical — the
                           change an adversarial pass earns when it finds a mutation the suite did
                           not kill. Its tests pass on arrival, so there is no red phase: redness is

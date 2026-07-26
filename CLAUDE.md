@@ -106,7 +106,11 @@ Three commands plus `/abandon` — all *planned*, see `tasks/INDEX.md`:
 Change **classes**: `behavioral` (default; the removal flavour — marked `REMOVED` on the `Class:`
 line, with a `## Removed` section listing the symbols and obsolete node-ids — makes the test-author
 owner of obsolete tests), `bugfix` (code diverged from a recorded invariant), `invisible` (refactor/deps/perf — proof
-is a green gate + empty OpenAPI diff). Change **depths**: S (Task + 1–3 AC, evaluator fast-lane) ·
+is a green gate + empty OpenAPI diff, both halves enforced: `gate.py`'s `invisible.openapi-diff`
+compares the baseline commit's operation set with HEAD's, and since the class's tests pin behaviour
+that already holds, `red_check` asks for green-at-baseline instead of redness — T20) and `hardening`
+(the tests get stronger, behaviour identical; redness replaced by kill-the-declared-mutation — T09g).
+Change **depths**: S (Task + 1–3 AC, evaluator fast-lane) ·
 M (+ Context, Out of scope, Interface sketch, Verification) · L (+ non-binding Design notes). A new
 context's first change is a **vertical slice** — one end-to-end observable AC. There is no scaffold
 template: a new project is a plain `uv init` + the installed plugin, and the substrate is
@@ -133,7 +137,9 @@ share — it kills the "who owns the names" seam. Agent definitions for these ro
 verdict + junit-xml + git SHA. Inventory (§5.1, every check traces to a paid-for finding): toolchain
 (mypy / ruff / pytest with **pinned config living inside gate.py**); grep-gates (`# type: ignore`,
 `from __future__ import annotations`, `# noqa: F401`, `raise NotImplementedError` in `src/**`);
-construct-smoke (`create_app()` + `app.openapi()`, table-metadata import); Docker tier
+construct-smoke (`create_app()` + `app.openapi()`, table-metadata import); the class-keyed
+`invisible.openapi-diff` (for `Class: invisible` only — the baseline commit's app and HEAD's must
+serve the same METHOD+path operation set; loud SKIP naming the class otherwise); Docker tier
 (testcontainers + `alembic upgrade head`, loud `DOCKER SKIPPED` otherwise); `--criteria` (every
 `[x]` must be backed by a **passed** `ac`-marked test in this run's junit); and **integrity against
 the red-commit baseline** — protected-tree diff (criteria.md legal flips only, change.md hash,
