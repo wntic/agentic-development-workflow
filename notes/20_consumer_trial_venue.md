@@ -176,10 +176,12 @@ stand as measured: `bash_guard` still allows a write to the plugin's own files (
 longer unattended.
 
 **The anchor set (plugin-root-relative globs, `SELF_INTEGRITY_GLOBS` in `gate.py`):** `tools/*.py`
-(gate, criteria_lint, accept, red_check) · `hooks/*.py` (all four) · `hooks/*.json` (the installed
-hook wiring) · `bin/*.py` (the invocation shim) · `.claude-plugin/*.json` (the manifest, which names
-the components) · `settings.json` (the checked-out/symlinked hook wiring — i.e. this venue's).
-Twelve files today. Globs, not a list, so a new tool or hook is anchored by construction. Not
+(every tool — gate, criteria_lint, accept, red_check, drift, and whatever lands next) · `hooks/*.py`
+(all four) · `hooks/*.json` (the installed hook wiring) · `bin/*.py` (the invocation shim) ·
+`.claude-plugin/*.json` (the manifest, which names the components) · `settings.json` (the
+checked-out/symlinked hook wiring — i.e. this venue's).
+Globs, not a list, so a new tool or hook is anchored by construction — and the file *count* is
+deliberately not recorded here: it is glob-derived and drifted from 12 to 13 within one task. Not
 anchored, deliberately: `tools/test_*.py` (they ship, but no decision reads them) and
 skills/agents/commands/templates (knowledge and prompts — drift there is a review question, and
 freezing them would mean committing before every gate run while editing a skill).
@@ -212,10 +214,91 @@ A ceiling that never fires costs iterations, not correctness; that is the trade 
    passes. Closing it needs a remote/published-commit comparison (network, or a signed manifest) —
    out of T18's scope. What it costs today: the tamper stops being invisible only if nobody commits
    it inside the plugin.
+
+   **RULED ON 2026-07-26 (T19): stated, not closed — and the cheap middle option is worse than
+   the limit.** Kept here in full because this is the one place a consumer can read what their
+   own trust actually rests on. See below.
 2. **In this venue, the plugin's `settings.json` is also the project's** (`.claude` is a symlink), so
    a consumer who customises hooks *there* turns the gate RED until the edit is committed in the
    workflow repo. Under a real plugin install the two files are distinct and the question does not
    arise.
+
+#### Limit 1 in full: what `integrity.self-hash` does and does not vouch for (T19, 2026-07-26)
+
+**The exact claim.** `integrity.self-hash` asserts that the plugin's work tree agrees with the
+plugin repo's **local `HEAD`**. It therefore moves the trust anchor off the file system and onto the
+plugin repo's git history — and stops there. Everything it buys and everything it does not follows
+from that one sentence:
+
+- **caught:** any tamper nobody committed inside the plugin — the accidental edit, the half-finished
+  patch, the agent that rewrote a tool and moved on, a deleted hook, an *added* `tools/helper.py`.
+  This is the overwhelmingly common case, and it is caught on the very next gate run, with the file
+  named, in every consumer, with no network and no keys.
+- **not caught:** a tamper the same actor committed in the plugin repo. `bash_guard` allows writes
+  to the plugin directory on purpose (it anchors to the *consumer's* root, so plugin paths resolve
+  outside it — T06e; re-widening it revives the false-positive family T06i measured twelve members
+  of), and the same access runs one more command.
+
+Measured, not argued — a `--local` clone of this repo, calling the check directly (it reads no
+context, so `check_self_hash(None)` is a faithful probe):
+
+```
+1. clean clone                                   → PASS  every enforcement anchor matches git HEAD
+2. append a line to .claude/tools/accept.py      → FAIL  self-integrity violated (E-02)
+3. git -C <clone> commit -a -m tamper            → PASS  ← the limit, reproduced
+```
+
+The same sequence reproduces through the *shipped* path, which is the form that matters: a
+`git subtree split --prefix=.claude` plugin clone outside this venue, driven from the venue as
+`CLAUDE_PLUGIN_ROOT=<plug> uv run <plug>/bin/adw.py gate` — uncommitted tamper → `GATE: RED` naming
+`tools/accept.py: work-tree content differs from HEAD`; `git -C <plug> commit -a` → `GATE: GREEN`.
+
+**Why the release-tag comparison (the obvious cheap fix) was rejected.** The idea: `claude plugin
+tag` cuts `{name}--v{version}`, so verify the anchors against **the tag** rather than HEAD — an
+agent could still commit, but not make its commit the tagged release without also moving the tag.
+Two measurements kill it, in opposite directions:
+
+- **In an installed plugin it would never run.** The marketplace cache is a git clone, but a
+  *shallow* one whose only refspec is `+refs/heads/main`: `git -C <cache> tag --list` returns
+  **zero** tags while the upstream has them (checked against a third-party marketplace installed on
+  this machine, `--is-shallow-repository → true`). So the tag lookup resolves nothing precisely
+  where the protection is wanted, and would degrade to today's HEAD comparison on every consumer —
+  assurance gained: none. Making it resolve means fetching tags, i.e. a network call, which is
+  forbidden: a gate that needs the internet to say "green" is a worse property than this limit.
+- **In a dev checkout it would be RED daily.** `claude plugin tag --dry-run .claude` reports it
+  would tag **`adw--v0.1.0` at HEAD in the workflow repo itself** — the tag lives in this repo, not
+  in some separate release repo. And every one of the last 30 commits here touches an anchor path,
+  so the tag is stale one commit after it is cut, and the gate would be red for a reason that has
+  nothing to do with anybody's code. T19's own escalate clause names that outcome: a fix that
+  reddens the repo every day gets turned off, which is worse than a documented limit.
+
+There is also a plain S8 reading, independent of both measurements: the actor who can
+`git -C <plugin> commit -a` can `git -C <plugin> tag -f` (and `claude plugin tag -f` documents
+skipping both the dirty-tree and the tag-exists check). What the gate *sees* is unchanged, so the
+tag buys a second command, not a boundary.
+
+**What would actually close it** — each real, each with a cost nobody has agreed to pay: a
+**published-commit comparison** (network, and an offline gate is a property worth more), a **signed
+manifest** (key management, key distribution, key revocation), or a **checksum pinned outside the
+plugin** — in the consumer's repo or the marketplace entry — which is genuine assurance and a new
+concept with a new owner (T19 option (c), deliberately not built).
+
+**What a human can do today, in one command.** The gate cannot ask the network; the operator can.
+From a consumer, against the published plugin:
+
+```bash
+git -C <plugin-root> fetch --quiet origin && git -C <plugin-root> diff --stat @{u} -- tools hooks bin .claude-plugin settings.json
+```
+
+Empty output means the enforcement layer is the published one. That is the check the gate is not
+allowed to make, and it belongs in a review of a repo you did not watch being written.
+
+**The honest framing.** This has always been true one layer up: in the workflow's own repo an agent
+with git access can commit over `gate.py` itself, and no amount of self-hashing changes that. The
+boundary is "who may write and commit to the enforcement layer" — an environment/permission
+question, not one a check running *inside* that layer can answer about itself. `integrity.self-hash`
+is the strongest thing available on the inside; the outside is the operator's threat model, which is
+why it is written down rather than papered over.
 
 ### F-03 — Missing toolchain in a consumer is a raw traceback, not a sentence (T12b input, live).
 

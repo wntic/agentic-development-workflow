@@ -1482,6 +1482,27 @@ def _worktree_anchor_candidates(root: Path) -> list[str]:
 
 
 def check_self_hash(ctx: GateContext) -> Check:
+    """E-02: the enforcement layer must match git HEAD of the repository it is installed from.
+
+    What that asserts, precisely: *the work tree agrees with the plugin repo's LOCAL `HEAD`*
+    — nothing more. The anchor is the plugin's own git history, so this catches every tamper
+    nobody committed there (the accidental edit, the agent that patched a tool and moved on)
+    and catches nothing an actor with commit access to the plugin directory chose to record:
+    `bash_guard` allows writes to the plugin (it anchors to the CONSUMER's root, T06e), and
+    the same access runs `git -C <plugin> commit -a`, after which work tree == HEAD and this
+    check PASSes. Measured on a clone, not assumed (T19).
+
+    T19 ruled that limit **stated, not closed**, and rejected the cheap middle option —
+    comparing against the `{name}--v{version}` release tag — on two measurements: an
+    installed plugin's marketplace clone is *shallow* and fetches `+refs/heads/main` only, so
+    it carries no tags at all (the comparison would be inoperative exactly where it is
+    needed), while a dev checkout goes stale against its own tag on the next commit touching
+    any anchor — and `claude plugin tag` cuts that tag in the enclosing repo, i.e. in THIS
+    one. Closing it needs a reference the local actor cannot author: a published commit
+    (network — forbidden, a gate that needs the internet to say "green" is a worse property),
+    a signed manifest, or a checksum pinned outside the plugin. Argument, reproduction and
+    what a human can do instead: notes/20 F-02.
+    """
     # E-02 (widened by T18): the gate does not trust the file system about the ENFORCEMENT
     # LAYER — every tool, hook and manifest under the plugin root must match git HEAD of the
     # repository the workflow is installed from. gate.py itself was the original coverage;
