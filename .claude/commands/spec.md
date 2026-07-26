@@ -4,6 +4,10 @@ description: "Interview the human into one change spec — change.md + criteria.
 
 # /spec [<context>] [<description>] [--retro]
 
+> Invoked as `/adw:spec` when the workflow is installed as a plugin, `/spec` when it is
+> loaded from a project's own `.claude/` — as in the workflow's own repo. The two forms name
+> this same file; other commands are referred to below in the `/adw:` form.
+
 Interactive — this is the **spec-author** session (human + you, spec §4). It produces exactly
 one change: a delta spec living on its own branch. Your lane: files under `specs/` plus branch
 creation — you never write code or tests (advice is enough here; the session runs under the
@@ -55,7 +59,7 @@ sections: `.claude/templates/change.md` (sections, classes, binding/non-binding 
    `AC-n` items.
 
 7. **Exit gate** — the session does not end until all of this holds:
-   - `uv run .claude/tools/criteria_lint.py specs/<context>/changes/NNN-<slug>/criteria.md`
+   - `uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" criteria-lint specs/<context>/changes/NNN-<slug>/criteria.md`
      is green — a vague criterion does not enter work; rewrite with the human until it names
      observable artifacts;
    - Verification answers "how do we prove it is done": required for M/L; every criterion
@@ -66,7 +70,7 @@ sections: `.claude/templates/change.md` (sections, classes, binding/non-binding 
    - `change.md` + `criteria.md` (+ the overview skeleton, if step 2 ran) are committed on
      the change branch.
 
-8. **Hand off.** Tell the human the change id and the next step: `/implement <context>/NNN`.
+8. **Hand off.** Tell the human the change id and the next step: `/adw:implement <context>/NNN`.
 
 ## `--retro` — hotfix legalisation (spec §5.5)
 
@@ -77,8 +81,8 @@ with three differences:
   change legalises, so the drift-check can tie them to a change tag;
 - the criteria describe the behaviour the hotfix already established — they lint like any
   other criteria;
-- the change then flows through the normal cycle: `/implement` pins the behaviour with
-  ac-marked tests, `/accept-change` merges its essence into the capability files.
+- the change then flows through the normal cycle: `/adw:implement` pins the behaviour with
+  ac-marked tests, `/adw:accept-change` merges its essence into the capability files.
 
 ## Re-cutting capabilities (a /spec right, spec §2.1)
 

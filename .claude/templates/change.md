@@ -29,7 +29,7 @@ Companion: <context>/NNN       <!-- only for a paired cross-context change, dele
 <!-- M/L only. Module/class names + ctor dependencies that tests and code MUST share.
      BINDING — the one published contract the test-author and the implementer both write
      against; it changes only through the contract-change protocol (spec §6), never silently.
-     Written in the /spec session: the agent proposes, the human approves.
+     Written in the /adw:spec session: the agent proposes, the human approves.
      FIRST change of a context: the standard app shell is ALWAYS-PRESENT substrate, not a
      business layer. create_app() + the central DomainError handler (mandated by the restapi
      skill) drag in a domain-exception base (domain/exceptions.py), the error translator

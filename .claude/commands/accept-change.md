@@ -4,6 +4,10 @@ description: "Accept change/<context>-NNN into the base branch: run accept.py's 
 
 # /accept-change <context>/NNN
 
+> Invoked as `/adw:accept-change` when the workflow is installed as a plugin, `/accept-change` when it is
+> loaded from a project's own `.claude/` — as in the workflow's own repo. The two forms name
+> this same file; other commands are referred to below in the `/adw:` form.
+
 The human-facing acceptance flow (spec §6). The deterministic core is **`accept.py`** — every
 gate that can be a script IS one; this command adds only the parts a script cannot do: the LLM
 contradiction hunt, the human's review of the merge diff, and the explicit human confirmation
@@ -20,12 +24,12 @@ only the green merge it performs (S9).
 
 Parse `$ARGUMENTS` into `<context>/NNN`. Confirm the change branch `change/<context>-NNN` exists
 and carries `specs/<context>/changes/NNN-<slug>/` with `change.md`, `criteria.md`, `verdict.md`.
-If the change is not yet through `/implement` (no `verdict.md`), stop and say so.
+If the change is not yet through `/adw:implement` (no `verdict.md`), stop and say so.
 
 ## 1. Run the gates (accept.py, check mode)
 
 ```
-uv run .claude/tools/accept.py <context>/NNN
+uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" accept <context>/NNN
 ```
 
 No `--base`: `accept.py` derives the S9 base branch from the branch graph (the branch this change
@@ -41,7 +45,7 @@ verdict freshness, Companion, Affects-intersection, merge-fidelity, spec-lint, o
 re-derive any of these yourself.**
 
 - **Any `[FAIL]` / `verdict: DENIED`** → stop here. Relay the failing gate(s) verbatim to the
-  human; acceptance cannot proceed until `/implement` (or the human) resolves them. A present
+  human; acceptance cannot proceed until `/adw:implement` (or the human) resolves them. A present
   `ESCALATE` file only the human removes.
 - **`verdict: ACCEPTABLE`** → carry the printed merge diff and every `[FLAG]` line
   (Affects-intersection, spec-lint, merge.placement, a SKIPPED Docker tier) forward into the
@@ -91,8 +95,8 @@ you will pass to `--execute` in step 6:
 Every proven criterion must map to one of the files on the change's `Affects` line (a map naming a
 file outside `Affects` is refused by `accept.py`). Distributing one change's invariants across its
 `Affects` files is this map; splitting the work itself into *separate changes* is instead the
-`/spec` re-cut path (§2.1) — keep the two distinct, and never hand-edit capability files here (the
-spec-write owners are `accept.py` and `/spec` only).
+`/adw:spec` re-cut path (§2.1) — keep the two distinct, and never hand-edit capability files here (the
+spec-write owners are `accept.py` and `/adw:spec` only).
 
 ## 5. Human review of the merge
 
@@ -107,14 +111,14 @@ yes, stop — nothing is written.
 On the human's approval:
 
 ```
-uv run .claude/tools/accept.py <context>/NNN --execute
+uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" accept <context>/NNN --execute
 ```
 
 For a **multi-target** change, pass the human-approved placement map from step 4 so `accept.py`
 writes each invariant to its file (without it, a multi-target `--execute` is refused):
 
 ```
-uv run .claude/tools/accept.py <context>/NNN --execute --placement '{"AC-1": "<capability-a>.md", "AC-2": "<capability-b>.md"}'
+uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" accept <context>/NNN --execute --placement '{"AC-1": "<capability-a>.md", "AC-2": "<capability-b>.md"}'
 ```
 
 `accept.py` re-checks that no gate FAILs, writes the invariants into the capability files with
@@ -122,8 +126,8 @@ provenance (single-target deterministically, multi-target per the approved map),
 into the base, tags `change/<context>-NNN`, deletes the change dir,
 and prints the §5.5 drift check. **Relay that drift report to the human verbatim** — src commits
 on the base not tied to a `change/*` tag are the signal of an unlegalised hotfix (§5.5); the
-OpenAPI route⊆operation half surfaces via `/orient`. Confirm to the human: merged, tagged, change
+OpenAPI route⊆operation half surfaces via `/adw:orient`. Confirm to the human: merged, tagged, change
 dir gone.
 
-For an abandoned change instead of an accepted one, that is `/abandon <context>/NNN`, not this
+For an abandoned change instead of an accepted one, that is `/adw:abandon <context>/NNN`, not this
 command.

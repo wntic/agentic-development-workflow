@@ -31,7 +31,8 @@ This hook is ergonomics + escalation plumbing; the trust anchor is still gate.py
 which it simply re-runs (S8). Stdin: the SubagentStop payload. Stdout: a block JSON while
 red under ceiling, otherwise nothing. `--describe` prints a one-line self-description.
 
-gate.py is meant to run under the project's uv venv (`uv run .claude/tools/gate.py`); this
+gate.py is meant to run under the project's uv venv (`uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py"
+gate`, T15/D4); this
 hook, however, is launched by Claude Code with the ambient system python, which lacks the
 app's deps (fastapi, ...) and would fail every src-import-dependent check with a false RED
 (F7). So the gate is re-run through the project's `.venv` interpreter when one is present,
@@ -138,9 +139,29 @@ def unrunnable_message(returncode: int, stdout: str, stderr: str) -> str:
     return f"{kind}:\n{tail}"
 
 
+def gate_path(root: Path) -> Path:
+    """Where gate.py lives: `$CLAUDE_PLUGIN_ROOT/tools`, else `<root>/.claude/tools` (T15/D4).
+
+    Installed as a plugin, the gate is NOT in the project — `<root>/.claude/tools/gate.py`
+    simply does not exist there, and the hook would report "the gate could not answer" on every
+    stop. Claude Code gives a plugin's hooks `CLAUDE_PLUGIN_ROOT`, so that wins when it names an
+    actual tools directory; a relative value (the workflow's own repo sets `.claude`) is resolved
+    against the acting root, and anything unusable falls back to the checked-out location.
+    """
+    env = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if env:
+        base = Path(env).expanduser()
+        if not base.is_absolute():
+            base = root / base
+        candidate = base / "tools" / "gate.py"
+        if candidate.is_file():
+            return candidate
+    return root / ".claude" / "tools" / "gate.py"
+
+
 def run_gate(root: Path) -> GateRun:
     """Run gate.py on root and report its answer, or the reason there is none."""
-    gate = root / ".claude" / "tools" / "gate.py"
+    gate = gate_path(root)
     proc = subprocess.run(
         [gate_python(root), str(gate), str(root)],
         capture_output=True,

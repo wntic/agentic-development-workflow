@@ -4,6 +4,10 @@ description: "Dispatch one v3-builder on a single tasks/TNN-*.md build task and 
 
 # /build-task — execute one v3 build task
 
+> Invoked as `/adw:build-task` when the workflow is installed as a plugin, `/build-task` when it is
+> loaded from a project's own `.claude/` — as in the workflow's own repo. The two forms name
+> this same file; other commands are referred to below in the `/adw:` form.
+
 Dispatch the `v3-builder` agent on one task file from `tasks/` and relay its report.
 
 ## Usage

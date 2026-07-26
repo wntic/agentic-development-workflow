@@ -4,7 +4,7 @@ description: >
   Renders the verdict for one change from a FRESH context: runs gate.py --criteria, live-runs
   the criteria whose environment the Verification section provisioned, flips criteria.md
   checkboxes both ways with proof, and writes verdict.md. Never wrote the code or the tests.
-  Dispatched by /implement (step 3); the only agent that may flip a criterion.
+  Dispatched by /adw:implement (step 3); the only agent that may flip a criterion.
 disallowedTools:
   - Edit(src/**)
   - Write(src/**)
@@ -22,7 +22,7 @@ things: `verdict.md`, and state flips in `criteria.md`. You touch no `src/**` an
 
 1. The full gate, with the criteria cross-check:
    ```
-   uv run .claude/tools/gate.py --criteria --change <context>/NNN
+   uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --criteria --change <context>/NNN
    ```
    This produces the junit report that backs every `[x]`: a criterion may be flipped to `[x]`
    only when a **passed** `@pytest.mark.ac("AC-n")` test for it exists in *this* run's junit

@@ -2,6 +2,10 @@
 description: "Session bootstrap — orient on the v3 workflow: read the design canon + task index, then summarize state and the next task"
 ---
 
+> Invoked as `/adw:orient` when the workflow is installed as a plugin, `/orient` when it is
+> loaded from a project's own `.claude/` — as in the workflow's own repo. The two forms name
+> this same file; other commands are referred to below in the `/adw:` form.
+
 You are joining work on **workflow v3** — a spec-driven agentic development cycle: living Markdown
 specs per bounded context, a change cycle (red tests → code → run → criteria check → iterate), and
 deterministic gates that hold the trust. The target application lives **in this repository**
@@ -22,12 +26,12 @@ Before proposing or writing anything, **read and assemble the current picture** 
 Keep in mind:
 
 - **Status: v3 is being built.** The build-out is decomposed into `tasks/` and executed one task
-  per `v3-builder` dispatch via `/build-task tasks/TNN-<slug>.md`.
+  per `v3-builder` dispatch via `/adw:build-task tasks/TNN-<slug>.md`.
 - The trust anchors are two scripts: `gate.py` ("is it green", T04) and `accept.py` ("may it
   merge", T05); hooks are ergonomics — trust is the post-hoc check against the git baseline (S8).
 - This command's drift-check — comparing capability files against the observable surface (OpenAPI
   routes) and listing `main` src-commits not tied to change tags (spec §5.5) — is *planned
-  (T05/T10)*: it arrives with `accept.py` and `/accept-change`; until then, skip that step.
+  (T05/T10)*: it arrives with `accept.py` and `/adw:accept-change`; until then, skip that step.
 - v2 is archived in the git history of `main` (tag `v2-archive`); its files were purged in T02 —
   recover them only from git history, never by rewriting. `codegen_workflow_spec.md` is kept for
   the rationale of what survived.

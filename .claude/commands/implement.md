@@ -4,6 +4,10 @@ description: "Run the change cycle on change/<context>-NNN: test-author (red bas
 
 # /implement <context>/NNN
 
+> Invoked as `/adw:implement` when the workflow is installed as a plugin, `/implement` when it is
+> loaded from a project's own `.claude/` — as in the workflow's own repo. The two forms name
+> this same file; other commands are referred to below in the `/adw:` form.
+
 The working loop for one change, on its own `change/<context>-NNN` branch (spec §6). You are
 the main session orchestrating three subagents in sequence — **test-author**, **implementer**,
 **evaluator** (spec §4). You never write `src/**` or `tests/**` yourself; you dispatch the
@@ -18,7 +22,7 @@ F-7). At most **one change per context** is in `/implement` at a time (spec §6)
 
 1. Parse `$ARGUMENTS` into `<context>/NNN`; confirm you are on branch `change/<context>-NNN`
    and that `specs/<context>/changes/NNN-<slug>/change.md` + `criteria.md` exist. If not,
-   stop — the change must come from `/spec` first.
+   stop — the change must come from `/adw:spec` first.
 2. **Reset the SubagentStop ceiling counter.** Delete `.gate/subagent-stop-count` (owned by
    `.claude/hooks/subagent_stop.py`, T06) if it exists. A stale counter left by a prior
    change would otherwise trip an instant, false ESCALATE on this one — the ceiling counts
@@ -63,7 +67,7 @@ Dispatch the **test-author** subagent for `<context>/NNN`. It:
    **separate, tests-only** baseline commit, then runs the red-check script:
 
 ```
-uv run .claude/tools/red_check.py --change <context>/NNN
+uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" red-check --change <context>/NNN
 ```
 
 `red_check` asserts every `AC-n` has a marked test and every marked test is **RED**
@@ -79,7 +83,7 @@ cover), carry it forward: the evaluator will mark it MANUAL-candidate and only t
 ## 2. implementer → green gate
 
 Dispatch the **implementer** subagent. It writes `src/**` (and owns any Alembic revision)
-until `gate.py` is GREEN, running `uv run .claude/tools/gate.py --change <context>/NNN`. On a
+until `gate.py` is GREEN, running `uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --change <context>/NNN`. On a
 **greenfield first change** it first writes the behaviorless app shell (`create_app()` +
 container + error handler + `domain/exceptions.py` + `restapi/schemas/errors.py`) from the
 `architecture`/`restapi` skills, then the change's behaviour on top; brownfield changes add only
@@ -122,7 +126,7 @@ own commit.
   `src/` in place, do not stash it**. Then re-anchor the baseline onto that corrected commit:
 
   ```bash
-  uv run .claude/tools/red_check.py --change <context>/NNN --rebaseline
+  uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" red-check --change <context>/NNN --rebaseline
   ```
 
   It verifies each property in the world where it is decidable — redness in a throwaway worktree
@@ -165,7 +169,7 @@ the change's class.
 
 - **All criteria `[x]`** (and `[m]` recorded by the human) with `verdict.md` present and no
   `ESCALATE` file → the change is ready; tell the human the next step is
-  `/accept-change <context>/NNN`. By now the branch is **acceptance-ready with no manual
+  `/adw:accept-change <context>/NNN`. By now the branch is **acceptance-ready with no manual
   commits**: the implementer committed the code, the evaluator committed criteria then verdict
   in freshness order, and `git status` is clean — `accept.py` passes L-04 with no re-pin.
 - **Do not land canon fixes on a change mid-flight where avoidable.** Fixing `gate.py`/`accept.py`/

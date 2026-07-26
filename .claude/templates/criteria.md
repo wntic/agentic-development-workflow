@@ -15,7 +15,7 @@
             live run can cover; the reason is recorded in verdict.md
 
      Item text is immutable once the red-test baseline is committed; adding or changing an
-     item is a human /spec action that resets the cycle. Vague wording does not enter work:
+     item is a human /adw:spec action that resets the cycle. Vague wording does not enter work:
      .claude/tools/criteria_lint.py rejects vagueness markers and items that name no
      observable artifact. -->
 

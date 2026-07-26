@@ -4,7 +4,7 @@ description: >
   Writes the RED, ac-marked tests for one change from its change.md + criteria.md +
   Interface sketch, before any code exists. Owns tests/** and the change's dependencies
   (pyproject.toml + uv.lock, in a pre-baseline commit); never writes src. Dispatched by
-  /implement (step 1) and again after a CONTRACT-CHANGE. Runs in its own context, separate
+  /adw:implement (step 1) and again after a CONTRACT-CHANGE. Runs in its own context, separate
   from the implementer.
 disallowedTools:
   - Edit(src/**)
@@ -78,7 +78,7 @@ implementer as a **CONTRACT-CHANGE** (it cannot `uv add`), which routes back to 
    `criteria.md`; you cannot write it, and states are the evaluator's / human's to flip.
 3. **Removal-class change** (behavioral, removal flavour): you own deleting or reworking the
    now-obsolete tests. **List every deleted/reworked test in the change's `change.md` Removed
-   tests block** (already written in `/spec`) — the gate's baseline test-inventory treats only
+   tests block** (already written in `/adw:spec`) — the gate's baseline test-inventory treats only
    the tests listed there as legally removed; anything else missing from the baseline is RED.
 
 ## Confirm redness, then commit the baseline
@@ -87,7 +87,7 @@ Redness is confirmed by a **script**, not by your judgment — a test that is gr
 code exists is suspicious (it asserts nothing, or the behaviour already exists):
 
 ```
-uv run .claude/tools/red_check.py --change <context>/NNN
+uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" red-check --change <context>/NNN
 ```
 
 It asserts every `AC-n` has at least one marked test and every marked test is RED, then tags

@@ -33,6 +33,10 @@ def run_hook(
 ) -> subprocess.CompletedProcess[str]:
     e = os.environ.copy()
     e["GATE_DOCKER"] = "0"  # any gate the hook re-runs must skip Docker deterministically
+    # The gate a hook re-runs must be the FIXTURE's, never one an ambient CLAUDE_PLUGIN_ROOT
+    # points at (T15/D4): this repo's settings.json sets it, and a plugin install would set it
+    # to an absolute path, which would silently bypass every stubbed gate below.
+    e.pop("CLAUDE_PLUGIN_ROOT", None)
     if env:
         e.update(env)
     return subprocess.run(
@@ -719,6 +723,34 @@ def test_subagent_stop_writes_escalate_at_ceiling(repo: FixtureRepo) -> None:
     escalate = repo.root / "specs/demo/changes/001-thing/ESCALATE"
     assert escalate.exists(), "hook must author the ESCALATE file (E-08)"
     assert "gate.py stayed RED" in escalate.read_text(encoding="utf-8")
+
+
+def test_subagent_stop_gate_path_prefers_the_plugin_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # T15/D4: installed as a plugin the gate is NOT under the project, so CLAUDE_PLUGIN_ROOT wins
+    # — but only when it really holds one, otherwise the checked-out location is the answer.
+    mod = _load_hook("subagent_stop")
+    root = tmp_path / "project"
+    root.mkdir()
+
+    monkeypatch.delenv("CLAUDE_PLUGIN_ROOT", raising=False)
+    assert mod.gate_path(root) == root / ".claude" / "tools" / "gate.py"
+
+    plugin = tmp_path / "plugins" / "adw"
+    (plugin / "tools").mkdir(parents=True)
+    (plugin / "tools" / "gate.py").write_text("")
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(plugin))
+    assert mod.gate_path(root) == plugin / "tools" / "gate.py"
+
+    # a relative value (the workflow's own repo sets `.claude`) resolves against the acting root
+    checked_out = root / ".claude" / "tools"
+    checked_out.mkdir(parents=True)
+    (checked_out / "gate.py").write_text("")
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", ".claude")
+    assert mod.gate_path(root) == checked_out / "gate.py"
+
+    # a value that names no tools directory must not defeat the fallback
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path / "nowhere"))
+    assert mod.gate_path(root) == root / ".claude" / "tools" / "gate.py"
 
 
 def test_subagent_stop_gate_python_prefers_venv(tmp_path: Path) -> None:
