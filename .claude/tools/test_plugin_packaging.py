@@ -224,13 +224,22 @@ def test_shim_runs_a_tool_and_returns_its_exit_code() -> None:
 # =======================================================================================
 
 REPO_ROOT = PLUGIN_ROOT.parent
+
+# The meta layer's environment, exactly — measured, not assumed: in a venv holding only these,
+# in a tree with no `src/`, the whole suite passes; drop `pydantic` and 30 tests fail (gate.py's
+# pinned mypy config declares `plugins = pydantic.mypy`), drop `httpx` and 1 does (a red_check
+# fixture's conftest imports it and pytest must collect it). Before T15 both were undeclared and
+# satisfied only by a leftover trial-app venv — the acceptance test passed by luck.
+# An allowlist rather than a blacklist: adding a dependency has to come through here, which is
+# where the "is this the meta layer's, or a trial app's?" question gets asked.
+META_ENV = frozenset({"pytest", "ruff", "mypy", "pydantic", "httpx", "pre-commit"})
+
 # Names of the app substrate a trial change installs. None of them may reach the meta layer's
 # environment: `pytest .claude/tools/` must pass in a tree with no `src/` at all.
 SUBSTRATE = (
     "fastapi",
     "starlette",
     "uvicorn",
-    "pydantic",
     "sqlalchemy",
     "alembic",
     "asyncpg",
@@ -238,9 +247,9 @@ SUBSTRATE = (
     "aiosqlite",
     "dependency-injector",
     "testcontainers",
-    "httpx",
     "qdrant-client",
     "openai",
+    "structlog",
 )
 
 
@@ -281,6 +290,13 @@ def test_meta_pyproject_is_not_a_package() -> None:
     data = _meta_pyproject()
     assert "build-system" not in data, "the workflow repo is not a distributable package"
     assert "scripts" not in data.get("project", {})
+
+
+def test_meta_pyproject_declares_exactly_the_meta_environment() -> None:
+    declared = {
+        re.split(r"[<>=!~\[]", d, maxsplit=1)[0].strip().lower() for d in _declared_dependencies(_meta_pyproject())
+    }
+    assert declared == set(META_ENV), f"declared {sorted(declared)}, expected {sorted(META_ENV)}"
 
 
 @pytest.mark.parametrize("name", SUBSTRATE)

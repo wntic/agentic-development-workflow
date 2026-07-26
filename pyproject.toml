@@ -19,7 +19,14 @@
 # definition, cited never restated (C7). Do not grow toolchain config here.
 #
 # Guarded, not merely asked (S4): `.claude/tools/test_plugin_packaging.py` fails on a
-# `[build-system]`, a non-empty `dependencies`, `[project.scripts]`, or any substrate name.
+# `[build-system]`, a non-empty `dependencies`, `[project.scripts]`, any app-substrate name, and
+# on this dev group being anything other than the exact set below. Adding a dependency means
+# editing that guard, which is the point: it forces the "why is this here" answer.
+#
+# Measured 2026-07-26 in a venv holding ONLY the set below, in a tree with no `src/`:
+# 392 tests pass. With `pydantic` or `httpx` missing, 30 and 1 fail respectively — before T15
+# they were undeclared and satisfied only by a leftover trial-app venv (T12b finding 10), i.e.
+# by environment state no file recorded.
 
 [project]
 name = "agentic-development-workflow"
@@ -30,9 +37,18 @@ dependencies = []
 
 [dependency-groups]
 dev = [
+    # the three the gate itself shells out to (`sys.executable -m mypy|ruff|pytest`)
     "pytest",
     "ruff",
     "mypy",
+    # gate.py's pinned mypy config declares `plugins = pydantic.mypy`, so EVERY gate run needs
+    # pydantic importable — including the ~90 fixture gate runs in .claude/tools/. Not the app's
+    # substrate wearing a disguise: it is a dependency of the type-checker configuration.
+    "pydantic",
+    # one red_check fixture reproduces the health/001 lint-dirty conftest verbatim, imports
+    # included, and pytest must be able to COLLECT it for the lint screen to be reached.
+    "httpx",
+    # this repo's own git hooks (.pre-commit-config.yaml)
     "pre-commit>=4.6.0",
 ]
 

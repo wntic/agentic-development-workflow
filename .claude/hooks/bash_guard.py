@@ -473,7 +473,7 @@ def main() -> int:
             f"shell write to a protected path ({frag}) denied for role "
             f"'{role or 'default'}'. Owned write paths: test-author -> tests/** + "
             "pyproject.toml/uv.lock; implementer -> src/**; evaluator -> "
-            "criteria.md/verdict.md; spec prose via /spec. This is only ergonomics — the "
+            "criteria.md/verdict.md; spec prose via /adw:spec. This is only ergonomics — the "
             "gate diffs these trees against the baseline regardless (S8)."
         )
     return 0
