@@ -528,12 +528,26 @@ files existed with no line here, which makes `/build-task`'s "every *Depends on*
   implementer's lane after the baseline). The screen's stated property holds; the property it exists to
   buy does not. `rebaseline`'s range walk is already the right shape to reuse, merge-commit refusal
   included. Depends: T09b, T12, T09f, T09h.
-- [ ] T19 — `check_self_hash` anchors against a HEAD **the agent can rewrite**: `bash_guard` allows
+- [x] T19 — `check_self_hash` anchors against a HEAD **the agent can rewrite**: `bash_guard` allows
   writes to the plugin directory by design (T06e), so an agent can tamper an anchor and
   `git -C <plugin> commit -a` until the tree matches. T18 made this strictly larger by anchoring the
   whole enforcement layer. **May not be fixable** in the sense the other tasks were — a precise written
   statement of the limit is a legitimate outcome; the cheap middle option is comparing against the
   release tag when one resolves. No network call. Depends: T18, T15, T04.
+  **RULED 2026-07-26 — option (a): stated, not closed, and (b) rejected on measurement.** The limit is
+  reproduced end to end through the shipped path (split plugin + `bin/adw.py` driven from the venue:
+  tamper → RED naming the file; `git -C <plug> commit -a` → GREEN), and the release-tag comparison dies
+  in both directions: **an installed plugin's marketplace cache is a *shallow* clone whose only refspec
+  is `+refs/heads/main`, so it carries zero tags** (measured on a third-party marketplace installed on
+  this machine) — the comparison would be inoperative exactly where it is wanted, and making it resolve
+  means the network call this task forbids; while `claude plugin tag --dry-run .claude` reports it tags
+  **`adw--v0.1.0` in THIS repo**, where every one of the last 30 commits touches an anchor path, so the
+  tag is stale one commit after it is cut → the escalate clause's "RED every day" outcome. Plus the S8
+  reading that needs no measurement: whoever can `git -C <plugin> commit -a` can
+  `git -C <plugin> tag -f`. The statement lives in `notes/20` F-02 — with the one-command check a human
+  *can* run (`git diff @{u}` over the anchor dirs after a `fetch`) — and in `check_self_hash`'s
+  docstring. No behaviour change; option (c), a checksum pinned outside the plugin, remains the only
+  real close and adds a concept nobody owns.
 - [ ] T09j — `red_check.py` calls the shared `criteria_lint.strip_html_comments` **and** carries its own
   `_strip_html_comments` regex thirty lines below, and the two are **not** equivalent: the regex deletes
   the span including newlines (shifting every later line number) while the shared helper blanks in
