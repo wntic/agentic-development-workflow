@@ -762,6 +762,115 @@ def test_bash_guard_cd_out_and_back_in_survives_the_rewrite(repo: FixtureRepo) -
 
 
 # =======================================================================================
+# bash_guard — the write-op inventory: cp / install / dd / truncate (T06k)
+# =======================================================================================
+#
+# The tokeniser (T06i) resolves each write op's target; WHICH operations count as writing is a
+# separate, policy question, and `cp` / `install` / `dd of=` / `truncate` were missing from the
+# list — so `cp /tmp/evil.py .claude/tools/gate.py` was allowed for every role. Ergonomics, not
+# trust: the gate's self-hash catches a substituted gate.py post-hoc (S8); what the miss cost was
+# the early, legible denial. The trap is that `mv`'s "every non-flag argument" rule cannot be
+# reused — the copy family's sources are READS, so each operation gets its own argument rule and
+# each is pinned in BOTH directions here. The read direction is the point of these cases: without
+# it, the fix would be variant 6 (a denial naming a path the command only reads) re-created by
+# policy rather than by the parser.
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        # cp: the destination is the last operand ...
+        ("cp /tmp/x.py .claude/tools/gate.py", "v3-builder"),
+        ("cp -f /tmp/x.py .claude/hooks/bash_guard.py", "implementer"),
+        # ... or, with `-t`, the flag's operand while every positional is a source
+        ("cp -t .claude/tools /tmp/x.py", "implementer"),
+        ("cp --target-directory=.claude/hooks /tmp/x.py", "implementer"),
+        # install: same shape, plus value-taking options whose operand is not a path
+        ("install -m 644 /tmp/x.py tests/test_x.py", "evaluator"),
+        ("install -t specs/demo /tmp/core.md", "test-author"),
+        # dd: the `of=` operand, in either argument order
+        ("dd if=/dev/zero of=tests/test_x.py", "evaluator"),
+        ("dd of=.claude/settings.json if=/tmp/x", "implementer"),
+        # truncate: the file operands; `-s` takes a size, `-r` a reference file
+        ("truncate -s 0 tests/test_x.py", "evaluator"),
+        ("truncate --size=0 pyproject.toml", "implementer"),
+        ("truncate -r /tmp/ref -s 0 specs/demo/core.md", "test-author"),
+    ],
+)
+def test_bash_guard_write_op_inventory_denies_the_write_direction(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) == "deny", command
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        # THE read-direction pin: a protected file copied OUT writes nothing protected. Under
+        # `mv`'s rule this is variant 6 all over again — a denial blaming `gate.py` for a read.
+        ("cp .claude/tools/gate.py /tmp/backup.py", "v3-builder"),
+        ("cp -a specs/demo /tmp/spec-snapshot", "test-author"),
+        ("cp tests/test_core.py /tmp/keep.py", "evaluator"),
+        ("install -m 644 .claude/tools/gate.py /tmp/x.py", "implementer"),
+        ("dd if=.claude/tools/gate.py of=/tmp/gate.bak", "v3-builder"),
+        # `-r` names a reference file to READ, so it is not a target
+        ("truncate -r pyproject.toml -s 0 /tmp/x", "implementer"),
+        # a backup COPY of a protected file is a new, unprotected name (T06f component rule)
+        ("cp pyproject.toml pyproject.toml.bak", "implementer"),
+        # no destination named at all: nothing is guessed from the single operand
+        ("cp .claude/tools/gate.py", "v3-builder"),
+        ("dd if=tests/test_core.py", "evaluator"),
+    ],
+)
+def test_bash_guard_write_op_inventory_allows_the_read_direction(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) is None, command
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        ("cp /tmp/x.py tests/test_x.py", "test-author"),
+        ("install -m 644 /tmp/x.py tests/test_x.py", "test-author"),
+        ("dd if=/tmp/x of=src/app/core.py", "implementer"),
+        ("truncate -s 0 specs/demo/changes/001-thing/verdict.md", "evaluator"),
+    ],
+)
+def test_bash_guard_write_op_inventory_preserves_the_owned_tree(repo: FixtureRepo, command: str, role: str) -> None:
+    # T06d survives the new operations: the owner still reaches its own tree through the shell.
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) is None, command
+
+
+def test_bash_guard_copy_family_target_is_the_destination_only() -> None:
+    # The rules at unit level, so a future edit cannot quietly widen `cp` back to `mv`'s rule.
+    mod = _load_hook("bash_guard")
+    assert mod._mutator_targets("cp", ["a.py", "b.py"]) == ["b.py"]
+    assert mod._mutator_targets("cp", ["-r", "a", "b"]) == ["b"]
+    assert mod._mutator_targets("cp", ["-t", "d", "a.py", "b.py"]) == ["d"]
+    assert mod._mutator_targets("cp", ["--target-directory=d", "a.py"]) == ["d"]
+    assert mod._mutator_targets("cp", ["a.py"]) == []  # no destination named
+    assert mod._mutator_targets("install", ["-m", "644", "a.py", "b.py"]) == ["b.py"]
+    assert mod._mutator_targets("install", ["-m", "644", "a.py"]) == []  # `644` is not a path
+    assert mod._mutator_targets("dd", ["if=a", "of=b"]) == ["b"]
+    assert mod._mutator_targets("dd", ["if=a"]) == []
+    assert mod._mutator_targets("dd", ["oflag=direct", "of=b"]) == ["b"]  # `oflag=` is not `of=`
+    assert mod._mutator_targets("truncate", ["-s", "0", "a.py"]) == ["a.py"]
+    assert mod._mutator_targets("truncate", ["-r", "ref", "-s", "0", "a.py"]) == ["a.py"]
+    assert mod._mutator_targets("truncate", ["--size=0", "a.py", "b.py"]) == ["a.py", "b.py"]
+
+
+def test_bash_guard_new_ops_keep_the_tokeniser_properties(repo: FixtureRepo) -> None:
+    # The T06i properties hold for the added operations too, or the inventory re-opens the family.
+    # Command position: `cp` as a grep pattern copies nothing.
+    assert decision(_run_anchored("grep -rn cp tests/", agent_type="evaluator", root=repo.root)) is None
+    # Masking: a quoted destination is still one word, and an unexpandable first component drops.
+    assert decision(_run_anchored('cp /tmp/x "$S/tests/x.py"', agent_type="evaluator", root=repo.root)) is None
+    # First-component expansion: the literal prefix still anchors the location.
+    assert decision(_run_anchored("cp /tmp/x tests/$name.py", agent_type="evaluator", root=repo.root)) == "deny"
+    # Segmenting: the copy's own destination is found beside another command.
+    assert decision(_run_anchored("mkdir -p /tmp/x; cp /tmp/x tests/y.py", agent_type="evaluator", root=repo.root)) == (
+        "deny"
+    )
+
+
+# =======================================================================================
 # session_stop — ergonomics
 # =======================================================================================
 

@@ -74,9 +74,20 @@ down leaves the location anchored by the literal components before it, so `rm te
 still fires. The 130 cases of `.claude/tools/test_enforcement.py` are the specification of what
 the guard means and all of them survived the rewrite unchanged.
 
+Every write op carries its OWN argument rule (T06k). `mv`'s "every non-flag argument is a
+target" is right only because `mv` writes both ends; applying it to `cp` would make
+`cp .claude/tools/gate.py /tmp/backup.py` a denial naming a path the command merely READS —
+variant 6 of the family above, re-created by the *inventory* instead of by the parser. So the
+copy family writes its destination only (the last operand, or the `-t` directory), `dd` writes
+its `of=` operand (`if=` is a read), and `truncate` writes its file operands (`-s` takes a size,
+`-r` a reference file to read). What this costs is coverage, not trust: an operation the guard
+does not model is a miss, and a miss is caught post-hoc by the gate (S8) — a false positive is
+not, it trains the bypass reflex instead.
+
 Write ops understood: output redirections `>` `>>` `>|` `&>` `&>>` (fd-prefixed forms too; fd
 duplication `>&` and every input redirect excluded — an input file is a read), `rm`, `mv`, `tee`,
-in-place `sed -i`, `git checkout -- <paths>`, `git restore <paths>`.
+in-place `sed -i`, `git checkout -- <paths>`, `git restore <paths>`, `cp`, `install`, `dd of=`,
+`truncate`.
 Protected paths: tests/**, specs/<ctx>/*.md, changes/*/criteria.md|change.md|verdict.md,
 .claude/tools|hooks/**, .claude/settings.json, pyproject.toml.
 
@@ -422,10 +433,92 @@ def _paths(args: list[str]) -> list[str]:
     return [a for a in args if a and not a.startswith("-")]
 
 
+# --- the write-op inventory: one argument rule per operation (T06k) ----------------------
+#
+# `rm`/`mv`/`tee` take EVERY non-flag argument because every one of them is written or removed
+# in effect. The copy family is asymmetric — the sources are reads — so it needs its own rule
+# (see the module docstring for why reusing `mv`'s would re-create variant 6).
+COPY_CMDS = frozenset({"cp", "install"})
+
+# `-t <dir>` / `--target-directory=<dir>`: the destination is the flag's operand, and the
+# positional arguments are then ALL sources.
+TARGET_DIR_FLAGS = frozenset({"-t", "--target-directory"})
+
+# Copy-family options whose value is a separate word. Consumed so a value never reads as a path
+# operand and never counts toward the operand total (`install -m 644 x dest`). The long spellings
+# are usually written `--opt=value`, which is one word and drops out as a flag anyway.
+COPY_VALUE_FLAGS = frozenset(
+    {"-t", "--target-directory", "-S", "--suffix", "-m", "--mode", "-o", "--owner", "-g", "--group", "--strip-program"}
+)
+
+# `truncate -s <size>` takes a size, and `-r <file>` a reference file the command READS — both
+# operands must be consumed, or the size would read as a path and the reference as a target.
+TRUNCATE_VALUE_FLAGS = frozenset({"-s", "--size", "-r", "--reference"})
+
+
+def _flag_value(args: list[str], names: frozenset[str]) -> str | None:
+    """The operand of the first `--name value` / `--name=value` option in `args`, or None."""
+    for i, arg in enumerate(args):
+        if arg in names:
+            return args[i + 1] if i + 1 < len(args) else None
+        for name in names:
+            if name.startswith("--") and arg.startswith(f"{name}="):
+                return arg[len(name) + 1 :] or None
+    return None
+
+
+def _operands(args: list[str], value_flags: frozenset[str]) -> list[str]:
+    """`args`' non-flag words, with the separate operand of each value-taking option consumed.
+
+    Only the `-o value` / `--opt value` spelling needs consuming; `--opt=value` is a single word
+    and drops out as a flag. A clustered short form (`truncate -cs 0 f`) is not modelled: its
+    value survives as an operand, which can at worst add a target matching no protected fragment.
+    """
+    out: list[str] = []
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+            continue
+        if arg.startswith("-") and arg != "-":
+            skip = arg in value_flags
+            continue
+        if arg:
+            out.append(arg)
+    return out
+
+
+def _copy_target(args: list[str]) -> list[str]:
+    """The single path a `cp`/`install` writes: the `-t` directory, else the LAST operand.
+
+    The sources are reads and are never targets — that asymmetry is the whole point of T06k.
+    Fewer than two operands and no `-t` names no destination (`cp x` is malformed), so nothing
+    is reported rather than the one operand guessed at. `install -d a b` (create directories)
+    is a partial miss for the same reason — the last operand only — never a false positive,
+    since under `-d` every operand is a destination.
+    """
+    target_dir = _flag_value(args, TARGET_DIR_FLAGS)
+    if target_dir is not None:
+        return [target_dir]
+    operands = _operands(args, COPY_VALUE_FLAGS)
+    return operands[-1:] if len(operands) >= 2 else []
+
+
+def _dd_target(args: list[str]) -> list[str]:
+    """`dd`'s output file — the `of=` operand only; `if=` is the input, i.e. a read."""
+    return [arg[len("of=") :] for arg in args if arg.startswith("of=") and arg[len("of=") :]]
+
+
 def _mutator_targets(cmd: str | None, args: list[str]) -> list[str]:
     """The paths `cmd` writes/removes, for the explicit mutators this guard understands."""
     if cmd in ("rm", "mv", "tee"):
         return _paths(args)
+    if cmd in COPY_CMDS:
+        return _copy_target(args)
+    if cmd == "dd":
+        return _dd_target(args)
+    if cmd == "truncate":
+        return _operands(args, TRUNCATE_VALUE_FLAGS)
     if cmd == "sed" and any(a == "-i" or a.startswith("-i") or a.startswith("--in-place") for a in args):
         return _paths(args)
     if cmd == "git":
