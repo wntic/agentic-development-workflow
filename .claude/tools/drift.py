@@ -187,7 +187,8 @@ class Corpus:
 
 
 def capability_corpus(tree: Path) -> Corpus:
-    """Every canonical spec line, HTML comments blanked out.
+    """Every canonical spec line, HTML comments blanked out. Paths are tree-relative (a reader's
+    report names `specs/<context>/<capability>.md`, not an absolute path nobody can compare).
 
     A comment is not content (T10j): the capability template's own comment documents the invariant
     form with a `<test-id>` placeholder, and a route named inside a comment describes nothing. Both
@@ -198,10 +199,10 @@ def capability_corpus(tree: Path) -> Corpus:
     files = gate.capability_files(tree)
     if not files:
         return Corpus(absent=f"no capability files under {tree / 'specs'} — this tree carries no living spec")
-    corpus = Corpus(files=files)
+    corpus = Corpus(files=[p.relative_to(tree) for p in files])
     for path in files:
         stripped = lint._strip_html_comments(path.read_text(encoding="utf-8", errors="replace").splitlines())
-        corpus.lines += [(path, line) for line in stripped if line.strip()]
+        corpus.lines += [(path.relative_to(tree), line) for line in stripped if line.strip()]
     return corpus
 
 
@@ -280,7 +281,7 @@ def compare(surface: Surface, corpus: Corpus) -> tuple[list[Finding], list[str]]
             findings.append(
                 Finding(
                     DRIFT,
-                    f"{method} {spec_path} — described in {path.name}, served by no route of the constructed app "
+                    f"{method} {spec_path} — described in {path}, served by no route of the constructed app "
                     "(behaviour removed without the spec following, or a spec that ran ahead)",
                 )
             )
@@ -352,7 +353,7 @@ def _surface_section(tree: Path, out: list[str]) -> str:
             return _undetermined(
                 out,
                 f"{surface.absent}, yet {len(described)} operation(s) are described in the living spec:\n"
-                + "\n".join(f"{method} {path} ({file.name})" for file, method, path in described[:20]),
+                + "\n".join(f"{method} {path} ({file})" for file, method, path in described[:20]),
             )
         out.append(f"  [n/a] {surface.absent}; no capability line describes an HTTP operation either")
         out.append("        nothing to compare — this is applicability, not cleanliness")

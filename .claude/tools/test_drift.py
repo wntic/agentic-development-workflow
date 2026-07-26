@@ -231,7 +231,7 @@ def test_an_operation_the_app_does_not_serve_is_reported(tmp_path: Path) -> None
     )
     proc = fx.run()
     assert proc.returncode == 1
-    assert "[DRIFT] DELETE /health — described in service-health.md, served by no route" in proc.stdout
+    assert "[DRIFT] DELETE /health — described in specs/health/service-health.md, served by no route" in proc.stdout
 
 
 # --- the hotfix half is accept.py's, invoked not copied (C7) ------------------------------
