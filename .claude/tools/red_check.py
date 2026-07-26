@@ -13,11 +13,14 @@ conftest/pyproject does not work, E-05 class), then asserts:
   1. coverage — every `AC-n` in criteria.md carries at least one `@pytest.mark.ac("AC-n")` test;
   2. redness — every ac-marked test is RED (failed or errored). A **passed** marked test is
      flagged as green-before-implementation; a skipped/xfail one cannot prove redness either.
-  3. tests-only baseline — the commit about to be tagged touches `tests/**` only. The
-     test-author's `disallowedTools` denies Edit/Write on `src/**`, but a Bash/Write escape
-     (`echo > src/foo.py`) bypasses it and a *partial* src seed can leave the tests red and
-     still slip code into the baseline. Catch the artifact, not the actor (S8): any non-`tests/`
-     path in the baseline commit → refuse to tag (anti-collusion, spec §4 / D3).
+  3. tests-only baseline — the commit about to be tagged touches `tests/**` only, and no commit
+     between the change's own boundary and it wrote anything outside the pre-baseline lanes
+     (`tests/**`, the declared deps files, `specs/**`). The test-author's `disallowedTools`
+     denies Edit/Write on `src/**`, but a Bash/Write escape (`echo > src/foo.py`) bypasses it
+     and a *partial* src seed can leave the tests red and still slip code into the baseline.
+     Catch the artifact, not the actor (S8): any offending path in the range → refuse to tag
+     (anti-collusion, spec §4 / D3). See the pre-baseline-screen section note for the anchor,
+     the lanes and what the screen honestly does not reach (T09i).
   4. lint screen — the baseline's `tests/**` is ruff-clean (ruff-check + ruff-format --check,
      gate.py's config imported not restated, C7). The implementer is tool-blocked from
      `tests/**` and ruff is per-file, so a lint defect the test-author left there could never
@@ -657,9 +660,264 @@ def baseline_commit_paths(tree: Path) -> list[str]:
     return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 
+# ---------------------------------------------------------------------------------------
+# The pre-baseline screen — the whole range, not just the commit being tagged (T09i)
+# ---------------------------------------------------------------------------------------
+#
+# The property this screen exists to buy is "nothing but the tests and the change's declared
+# deps entered the tree before the baseline". Until T09i it inspected HEAD alone, so it proved
+# something strictly weaker: "the commit being TAGGED is tests-only". Since T12 a change branch
+# legitimately carries earlier commits — the `/adw:spec` commit that creates the change dir, then
+# the test-author's `deps:` commit (/implement §1) — and nothing forced the shape of those. A
+# test-author committing `conftest.py` (or `src/`) FIRST and the tests SECOND got the first commit
+# unexamined, and the baseline tag then anchored a tree carrying unreviewed non-test content.
+# `gate.py` cannot catch it afterwards either: `src/**` is deliberately NOT in its protected trees
+# (it is the implementer's lane after the baseline, D4), so such a file is invisible to both
+# scripts — the shape D3 exists to prevent.
+#
+# So the screen walks a RANGE, per commit (never a net tree diff: an intermediate commit that
+# writes code must not be able to hide behind a later revert), with three lanes allowed before
+# the baseline and NOTHING else — plus the strictest rule of all on the commit being tagged:
+#
+#   * `tests/**`                    — the test-author's own lane (D4);
+#   * `pyproject.toml` / `uv.lock`  — the pre-baseline `deps:` commit (/implement §1, T12);
+#   * `specs/**`                    — the `/adw:spec` session's lane: the change dir itself, a new
+#                                     context's `overview.md`, a capability re-cut (S7). Allowed
+#                                     without trust consequence, because the gate freezes
+#                                     change.md's hash and criteria.md's legal flips from the
+#                                     baseline ONWARD; before it, spec content is the human's.
+#   * the tagged commit (HEAD)      — `tests/**` only, exactly as before T09i.
+#
+# THE ANCHOR — and why it is not the S9 base branch. The range needs a lower bound, and the
+# obvious one is the fork point with the base branch. It is NOT used here: resolving a base needs
+# `accept.derive_base`, which aborts when two branches are equally close, so every first baseline
+# would start depending on a resolvable, unambiguous base branch — trading this latent fail-open
+# for a live fail-closed, which is the author's trade to make and not this screen's (T09i).
+#
+# The anchor is the narrower thing that always resolves without one: the commit that CREATED this
+# change's directory (`change.md` / `criteria.md`). In the sanctioned sequence that commit is the
+# change branch's first commit — `/adw:spec` creates the branch and commits the change dir, and
+# /implement step 0 refuses to start without it — so "since the change dir was born" and "since
+# the branch was cut" are the same range, derived from the change instead of from the branch graph.
+#
+# The honest limit, printed rather than assumed away: a commit made on the branch BEFORE the
+# change dir existed is outside this screen. Closing that needs the base branch, i.e. the trade
+# above. Every commit the test-author makes is inside it, which is what D3 is about — and the
+# report always names the anchor and every path it allowed, so the scope is visible. An anchor
+# that cannot be resolved FAILS: HEAD is still screened (never less than the pre-T09i check), the
+# refusal says the range is unknown, and no tag is created. A screen that silently narrows is
+# worse than one that is known to be narrow.
+
+TESTS_LANE = "tests/** — the test-author's lane"
+DEPS_LANE = "the pre-baseline `deps:` commit — pyproject.toml / uv.lock"
+SPECS_LANE = "specs/** — the /adw:spec session's lane"
+
+PRE_BASELINE_DEPS = frozenset({"pyproject.toml", "uv.lock"})
+
+
+def path_lane(rel: str) -> str | None:
+    """The pre-baseline lane `rel` belongs to, or None when it belongs to none of them.
+
+    One home for the `tests/**` grammar the tagged-commit rule and the range screen share (C7).
+    """
+    if rel == "tests" or rel.startswith("tests/"):
+        return TESTS_LANE
+    if rel in PRE_BASELINE_DEPS:
+        return DEPS_LANE
+    if rel == "specs" or rel.startswith("specs/"):
+        return SPECS_LANE
+    return None
+
+
 def non_tests_paths(paths: list[str]) -> list[str]:
     """The baseline-commit paths that are NOT under tests/ (order preserved)."""
-    return [p for p in paths if p != "tests" and not p.startswith("tests/")]
+    return [p for p in paths if path_lane(p) != TESTS_LANE]
+
+
+def _git_checked(tree: Path, args: list[str], what: str) -> str:
+    """Run a git command whose answer a screen depends on; a bad rc is a loud refusal.
+
+    The notes/19 direction rule, one level down: an unanswerable git call must never reach a
+    check as an empty answer, because "nothing came back" would read as "nothing is wrong".
+    """
+    proc = subprocess.run(["git", "-C", str(tree), *args], capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RedCheckError(f"{what}: {(proc.stderr or proc.stdout).strip()}")
+    return proc.stdout
+
+
+@dataclass(frozen=True)
+class RangeCommit:
+    """One commit of a screened range: the paths it touches, or the fact that it is a merge."""
+
+    sha: str
+    paths: tuple[str, ...] = ()
+    merge: bool = False
+
+
+def commits_in_range(tree: Path, anchor: str, head: str = "HEAD") -> list[RangeCommit]:
+    """Every commit in `anchor..head`, newest first, with the paths each one touches.
+
+    Per commit, never as a net tree diff, so an intermediate commit that writes code cannot hide
+    behind a later revert. A MERGE commit is reported as one and carries no paths on purpose:
+    `git diff-tree -r <merge>` prints no names, which would read as "this commit touches
+    nothing" and let an arbitrary tree through — the notes/19 fail-open class (T06h). Callers
+    refuse a merge rather than judging it. Every git call is rc-checked (`_git_checked`): an
+    unanswerable range is not an empty one.
+    """
+    revs = _git_checked(tree, ["rev-list", f"{anchor}..{head}"], f"could not list the commits in {anchor}..{head}")
+    commits: list[RangeCommit] = []
+    for sha in revs.split():
+        parents = _git_checked(tree, ["rev-list", "--parents", "-n", "1", sha], f"could not read the parents of {sha}")
+        if len(parents.split()) > 2:  # <sha> <parent> [<parent> ...]
+            commits.append(RangeCommit(sha, (), merge=True))
+            continue
+        touched = _git_checked(
+            tree,
+            ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha],
+            f"could not inspect commit {sha}",
+        )
+        commits.append(RangeCommit(sha, tuple(rel.strip() for rel in touched.splitlines() if rel.strip())))
+    return commits
+
+
+@dataclass(frozen=True)
+class Anchor:
+    """The screened range's lower bound: the commit, how it was derived, or why it was not."""
+
+    sha: str = ""
+    how: str = ""
+    error: str = ""
+
+
+def change_dir_birth(tree: Path, change_dir: Path, head: str = "HEAD") -> str:
+    """The oldest commit reachable from `head` that ADDED this change's change.md / criteria.md.
+
+    Oldest, not newest: if the two files arrived in different commits the earlier one is the
+    boundary, so the later spec commit is itself screened (as `specs/**`) instead of skipped.
+    """
+    rel = change_dir.resolve().relative_to(tree.resolve()).as_posix()
+    out = _git_checked(
+        tree,
+        ["log", "--diff-filter=A", "--format=%H", head, "--", f"{rel}/change.md", f"{rel}/criteria.md"],
+        f"could not look up the commit that created {rel}",
+    )
+    shas = [line.strip() for line in out.splitlines() if line.strip()]
+    return shas[-1] if shas else ""
+
+
+def pre_baseline_anchor(tree: Path, change_dir: Path, head: str) -> Anchor:
+    """Resolve the range's lower bound, or say why it could not be (see the section note)."""
+    rel = change_dir.resolve().relative_to(tree.resolve()).as_posix()
+    birth = change_dir_birth(tree, change_dir, head)
+    if not birth:
+        return Anchor(
+            error=(
+                f"no commit in this branch's history adds {rel}/change.md or {rel}/criteria.md, so the commits "
+                "that entered the tree before this baseline cannot be enumerated. Commit the change directory "
+                "(/adw:spec does) and re-run — the screen is NOT degraded to inspecting HEAD alone, because a "
+                "screen that silently narrows is worse than one that is known to be narrow (T09i)."
+            )
+        )
+    if birth == head:
+        return Anchor(
+            sha=birth,
+            error=(
+                f"{rel} was created by the very commit being tagged, so there is no pre-baseline range to "
+                "screen. The change directory belongs to an earlier /adw:spec commit (/implement §1) and the "
+                "baseline commit must touch tests/** only."
+            ),
+        )
+    return Anchor(sha=birth, how=f"since {birth[:8]}, the commit that created {rel}")
+
+
+@dataclass
+class ScreenedCommit:
+    """One judged commit: which lane each allowed path fell in, and what was refused."""
+
+    sha: str
+    lanes: dict[str, list[str]] = field(default_factory=dict)
+    offenders: list[str] = field(default_factory=list)
+    merge: bool = False
+    tagged: bool = False  # the baseline candidate itself: tests/** only
+
+    @property
+    def ok(self) -> bool:
+        return not self.merge and not self.offenders
+
+
+@dataclass
+class BaselineScreen:
+    anchor: Anchor
+    commits: list[ScreenedCommit] = field(default_factory=list)
+
+    @property
+    def offenders(self) -> list[str]:
+        return [rel for commit in self.commits for rel in commit.offenders]
+
+    @property
+    def ok(self) -> bool:
+        return not self.anchor.error and all(commit.ok for commit in self.commits)
+
+
+def judge_commit(commit: RangeCommit, *, tagged: bool) -> ScreenedCommit:
+    """Sort one commit's paths into the pre-baseline lanes; the tagged commit gets `tests/**` only."""
+    screened = ScreenedCommit(sha=commit.sha, merge=commit.merge, tagged=tagged)
+    for rel in commit.paths:
+        lane = path_lane(rel)
+        if lane is None or (tagged and lane != TESTS_LANE):
+            screened.offenders.append(rel)
+        else:
+            screened.lanes.setdefault(lane, []).append(rel)
+    return screened
+
+
+def screen_pre_baseline(tree: Path, change_dir: Path, *, anchor: Anchor | None = None) -> BaselineScreen:
+    """Screen every commit from the range's anchor up to HEAD (see the section note).
+
+    `anchor` overrides the derivation for a baseline MOVE, where the range's lower bound is the
+    tag being left behind — a narrower, always-resolvable question ("what entered since the tag
+    I am moving from?") that composes with the screen the first tagging already made.
+    """
+    head = _git_checked(tree, ["rev-parse", "HEAD"], "could not resolve HEAD").strip()
+    resolved = anchor if anchor is not None else pre_baseline_anchor(tree, change_dir, head)
+    commits = commits_in_range(tree, resolved.sha, head) if resolved.sha and not resolved.error else []
+    if all(commit.sha != head for commit in commits):
+        # HEAD is screened unconditionally. An unresolvable or degenerate anchor must never mean
+        # "nothing to screen": that would fail open in the one place the pre-T09i check did hold.
+        commits.insert(0, RangeCommit(head, tuple(baseline_commit_paths(tree))))
+    return BaselineScreen(resolved, [judge_commit(c, tagged=c.sha == head) for c in commits])
+
+
+def format_screen_report(screen: BaselineScreen) -> str:
+    lines: list[str] = []
+    if screen.anchor.error:
+        lines.append("BASELINE SCREEN: FAILED — the pre-baseline range could not be anchored:")
+        lines.extend(f"    {ln}" for ln in screen.anchor.error.splitlines())
+        lines.append("HEAD is screened on its own below, so this is never less than a HEAD-only check.")
+    else:
+        lines.append(f"BASELINE SCREEN: {len(screen.commits)} commit(s) {screen.anchor.how}, oldest first:")
+    for commit in reversed(screen.commits):  # the order they entered the tree
+        label = f"  {commit.sha[:8]}{' (tagged)' if commit.tagged else '         '}"
+        if commit.merge:
+            lines.append(f"{label}  REFUSED: a merge commit — its tree cannot be judged path by path")
+            continue
+        for lane, paths in commit.lanes.items():
+            lines.append(f"{label}  {len(paths)} path(s) allowed — {lane}")
+            lines.extend(f"{' ' * len(label)}      {rel}" for rel in paths)
+        for rel in commit.offenders:
+            lines.append(f"{label}  REFUSED: {rel}")
+    if screen.ok:
+        lines.append("BASELINE SCREEN: clean — only tests/**, the declared deps and specs/** entered pre-baseline")
+    else:
+        lines.append(
+            "BASELINE SCREEN: REFUSED — a commit before the baseline writes outside the pre-baseline lanes "
+            "(anti-collusion, §4/D3).\nThe tagged commit may touch tests/** only; the commits before it may "
+            "also touch pyproject.toml / uv.lock (the `deps:` commit) and specs/**. Nothing else: code that "
+            "enters the tree before the baseline is code nobody reviewed and neither script can see afterwards "
+            "(src/** is not a gate-protected tree — it is the implementer's lane AFTER the baseline)."
+        )
+    return "\n".join(lines)
 
 
 def tag_baseline(tree: Path, change_id: str, *, force: bool) -> str:
@@ -1161,6 +1419,7 @@ def format_invisible_report(change_id: str, result: InvisibleResult) -> str:
 def rebaseline(
     tree: Path,
     change_id: str,
+    change_dir: Path,
     ac_ids: list[str],
     *,
     change_class: str = "behavioral",  # the register's default (gate.DEFAULT_CHANGE_CLASS); main always passes it
@@ -1188,13 +1447,16 @@ def rebaseline(
 
     failures: list[str] = []
 
-    # (a) the candidate commit must touch tests/** only — anti-collusion (§4/D3)
-    offenders = non_tests_paths(baseline_commit_paths(tree))
-    if offenders:
-        failures.append(
-            "the re-baseline commit writes outside tests/** (anti-collusion, §4/D3):\n"
-            + "\n".join(f"    {p}" for p in offenders)
-        )
+    # (a) the candidate commit must touch tests/** only, and nothing outside the pre-baseline
+    #     lanes may have entered since the tag being moved — anti-collusion (§4/D3). The anchor
+    #     here is the OLD baseline, not the change dir's birth: the range before that tag was
+    #     screened when it was created, so the two questions compose to full coverage, and the
+    #     narrower one is the only one a move can be refused for (T09i).
+    screen = screen_pre_baseline(tree, change_dir, anchor=Anchor(sha=old_sha, how=f"since {tag} ({old_sha[:8]})"))
+    print(format_screen_report(screen))
+    print()
+    if not screen.ok:
+        failures.append("the re-baseline range writes outside the pre-baseline lanes (see the screen report above)")
 
     # (b) no ac-marked test may vanish across the move
     dropped = sorted(set(ac_inventory_at(tree, old_sha)) - set(ac_inventory_at(tree, head)))
@@ -1290,14 +1552,6 @@ def rebaseline(
 # RECORDED — a commit plus a tag move, both in git — not that it is prevented.
 
 
-def _git_checked(tree: Path, args: list[str], what: str) -> str:
-    """Run a git command whose answer this step depends on; a bad rc is a loud refusal."""
-    proc = subprocess.run(["git", "-C", str(tree), *args], capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RedCheckError(f"{what}: {(proc.stderr or proc.stdout).strip()}")
-    return proc.stdout
-
-
 def is_escalate_path(rel: str) -> bool:
     """True for a change directory's ESCALATE — the only path this step may see moving."""
     return rel.endswith("/ESCALATE") and "/changes/" in rel
@@ -1309,24 +1563,14 @@ def non_escalate_commit_paths(tree: Path, anchor: str) -> list[str]:
     Per commit, not as a net tree diff, so an intermediate commit that writes code cannot hide
     behind a later revert. A MERGE commit is refused outright: `diff-tree` prints no names for
     one, which would read as "touches nothing" and let an arbitrary tree in — the notes/19
-    fail-open class."""
+    fail-open class. The walk itself is `commits_in_range`, shared with the pre-baseline screen
+    (C7: one range walk, one merge refusal, one set of rc guards); only the predicate differs."""
     violations: list[str] = []
-    revs = _git_checked(tree, ["rev-list", f"{anchor}..HEAD"], f"could not list the commits in {anchor}..HEAD").split()
-    for sha in revs:
-        line = _git_checked(tree, ["rev-list", "--parents", "-n", "1", sha], f"could not read the parents of {sha}")
-        if len(line.split()) > 2:  # <sha> <parent> [<parent> ...]
-            violations.append(f"{sha[:8]}: a merge commit — its tree cannot be judged path by path")
+    for commit in commits_in_range(tree, anchor):
+        if commit.merge:
+            violations.append(f"{commit.sha[:8]}: a merge commit — its tree cannot be judged path by path")
             continue
-        touched = _git_checked(
-            tree,
-            ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha],
-            f"could not inspect commit {sha}",
-        )
-        violations.extend(
-            f"{sha[:8]}: {rel.strip()}"
-            for rel in touched.splitlines()
-            if rel.strip() and not is_escalate_path(rel.strip())
-        )
+        violations.extend(f"{commit.sha[:8]}: {rel}" for rel in commit.paths if not is_escalate_path(rel))
     return violations
 
 
@@ -1406,22 +1650,31 @@ def clear_escalate(tree: Path, change_id: str) -> int:
     return 0
 
 
-def finish_tagging(tree: Path, change_id: str, *, no_tag: bool, force: bool) -> int:
-    """The tail both baseline paths share: the tests-only screen, then the tag.
+def finish_tagging(tree: Path, change_id: str, change_dir: Path, *, no_tag: bool, force: bool) -> int:
+    """The tail both baseline paths share: the pre-baseline screen, then the tag.
 
-    Class-independent on purpose — whatever proved the baseline (redness or mutation), the
-    commit being tagged must still touch `tests/**` only (anti-collusion, §4/D3)."""
+    Class-independent on purpose — whatever proved the baseline (redness, mutation or
+    green-at-baseline), the commit being tagged must touch `tests/**` only and nothing outside
+    the pre-baseline lanes may have entered the tree before it (anti-collusion, §4/D3)."""
     if no_tag:
         return 0
-    offenders = non_tests_paths(baseline_commit_paths(tree))
-    if offenders:
-        print(
-            "red_check: FAILED — the baseline commit wrote code — anti-collusion, §4/D3.\n"
-            "the baseline commit must touch tests/** only; these paths do not:",
-            file=sys.stderr,
-        )
-        for path in offenders:
-            print(f"    {path}", file=sys.stderr)
+    screen = screen_pre_baseline(tree, change_dir)
+    print(format_screen_report(screen))
+    if not screen.ok:
+        if screen.offenders:
+            print(
+                "red_check: FAILED — the tree carries pre-baseline content outside the test-author's lane "
+                "— anti-collusion, §4/D3.\nthese paths were refused (see the BASELINE SCREEN report above):",
+                file=sys.stderr,
+            )
+            for path in screen.offenders:
+                print(f"    {path}", file=sys.stderr)
+        else:
+            print(
+                "red_check: FAILED — the pre-baseline range could not be screened, so nothing is tagged "
+                "(see the BASELINE SCREEN report above).",
+                file=sys.stderr,
+            )
         return 1
     tag = tag_baseline(tree, change_id, force=force)
     print(f"tagged baseline: {tag} -> HEAD")
@@ -1475,6 +1728,7 @@ def main(argv: list[str] | None = None) -> int:
             return rebaseline(
                 tree,
                 change_id,
+                change_dir,
                 ac_ids,
                 change_class=change_class,
                 hardening_mutations=parse_mutations(change_md) if change_class == HARDENING_CLASS else None,
@@ -1486,7 +1740,7 @@ def main(argv: list[str] | None = None) -> int:
             print(format_hardening_report(change_id, result))
             if not result.ok:
                 return 1
-            return finish_tagging(tree, change_id, no_tag=args.no_tag, force=args.force_tag)
+            return finish_tagging(tree, change_id, change_dir, no_tag=args.no_tag, force=args.force_tag)
         if change_class == INVISIBLE_CLASS:
             # No red phase either, for the opposite reason: the behaviour these tests pin already
             # holds. GREEN-AT-BASELINE + a readable before-surface, then the same screen and tag.
@@ -1494,7 +1748,7 @@ def main(argv: list[str] | None = None) -> int:
             print(format_invisible_report(change_id, invisible))
             if not invisible.ok:
                 return 1
-            return finish_tagging(tree, change_id, no_tag=args.no_tag, force=args.force_tag)
+            return finish_tagging(tree, change_id, change_dir, no_tag=args.no_tag, force=args.force_tag)
 
         inventory = run_tests(tree)
         inventory = apply_greenfield_fallback(tree, inventory, project_package(tree))
@@ -1508,7 +1762,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if not red.ok or lint_failures:
             return 1
-        return finish_tagging(tree, change_id, no_tag=args.no_tag, force=args.force_tag)
+        return finish_tagging(tree, change_id, change_dir, no_tag=args.no_tag, force=args.force_tag)
     except RedCheckError as exc:
         print(f"red_check: ERROR — {exc}", file=sys.stderr)
         return 2

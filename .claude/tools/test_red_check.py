@@ -368,6 +368,220 @@ def test_e2e_brownfield_broken_import_still_fails_no_tag(tmp_path: Path) -> None
     assert "baseline/demo-001" not in repo.tags()
 
 
+# --- the pre-baseline screen: the whole range, not just HEAD (T09i) --------------------
+#
+# The screen's stated property ("the tagged commit is tests-only") held; the property it exists
+# to buy ("nothing but tests and the declared deps entered the tree before the baseline") did
+# not, because it inspected HEAD alone. Since T12 a change branch legitimately carries earlier
+# commits, so a test-author committing `conftest.py` or `src/` FIRST and the tests SECOND got the
+# first commit unscreened — and `gate.py` cannot see it afterwards either (`src/**` is not a
+# protected tree; it is the implementer's lane AFTER the baseline). Every case below tags happily
+# against the pre-T09i script except the two that were already refused for another reason, which
+# are here to pin that widening the range did not delete a deny the screen had (A5).
+
+
+def test_path_lane_sorts_the_pre_baseline_lanes() -> None:
+    assert red_check.path_lane("tests/test_x.py") == red_check.TESTS_LANE
+    assert red_check.path_lane("tests") == red_check.TESTS_LANE
+    assert red_check.path_lane("pyproject.toml") == red_check.DEPS_LANE
+    assert red_check.path_lane("uv.lock") == red_check.DEPS_LANE
+    assert red_check.path_lane("specs/demo/changes/001-health/change.md") == red_check.SPECS_LANE
+    # the deny direction, over every input form the match could over-accept (A5): a `tests`
+    # fragment elsewhere in the path, a lookalike prefix, a lookalike deps filename
+    for outside in (
+        "conftest.py",
+        "src/app/main.py",
+        ".claude/tools/gate.py",
+        "tests_extra/test_x.py",
+        "docs/tests/x.md",
+        "pyproject.toml.bak",
+        "uv.lock.bak",
+        ".gitignore",
+    ):
+        assert red_check.path_lane(outside) is None, outside
+
+
+def test_judge_commit_holds_the_tagged_commit_to_tests_only() -> None:
+    # The lanes are positional: pyproject.toml is legal BEFORE the baseline, never IN it (the
+    # gate freezes it from the baseline onward, and test-author.md forbids folding the commits).
+    commit = red_check.RangeCommit("abc1234", ("tests/t.py", "pyproject.toml"))
+    assert red_check.judge_commit(commit, tagged=False).ok
+    tagged = red_check.judge_commit(commit, tagged=True)
+    assert not tagged.ok
+    assert tagged.offenders == ["pyproject.toml"]
+
+
+def test_judge_commit_refuses_a_merge_that_lists_no_paths() -> None:
+    # `git diff-tree -r <merge>` prints no names, so "no paths" must never read as "nothing
+    # wrong" — the notes/19 fail-open class, kept from clear_escalate's guard (ii).
+    merged = red_check.judge_commit(red_check.RangeCommit("abc1234", (), merge=True), tagged=False)
+    assert not merged.ok
+    assert merged.offenders == []
+
+
+def test_change_dir_birth_is_the_oldest_add_of_the_change_dir(tmp_path: Path) -> None:
+    # Oldest, not newest: a later spec commit must be screened (as specs/**), not skipped.
+    repo = _base_repo(tmp_path)  # the root commit adds criteria.md
+    root = repo.git("rev-parse", "HEAD").strip()
+    repo.write("specs/demo/changes/001-health/change.md", "Class: behavioral\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "spec: add change.md later")
+
+    assert red_check.change_dir_birth(repo.root, repo.root / "specs/demo/changes/001-health") == root
+
+
+def test_e2e_sanctioned_pre_baseline_sequence_is_screened_and_still_tags(tmp_path: Path, capsys) -> None:
+    # THE regression that matters: /implement §1's real commit shape, as change/users-002 carries
+    # it — the /adw:spec commit (change dir + a new context's overview), then the `deps:` commit,
+    # then the tests-only baseline commit. If this refuses, every future first change is blocked.
+    repo = _base_repo(tmp_path)
+    repo.write("specs/demo/overview.md", "# demo\n\n## Capabilities\n\n- `health.md`\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "spec: overview for the new context")
+    anchor = repo.git("rev-parse", "HEAD~1").strip()  # the commit that created the change dir
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.write("uv.lock", "# resolved by uv\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "deps: framework substrate for demo/001")
+    repo.write("tests/test_health.py", GREENFIELD_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: RED baseline for demo/001")
+
+    assert _run(repo) == 0
+    out = "".join(capsys.readouterr())
+    assert "BASELINE SCREEN: 3 commit(s)" in out
+    assert anchor[:8] in out  # the scope is visible: which commit the range starts after
+    assert "specs/** — the /adw:spec session's lane" in out
+    assert "the pre-baseline `deps:` commit — pyproject.toml / uv.lock" in out
+    assert "tests/** — the test-author's lane" in out
+    assert "BASELINE SCREEN: clean" in out
+    assert "baseline/demo-001" in repo.tags()
+
+
+def test_e2e_a_pre_baseline_root_conftest_commit_is_refused(tmp_path: Path, capsys) -> None:
+    # conftest-then-tests: the tagged commit is tests-only, so the pre-T09i screen tagged this.
+    # A root conftest.py is the E-05 config-injection surface AND outside the test-author's lane.
+    repo = _base_repo(tmp_path)
+    repo.write("conftest.py", "collect_ignore: list[str] = []\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "chore: a root conftest, before the tests")
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+
+    assert _run(repo) == 1
+    combined = capsys.readouterr()
+    assert "REFUSED: conftest.py" in (combined.out + combined.err)
+    assert "baseline/demo-001" not in repo.tags()
+
+
+def test_e2e_a_pre_baseline_src_commit_is_refused(tmp_path: Path, capsys) -> None:
+    # src-then-tests: the collusion shape D3 exists to prevent, and the one neither script could
+    # see — the tagged commit is clean, and `src/**` is deliberately not a gate-protected tree.
+    repo = _base_repo(tmp_path)
+    repo.write("src/app/main.py", "def health():\n    return {}\n")  # partial: no 'status' key
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "chore: seed src before the tests")
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+
+    assert _run(repo) == 1
+    combined = capsys.readouterr()
+    assert "REFUSED: src/app/main.py" in (combined.out + combined.err)
+    assert "baseline/demo-001" not in repo.tags()
+
+
+def test_e2e_a_tests_conftest_before_the_baseline_is_allowed(tmp_path: Path) -> None:
+    # The deny direction of the same fix (A5): the refusal is about the LANE, not the basename —
+    # tests/conftest.py in an earlier commit is the test-author's own work and must still tag.
+    repo = _base_repo(tmp_path)
+    repo.write("tests/conftest.py", "import pytest\n\n\n@pytest.fixture\ndef unused() -> int:\n    return 1\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: fixtures first")
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+
+    assert _run(repo) == 0
+    assert "baseline/demo-001" in repo.tags()
+
+
+def test_e2e_deps_folded_into_the_tagged_commit_is_still_refused(tmp_path: Path, capsys) -> None:
+    # A deny the screen already had, re-pinned: widening the range must not weaken the tagged
+    # commit. test-author.md's hard stop — never fold the `deps:` commit into the baseline one.
+    repo = _base_repo(tmp_path)
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.write("tests/test_health.py", GREENFIELD_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "deps + red tests in one commit")
+
+    assert _run(repo) == 1
+    combined = capsys.readouterr()
+    assert "REFUSED: pyproject.toml" in (combined.out + combined.err)
+    assert "baseline/demo-001" not in repo.tags()
+
+
+def test_e2e_a_merge_commit_in_the_pre_baseline_range_is_refused(tmp_path: Path, capsys) -> None:
+    # A merge lists no paths, so it would read as "touches nothing" and carry an arbitrary tree
+    # into the baseline — refused outright, exactly as in clear_escalate's guard (ii).
+    repo = _base_repo(tmp_path)
+    repo.git("checkout", "-q", "-b", "side")
+    repo.write("tests/test_side.py", "def test_side() -> None:\n    assert True\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: side work")
+    repo.git("checkout", "-q", "-")
+    repo.git("merge", "-q", "--no-ff", "-m", "merge side", "side")
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+
+    assert _run(repo) == 1
+    combined = capsys.readouterr()
+    assert "a merge commit" in (combined.out + combined.err)
+    assert "baseline/demo-001" not in repo.tags()
+
+
+def test_e2e_an_unresolvable_anchor_fails_and_tags_nothing(tmp_path: Path, capsys) -> None:
+    # The range's lower bound is the commit that created the change dir. With the change dir
+    # untracked there is no such commit, so the range is UNKNOWN — and an unknown range must not
+    # degrade to the HEAD-only check it replaced (a screen that silently narrows is worse than
+    # one that is known to be narrow). Pre-T09i this tagged: the tagged commit is tests-only.
+    repo = FixtureRepo(tmp_path)
+    repo.write(".gitignore", ".gate/\n__pycache__/\n.pytest_cache/\n")
+    repo.git("init", "-q")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "init")
+    repo.write("specs/demo/changes/001-health/criteria.md", CRITERIA_MD)  # deliberately never committed
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.git("add", "--", "tests")
+    repo.git("commit", "-qm", "red tests")
+
+    assert _run(repo) == 1
+    out = "".join(capsys.readouterr())
+    assert "BASELINE SCREEN: FAILED" in out
+    assert "criteria.md" in out  # the refusal names what it looked for
+    assert "baseline/demo-001" not in repo.tags()
+
+
+def test_e2e_a_change_dir_born_in_the_tagged_commit_is_refused(tmp_path: Path, capsys) -> None:
+    # The degenerate anchor: the change dir arrives in the very commit being tagged, so there is
+    # no pre-baseline range at all. HEAD is still screened (tests/** only), and the report says
+    # which of the two refusals fired — an empty range never means "nothing to screen".
+    repo = FixtureRepo(tmp_path)
+    repo.write("specs/demo/changes/001-health/criteria.md", CRITERIA_MD)
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.git("init", "-q")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "spec + red tests in one commit")
+
+    assert _run(repo) == 1
+    out = "".join(capsys.readouterr())
+    assert "was created by the very commit being tagged" in out
+    assert "REFUSED: specs/demo/changes/001-health/criteria.md" in out
+    assert "baseline/demo-001" not in repo.tags()
+
+
 # --- re-baseline after a TESTS-HANDBACK (notes/18) -------------------------------------
 #
 # The handback fixes tests/** while the implementer's src/ is UNCOMMITTED, then the baseline tag
@@ -429,6 +643,26 @@ def test_rebaseline_refuses_a_commit_that_writes_outside_tests(tmp_path: Path) -
     repo.git("commit", "-qm", "test: corrected + smuggled src")
 
     assert _run(repo, "--rebaseline") == 1
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old  # tag did NOT move
+
+
+def test_e2e_rebaseline_screens_the_range_since_the_tag_it_moves(tmp_path: Path, capsys) -> None:
+    # A baseline MOVE asks the narrower question — what entered since the tag being left behind —
+    # which composes with the screen the first tagging already made. A src commit riding along in
+    # that range would be re-anchored into the new baseline, so the move is refused.
+    repo = _handback_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    for rel, content in SRC_SHELL.items():
+        repo.write(rel, content)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "feat: src committed mid-handback")
+    repo.write("tests/test_health.py", GREENFIELD_TESTS.replace("# the whole", "# corrected; the whole"))
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: corrected tests (handback)")
+
+    assert _run(repo, "--rebaseline") == 1
+    out = "".join(capsys.readouterr())
+    assert "REFUSED: src/app/restapi/main.py" in out
     assert repo.git("rev-parse", "baseline/demo-001").strip() == old  # tag did NOT move
 
 
