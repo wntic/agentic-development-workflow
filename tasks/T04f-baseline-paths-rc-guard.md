@@ -32,6 +32,12 @@ T04, T04e (which found it), T10f (the undetermined-input rule this should be con
   in an integrity check whose return code is discarded. Report what you find even if you fix
   nothing; the point of this task is that the register's blanket claim was wrong, so the inventory
   matters as much as the fix.
+- **Also clear `gate.py`'s own lint debris** (T18 finding 7), because it is the same shape of irony
+  this task is about — the gate's pinned `RUFF_SELECT` would flag `gate.py` itself, and nothing lints
+  `.claude/tools` today: `RUF103` at ~line 103 (the `# ruff: select includes B…` comment parses as a
+  suppression directive) and `RUF100` at ~line 328 (`# noqa: ANN202` with `ANN` not selected). Fix
+  both, re-check line numbers before trusting them (INDEX rule 5). Do **not** widen the gate's own
+  targets to include `.claude/**` — that is a scope decision, not hygiene.
 - `notes/19_accept_gate_audit.md` — correct the sentence crediting `gate.py` with guarding every
   integrity git call, with a dated note (the file already carries one such correction; match it).
 - `.claude/tools/test_gate.py` — a case where the baseline commit cannot be resolved: the affected
