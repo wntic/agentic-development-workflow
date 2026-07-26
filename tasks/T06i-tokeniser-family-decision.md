@@ -35,6 +35,34 @@ replace it).
 - `PRINCIPLES.md` S8 — the guard is ergonomics, the gate is the backstop. This is what makes a false
   positive **more** expensive than a miss, and it should drive the choice.
 
+---
+
+## DECISION MADE IN ADVANCE — author, 2026-07-26
+
+**Go with (b): the real tokeniser.** Do not spend a dispatch escalating the comparison; the evidence
+that would have driven it is already in. Reasons, in order of weight:
+
+1. **Seven variants, and variant 7 arrived *after* this task was filed** to describe six. That is the
+   trajectory argument settled by observation rather than opinion: (a) does not converge.
+2. **Under S8 a false positive is the expensive failure.** The guard is ergonomics — the gate is the
+   backstop — so its job is to be *accurate*, not smaller. Every miss so far trained the bypass
+   reflex on the agent it blocked (measured on four separate builders) and named a path the command
+   only *read*. That argues for a correct parse, not fewer constructs.
+3. **The risk is bounded by the suite.** The 116 existing cases are the specification of what the
+   guard means; if they all pass unchanged, the rewrite is behaviour-preserving by construction.
+4. `shlex(punctuation_chars=True)` is stdlib, which the hooks require, and tokenises `;` / `&&` /
+   `||` as their own tokens — the exact defect in variant 6.
+
+**(c) is rejected for now.** Shrinking what the guard claims to prevent is a change to the
+workflow's promises, not to its parser, and nothing forces it while (b) is available.
+
+**Still write the comparison** — briefly, in the report — because it is how you discover that (b)
+cannot work. **Escalate only if** the measurement contradicts the decision: `punctuation_chars=True`
+cannot keep all 116 cases, or keeping them requires re-introducing the hand-rolled slicing this task
+exists to remove. In that case bring the failing cases, not a redesign.
+
+---
+
 ## Deliverables
 First, a short written comparison (in the report, or `notes/` if it runs long) of:
 
@@ -68,6 +96,8 @@ is the acceptance criterion, not a nice-to-have.
 - Do NOT relax the ownership rules (T06d) or the repo-root anchoring (T06e). This is about *parsing*
   the command, not about who may write where.
 - Do NOT add a third-party dependency. The hooks are stdlib-only by design.
-- **Escalate with the comparison before implementing (b) or (c).** (a) is a builder's call; the
-  other two change the guard's shape and (c) changes what the workflow claims to prevent — those are
-  the author's. Bring the comparison, not a finished rewrite.
+- ~~**Escalate with the comparison before implementing (b) or (c).**~~ — **discharged: the decision
+  is (b), recorded above.** Escalate only if the measurement contradicts it (all 116 cases cannot be
+  kept), and then bring the failing cases rather than a redesign.
+- Do NOT fix the `agent_type` namespace handling (T15/D1 already did it) and do NOT touch the
+  `ROLE_OWNED` / `PROTECTED_FRAGMENTS` contents — this is the parser, not the policy.
