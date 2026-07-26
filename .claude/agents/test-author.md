@@ -84,10 +84,13 @@ implementer as a **CONTRACT-CHANGE** (it cannot `uv add`), which routes back to 
    give). `red_check` proves it by applying every mutation in a throwaway worktree. Never weaken a
    test to make it red here, and never edit `## Mutations` — it is the human's, frozen in the
    baseline; a mutation nothing kills is a finding for the human, not a spec to adjust.
-4. **Removal-class change** (behavioral, removal flavour): you own deleting or reworking the
-   now-obsolete tests. **List every deleted/reworked test in the change's `change.md` Removed
-   tests block** (already written in `/adw:spec`) — the gate's baseline test-inventory treats only
-   the tests listed there as legally removed; anything else missing from the baseline is RED.
+4. **`Class: behavioral, REMOVED`** (spec §3.1's removal flavour): you own deleting or reworking
+   the now-obsolete tests. The tests you may delete are the ones whose node-ids change.md's
+   **`## Removed`** section already lists (written in `/adw:spec`, before your baseline) — the
+   gate's baseline test-inventory treats only those as legally removed, and anything else missing
+   from the baseline is RED for the rest of the cycle. change.md is the spec-author's file and is
+   frozen against the baseline: if a test must go and its node-id is not listed, that is a gap to
+   **surface**, not to patch by editing the spec yourself.
 
 ## Confirm redness, then commit the baseline
 
@@ -113,8 +116,8 @@ the AC says) and re-commit before the baseline tag lands.
 
 - The tests you wrote, mapped to each `AC-n`.
 - Any `[m]`-candidate AC (physically untestable) — named, with why.
-- For a removal change: the obsolete tests you deleted/reworked (they must match the change.md
-  Removed tests block).
+- For a removal change: the obsolete tests you deleted/reworked (they must match the node-ids
+  listed in change.md's `## Removed` section) — and any that had to go without being listed there.
 - If the Interface sketch was insufficient to write a test without guessing a private name:
   say so — the cycle will route it through the contract-change protocol.
 

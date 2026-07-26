@@ -1,8 +1,12 @@
 # <context>/NNN — <short change name>
 
 Class: behavioral    <!-- behavioral (default) | bugfix | invisible | hardening (spec §3.1).
-                          behavioral, removal flavour: list the removed behaviour explicitly —
-                          this change's test-author then owns deleting/reworking obsolete tests.
+                          behavioral, REMOVED: the removal flavour (spec §3.1) — write the marker
+                          verbatim, `Class: behavioral, REMOVED`, and fill the `## Removed`
+                          section below; this change's test-author then owns deleting/reworking
+                          the obsolete tests. That marker and that section are the only wording
+                          accept.py's orphan sweep reads: any other phrasing ("removal flavour",
+                          "removes the export endpoint") is FLAGGED for the human, never guessed.
                           bugfix: the code diverged from an ALREADY recorded capability invariant;
                           AC = a reference to that invariant + a regression test.
                           invisible: refactor/deps/perf — behaviour unchanged; AC = "behaviour
@@ -30,6 +34,33 @@ Companion: <context>/NNN       <!-- only for a paired cross-context change, dele
 
 ## Out of scope
 <!-- Optional. What this change explicitly does NOT do (scope-creep protection). -->
+
+## Removed
+<!-- `Class: behavioral, REMOVED` ONLY — and MANDATORY there; delete the whole section for every
+     other change. This is the machine-readable half of spec §3.1's "change явно перечисляет
+     отменяемое поведение", and two checks read it:
+
+     - accept.py's orphan sweep (V-02, §5.4) harvests ONLY this section, and out of it only
+       `backticked` identifiers and the `::name` tail of a node-id — prose is never harvested, so
+       a symbol named in a sentence alone is invisible to the sweep. Acceptance FAILs while any
+       harvested name still lives in `src/**` or in a capability file.
+     - the gate's baseline test-inventory (E-05) treats a baseline test as legally removed only
+       when its node-id appears somewhere in this change.md, so an obsolete test deleted without
+       its node-id listed here is RED for the whole cycle.
+
+     Written HERE, in the /adw:spec session, before the baseline: change.md is frozen against the
+     baseline commit (E-12), so the list cannot be back-filled once the cycle has started, and no
+     agent inside the cycle may edit it (D4). A gap found later is a CONTRACT-CHANGE, not a patch.
+
+     One bullet per removed thing — the behaviour in words, the symbol/node-id in backticks:
+
+     - `<RemovedClassOrFunction>` — what disappears with it (its route, its table, its config key).
+     - `tests/<file>.py::<test_name>` — obsolete with that behaviour; deleted by this change's
+       test-author. (Node-ids are written out in full: the gate matches the string.)
+
+     If the removed behaviour genuinely has no symbol to name (a route string, a feature flag),
+     say so in a bullet anyway — the sweep then reports that it had nothing to check, and the
+     human confirms in review that nothing is orphaned. -->
 
 ## Interface sketch
 <!-- M/L only. Module/class names + ctor dependencies that tests and code MUST share.

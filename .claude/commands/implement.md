@@ -27,8 +27,8 @@ F-7). At most **one change per context** is in `/implement` at a time (spec §6)
    `.claude/hooks/subagent_stop.py`, T06) if it exists. A stale counter left by a prior
    change would otherwise trip an instant, false ESCALATE on this one — the ceiling counts
    blocks *within this change's* implementer loop, so it starts at zero here.
-3. Read `change.md` to learn the **Class** (behavioral / bugfix / invisible / hardening; removal
-   is a behavioral flavour) and **Depth** (S / M / L) — they decide the fast-lane, the
+3. Read `change.md` to learn the **Class** (behavioral / bugfix / invisible / hardening; a removal
+   is the behavioral flavour marked `REMOVED`, spec §3.1) and **Depth** (S / M / L) — they decide the fast-lane, the
    adversarial review, and — for `hardening` — the route through steps 1–2 below.
 
 ## 0.5 Precondition — a Python project exists (no bootstrap, no template)
@@ -63,7 +63,8 @@ Dispatch the **test-author** subagent for `<context>/NNN`. It:
    what it newly imports (often nothing). The implementer is tool-blocked from `pyproject.toml`,
    so deps are the test-author's lane.
 2. Writes red `@pytest.mark.ac` tests from `criteria.md` + the Interface sketch (and, for a
-   removal change, deletes the obsolete tests listed in `change.md`), commits them as a
+   removal change, deletes the obsolete tests whose node-ids `change.md`'s `## Removed` section
+   lists), commits them as a
    **separate, tests-only** baseline commit, then runs the red-check script:
 
 ```

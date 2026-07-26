@@ -103,8 +103,9 @@ Three commands plus `/abandon` — all *planned*, see `tasks/INDEX.md`:
 | `/accept-change <context>/NNN` | wrapper over `accept.py`: gates → human reviews the merge diff → merge to `main` + tag + delete change dir | planned (T10) |
 | `/abandon <context>/NNN` | delete the change branch (red tests never touched `main`), reason in tag `abandoned/<context>-NNN` | planned (T09) |
 
-Change **classes**: `behavioral` (default; removal flavour makes the test-author owner of obsolete
-tests), `bugfix` (code diverged from a recorded invariant), `invisible` (refactor/deps/perf — proof
+Change **classes**: `behavioral` (default; the removal flavour — marked `REMOVED` on the `Class:`
+line, with a `## Removed` section listing the symbols and obsolete node-ids — makes the test-author
+owner of obsolete tests), `bugfix` (code diverged from a recorded invariant), `invisible` (refactor/deps/perf — proof
 is a green gate + empty OpenAPI diff). Change **depths**: S (Task + 1–3 AC, evaluator fast-lane) ·
 M (+ Context, Out of scope, Interface sketch, Verification) · L (+ non-binding Design notes). A new
 context's first change is a **vertical slice** — one end-to-end observable AC. There is no scaffold

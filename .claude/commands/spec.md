@@ -39,7 +39,12 @@ sections: `.claude/templates/change.md` (sections, classes, binding/non-binding 
    permissions, failure modes, limits — until the acceptance criteria write themselves. Then
    propose, human decides:
    - **Class** — behavioral (default) / bugfix / invisible / hardening; definitions live in the
-     change.md template. A removal is behavioral with the removed behaviour listed explicitly.
+     change.md template. A **removal** is behavioral carrying spec §3.1's pinned marker — you
+     write `Class: behavioral, REMOVED` *and* fill the template's `## Removed` section, which is
+     where the removed behaviour is "listed explicitly": the removed symbols and the obsolete
+     tests' node-ids, in the grammar the template's own comment specifies. Both are owed here and
+     only here — change.md freezes at the baseline commit and no agent inside the cycle may edit
+     it, and the orphan sweep understands no other wording.
      A **hardening** change (the tests get stronger, behaviour stays identical — normally the
      follow-up an adversarial pass earns) additionally needs a `## Mutations` section: **you and
      the human write it here**, lifting the surviving mutations from the `## Adversarial review`
@@ -72,6 +77,10 @@ sections: `.claude/templates/change.md` (sections, classes, binding/non-binding 
      tokens) — an unprovisioned criterion is proven by its ac-marked test alone, and a
      criterion neither can prove is flagged now as an `[m]` candidate. For S depth the answer
      is the fast-lane itself (`gate.py --criteria` over ac-marked tests);
+   - a **removal** carries both halves of the vocabulary: the `REMOVED` marker on the `Class:`
+     line and a `## Removed` section that actually lists something (a section left holding only
+     the template comment counts as unfilled). `accept.py`'s orphan sweep FLAGs a half-written
+     pair at acceptance, but by then change.md is frozen — so it is fixed here;
    - `change.md` + `criteria.md` (+ the overview skeleton, if step 2 ran) are committed on
      the change branch.
 
