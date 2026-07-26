@@ -45,6 +45,16 @@ def run_hook(
     )
 
 
+def _load_hook(name: str):  # noqa: ANN202 — the hook module, imported for its pure helpers
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(f"{name}_mod", HOOKS_DIR / f"{name}.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def decision(proc: subprocess.CompletedProcess[str]) -> str | None:
     """The PreToolUse permissionDecision (or None on allow / empty output)."""
     out = proc.stdout.strip()
@@ -671,12 +681,7 @@ def test_subagent_stop_gate_python_prefers_venv(tmp_path: Path) -> None:
     # launches the hook with the ambient system python (no fastapi), so it must prefer the
     # project's .venv interpreter, falling back to the launching interpreter only when no
     # venv exists (test fixtures have a pyproject but no venv — the fallback keeps them as-is).
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("subagent_stop_mod", HOOKS_DIR / "subagent_stop.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = _load_hook("subagent_stop")
 
     # no venv in the tree -> fall back to the launching interpreter
     assert mod.gate_python(tmp_path) == sys.executable
@@ -713,6 +718,76 @@ def test_subagent_stop_passes_through_when_agent_type_absent(repo: FixtureRepo) 
     proc = run_hook("subagent_stop.py", {"cwd": str(repo.root), "stop_hook_active": False}, cwd=repo.root)
     assert proc.returncode == 0, proc.stderr
     assert decision(proc) is None, proc.stdout
+
+
+# T06j — a gate that CANNOT RUN is not a RED: its sentence must reach the human, and it must
+# not cost the implementer an iteration of a ceiling it can never work its way out of.
+
+
+def _bare_venv(root: Path) -> None:
+    """A real interpreter with no mypy/ruff/pytest — the consumer's first-run environment.
+
+    Placed at <root>/.venv so gate_python() picks it exactly as it would in a real project (F7):
+    the gate then genuinely aborts on its own toolchain preflight (T12b), no stubbing involved.
+    """
+    proc = subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(root / ".venv")], capture_output=True)
+    if proc.returncode != 0:  # pragma: no cover — environment without ensurepip/venv
+        pytest.skip("python -m venv unavailable")
+
+
+def test_subagent_stop_surfaces_unrunnable_gate_without_spending_a_block(repo: FixtureRepo) -> None:
+    # The gate aborts (exit 2, no verdict.json) because the project's environment lacks the
+    # toolchain. Before T06j the hook read only verdict.json, reported `gate produced no
+    # verdict.json`, blocked — and did so three times before writing an ESCALATE for a defect
+    # no src/** edit can clear. Now the gate's own sentence comes out, once, and costs nothing.
+    _bare_venv(repo.root)
+    (repo.root / ".gate").mkdir(exist_ok=True)
+    (repo.root / ".gate/subagent-stop-count").write_text("2\n", encoding="utf-8")  # 2 blocks already spent
+
+    proc = run_hook("subagent_stop.py", _implementer({"cwd": str(repo.root), "stop_hook_active": False}), cwd=repo.root)
+
+    assert proc.returncode == 0, proc.stderr
+    assert decision(proc) != "block", proc.stdout  # released, not held
+    message = json.loads(proc.stdout)["systemMessage"]
+    assert "toolchain missing from this project's environment" in message
+    for tool in ("mypy", "ruff", "pytest"):
+        assert tool in message
+    assert "uv sync" in message  # the fix, not just the symptom
+    assert "gate produced no verdict.json" not in message  # the swallowed-diagnostic wording is gone
+    # the ceiling is untouched: not spent (this was no iteration), not reset (no free unblock)
+    assert (repo.root / ".gate/subagent-stop-count").read_text(encoding="utf-8").strip() == "2"
+    assert not (repo.root / "specs/demo/changes/001-thing/ESCALATE").exists()
+
+
+def test_subagent_stop_surfaces_a_crashed_gate_too(repo: FixtureRepo) -> None:
+    # Exit 2 is the deliberate abort; any other exit with no verdict is a crash. Both are
+    # "the gate could not answer" — the implementer is released either way, with the tail.
+    repo.write(
+        ".claude/tools/gate.py",
+        "import sys\nprint('boom: gate exploded', file=sys.stderr)\nsys.exit(1)\n",
+    )
+    proc = run_hook("subagent_stop.py", _implementer({"cwd": str(repo.root), "stop_hook_active": False}), cwd=repo.root)
+
+    assert proc.returncode == 0, proc.stderr
+    assert decision(proc) != "block", proc.stdout
+    message = json.loads(proc.stdout)["systemMessage"]
+    assert "boom: gate exploded" in message
+    assert "exit 1" in message
+    assert not (repo.root / ".gate/subagent-stop-count").exists()  # never counted
+
+
+def test_unrunnable_message_names_the_abort_and_keeps_the_gate_wording() -> None:
+    mod = _load_hook("subagent_stop")
+    aborted = mod.unrunnable_message(2, "", "error: toolchain missing from this project's environment (...): ruff")
+    assert "aborted (exit 2)" in aborted
+    assert "toolchain missing from this project's environment" in aborted
+
+    crashed = mod.unrunnable_message(1, "stdout tail", "")
+    assert "exit 1" in crashed
+    assert "stdout tail" in crashed  # falls back to stdout when stderr is empty
+
+    silent = mod.unrunnable_message(9, "", "")
+    assert "no output" in silent  # a silent failure still says something
 
 
 # =======================================================================================
