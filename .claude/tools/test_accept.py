@@ -14,6 +14,7 @@ Every accept subprocess sets GATE_DOCKER=0 so the Docker tier deterministically 
 
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ TOOLS_DIR = Path(__file__).resolve().parent
 TOOL_FILES = ("gate.py", "criteria_lint.py", "accept.py")
 # Verbatim snapshots of real change documents used as regression fixtures (T10e).
 FIXTURES_DIR = TOOLS_DIR / "fixtures"
+CAPABILITY_TEMPLATE = (TOOLS_DIR.parent / "templates" / "capability.md").read_text(encoding="utf-8")
 
 
 def _load(name: str, filename: str):
@@ -215,6 +217,22 @@ VERDICT_BACKTICKED_SHA_PASS_HEADING = VERDICT_ADVERSARIAL.replace("· SHA: {sha}
 # `- sha:` lines are lowercase, so the capital `SHA:` parse finds no hex and freshness must FAIL.
 VERDICT_NO_SHA = VERDICT_MD.replace("· SHA: {sha} ·", "· SHA: (pending) ·")
 
+# The GREENFIELD shape (T10f F-02): the first change of a context — no `Affects:` line, no
+# capability file on disk, an overview whose Capabilities list is still empty. Its acceptance
+# BIRTHS `thing.md` (derived from the change-dir slug), which is exactly the case spec §6 step 4
+# makes the adversarial pass mandatory for.
+BIRTH_CHANGE_MD = CHANGE_MD.replace("Affects: core.md\n", "")
+OVERVIEW_NO_CAPABILITIES = OVERVIEW_MD.replace("- `core.md` — arithmetic core\n", "")
+# The users/002 shape: the overview DOES name the capability this acceptance births — once in
+# the Capabilities list and once in prose (F-03c/F-10).
+OVERVIEW_BIRTH_LISTED = OVERVIEW_MD.replace(
+    "- `core.md` — arithmetic core",
+    "- `thing.md` — the arithmetic core",
+).replace(
+    "## Cross-cutting invariants and domain terms\n",
+    "## Cross-cutting invariants and domain terms\nNone yet — every invariant lives in `thing.md`.\n",
+)
+
 CHANGE_DIR = "specs/demo/changes/001-thing"
 
 
@@ -258,6 +276,7 @@ def make_repo(
     change_md: str = CHANGE_MD,
     verdict_md: str = VERDICT_MD,
     overview_md: str = OVERVIEW_MD,
+    capability_md: str | None = CAPABILITY_MD,
     extra_caps: dict[str, str] | None = None,
 ) -> FixtureRepo:
     root.mkdir(parents=True, exist_ok=True)
@@ -267,11 +286,17 @@ def make_repo(
     repo.write("pyproject.toml", PYPROJECT)
     repo.write(".gitignore", GITIGNORE)
     repo.write("specs/demo/overview.md", overview_md)
-    repo.write("specs/demo/core.md", CAPABILITY_MD)
+    # capability_md=None is the GREENFIELD shape: the context has no capability file yet, so
+    # this change's acceptance BIRTHS one from the template (T10f F-02/F-11).
+    if capability_md is not None:
+        repo.write("specs/demo/core.md", capability_md)
     for name, content in (extra_caps or {}).items():
         repo.write(f"specs/demo/{name}", content)
     for name in TOOL_FILES:
         repo.write(f".claude/tools/{name}", (TOOLS_DIR / name).read_text(encoding="utf-8"))
+    # the capability template accept.py instantiates a born capability from — a real repo has
+    # it; no fixture used to, which is why the birth path had no integration coverage (F-11).
+    repo.write(".claude/templates/capability.md", CAPABILITY_TEMPLATE)
     repo.git("add", "-A")
     repo.git("commit", "-q", "-m", "main baseline")
 
@@ -501,13 +526,19 @@ def test_orphan_sweep_flags_when_class_declares_removal_but_no_heading_lists_it(
     assert "## Removed" in result.detail and "did NOT run" in result.detail
 
 
-def test_orphan_sweep_does_not_flag_when_the_heading_is_present(tmp_path: Path) -> None:
-    """The FLAG is about a MISSING heading only: once the heading is there the sweep ran, so a
-    body with no harvestable symbol is PASS — never the FLAG (nor a FAIL that would deadlock)."""
+def test_orphan_sweep_flags_when_the_heading_lists_no_sweepable_symbol(tmp_path: Path) -> None:
+    """T10f F-05 — the heading's PRESENCE is not the sweep running.
+
+    Supersedes the T06f-era pin that asserted PASS here on the reasoning "once the heading is
+    there the sweep ran". It isn't: a prose-only `## Removed` ("the legacy export endpoint,
+    entirely") harvests no term, so V-02 checks nothing while the PASS string reads as "the
+    sweep ran and found nothing" — with `LegacyExportHandler` still in src/. Same direction as
+    the missing-heading case, and still non-blocking."""
     change_md = CLASS_DECLARED_NO_HEADING + "\n## Removed\n\nThe legacy export endpoint, entirely.\n"
     result = accept._orphan_sweep(_sweep_context(tmp_path, change_md, src_text="class LegacyExportHandler: ...\n"))
-    assert result.status == accept.PASS
-    assert "no concrete removed symbols" in result.detail
+    assert result.status == accept.FLAG
+    assert result.status != accept.PASS
+    assert "did NOT run" in result.detail and "names no symbol" in result.detail
 
 
 def test_orphan_sweep_still_fails_on_a_symbol_that_survived(tmp_path: Path) -> None:
@@ -818,6 +849,386 @@ def test_s_change_does_not_require_adversarial(repo: FixtureRepo) -> None:
     assert proc.returncode == 0
     assert "[PASS] adversarial.presence" in proc.stdout
     assert "not required" in proc.stdout
+
+
+# ---------------------------------------------------------------------------------------
+# T10f — the undetermined-input rule and the seven fail-open paths (notes/19_accept_gate_audit)
+#
+#   A gate whose input could not be DETERMINED returns FAIL if it guards trust, FLAG if it is
+#   a review aid. Never PASS, never absent from the report.
+#
+# Every test below reproduces a path that PASSED (or silently vanished) before T10f.
+# ---------------------------------------------------------------------------------------
+
+
+def test_unresolvable_base_aborts_instead_of_reading_as_no_intersection(repo: FixtureRepo) -> None:
+    """F-01 — the T05-era fail-open: `--base ghost` produced an EMPTY `base...HEAD` diff, so
+    every post-verdict edit looked non-intersecting and an L-04 deny became ACCEPTABLE. Same
+    repo, same commits, one CLI typo apart."""
+    # the exact scenario test_stale_verdict_with_intersecting_diff_denies pins as a deny.
+    repo.write("src/app/core.py", SRC_CORE + "\n\n# late edit after the verdict\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "post-verdict src edit")
+    proc = repo.accept("demo/001", "--base", "ghost-branch")
+    assert "verdict: ACCEPTABLE" not in proc.stdout
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "does not resolve" in proc.stderr and "ghost-branch" in proc.stderr
+
+
+def test_capability_birth_without_affects_requires_the_adversarial_pass(tmp_path: Path) -> None:
+    """F-02 — the first change of a context (no `Affects`, no capability file) read as "S depth
+    on an existing capability" and skipped the mandatory adversarial pass, because prechecks
+    resolved its target WITHOUT the birth slug compute_merge passes. The verdict below carries
+    the bare `N/A (S)` marker, so the pass demonstrably never ran."""
+    repo = make_repo(
+        tmp_path / "app",
+        change_md=BIRTH_CHANGE_MD,
+        overview_md=OVERVIEW_NO_CAPABILITIES,
+        capability_md=None,
+        verdict_md=VERDICT_MD,
+    )
+    proc = repo.accept("demo/001", "--base", "main")
+    assert "[PASS] adversarial.presence" not in proc.stdout
+    assert "[FAIL] adversarial.presence" in proc.stdout
+    assert "first change of a capability" in proc.stdout
+    assert "verdict: DENIED" in proc.stdout, proc.stdout
+    assert proc.returncode == 1
+
+
+def test_capability_birth_with_the_pass_is_acceptable_and_births_the_file(tmp_path: Path) -> None:
+    """F-02/F-11 — the same greenfield change WITH the adversarial pass recorded runs all the way
+    to a prepared birth diff. No fixture had ever driven a capability birth through the CLI, which
+    is why F-02 hid; the birth also used to crash bare on the absent capability template."""
+    repo = make_repo(
+        tmp_path / "app",
+        change_md=BIRTH_CHANGE_MD,
+        overview_md=OVERVIEW_NO_CAPABILITIES,
+        capability_md=None,
+        verdict_md=VERDICT_ADVERSARIAL,
+    )
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "[PASS] adversarial.presence" in proc.stdout
+    assert "(new) specs/demo/thing.md" in proc.stdout
+    assert "verdict: ACCEPTABLE" in proc.stdout
+    # the birth target is derived the SAME way everywhere (C7), so the greenfield path draws no
+    # "Affects undeterminable" noise from the intersection gate.
+    assert "[PASS] affects.intersection" in proc.stdout
+    # F-03c: the born capability IS checked against the overview map — it is unlisted here.
+    assert "capability thing.md is missing from overview.md's map" in proc.stdout
+
+
+def test_a_born_capability_named_in_the_overview_is_not_a_dangling_ref(tmp_path: Path) -> None:
+    """F-03c/F-10 — the users/002 shape in miniature: overview.md names the capability this very
+    acceptance births, twice. spec-lint read the PRE-merge tree, so it reported a missing spec
+    file — once per occurrence, since findings were not deduped."""
+    repo = make_repo(
+        tmp_path / "app",
+        change_md=BIRTH_CHANGE_MD,
+        overview_md=OVERVIEW_BIRTH_LISTED,
+        capability_md=None,
+        verdict_md=VERDICT_ADVERSARIAL,
+    )
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "references missing spec file" not in proc.stdout
+    assert "[PASS] spec.lint" in proc.stdout
+
+
+def test_capability_birth_without_the_template_fails_loudly(tmp_path: Path) -> None:
+    """F-11 — the bare `FileNotFoundError` traceback out of main() becomes a named AcceptError."""
+    repo = make_repo(
+        tmp_path / "app",
+        change_md=BIRTH_CHANGE_MD,
+        overview_md=OVERVIEW_NO_CAPABILITIES,
+        capability_md=None,
+        verdict_md=VERDICT_ADVERSARIAL,
+    )
+    (repo.root / ".claude/templates/capability.md").unlink()
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "Traceback" not in proc.stderr
+    assert "capability template" in proc.stderr and "not found" in proc.stderr
+
+
+def test_merge_fidelity_is_not_vacuous_on_empty_or_tokenless_criteria() -> None:
+    """F-04 — `_significant_tokens` keeps only ≥3-char words, so a token-less AC had an empty
+    token set and therefore no missing tokens: PASS against ANY merge. And zero criteria read as
+    "all 0 acceptance criteria are present"."""
+    merged = "- POST /meetings returns 201 with the meeting id (verified by: tests/t.py::test_x)"
+    # a criterion whose whole text is short tokens is unverifiable, not "found".
+    vacuous = accept.merge_fidelity_violations([("AC-9", "`id` is up")], merged)
+    assert vacuous and "AC-9" in vacuous[0] and "unverifiable" in vacuous[0]
+    # no criterion at all proves nothing about the merge.
+    empty = accept.merge_fidelity_violations([], merged)
+    assert empty and "unverifiable" in empty[0]
+
+
+def test_resolve_targets_reports_unknown_apart_from_a_resolved_list(tmp_path: Path) -> None:
+    """F-02/F-07 — an empty target list is missing KNOWLEDGE, never "targets nothing"."""
+    (tmp_path / "specs" / "demo").mkdir(parents=True)
+    (tmp_path / "specs" / "demo" / "core.md").write_text(CAPABILITY_MD, encoding="utf-8")
+    (tmp_path / "specs" / "demo" / "extra.md").write_text(EXTRA_CAPABILITY_MD, encoding="utf-8")
+    explicit = accept.resolve_targets(tmp_path, "demo", "Affects: core.md\n")
+    assert explicit.known is True and explicit.files == ("core.md",)
+    # an Affects line the /spec session left as a placeholder, with two capability files to
+    # choose between: nothing can be derived.
+    unknown = accept.resolve_targets(tmp_path, "demo", "Affects: <!-- TODO: pick one -->\n")
+    assert unknown.known is False and unknown.files == ()
+
+
+def test_provenance_correlates_on_the_junit_classname(tmp_path: Path) -> None:
+    """F-06 — correlation was by function name alone, so two same-named tests in different files
+    attributed the invariant to whichever node-id sorted first: the WRONG file. `test_create` in
+    both tests/unit and tests/integration is not an exotic shape."""
+    import json
+
+    gate_dir = tmp_path / ".gate"
+    gate_dir.mkdir()
+    (gate_dir / "last-run.xml").write_text(
+        '<?xml version="1.0"?><testsuites><testsuite name="pytest">'
+        '<testcase classname="tests.integration.test_b" name="test_create">'
+        '<properties><property name="ac" value="AC-1"/></properties></testcase>'
+        "</testsuite></testsuites>",
+        encoding="utf-8",
+    )
+    (gate_dir / "inventory.json").write_text(
+        json.dumps(
+            {
+                "collected": ["tests/unit/test_a.py::test_create", "tests/integration/test_b.py::test_create"],
+                "outcomes": {
+                    "tests/unit/test_a.py::test_create": "passed",
+                    "tests/integration/test_b.py::test_create": "passed",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    prov = accept.junit_ac_test_ids(gate_dir)
+    assert prov.evidence is True
+    assert prov.node_ids == {"AC-1": "tests/integration/test_b.py::test_create"}
+    assert prov.uncorrelated == ()
+
+
+def test_provenance_reports_absent_evidence_instead_of_an_empty_map(tmp_path: Path) -> None:
+    """F-06 — with no junit report the old helper returned `{}`, which `build_invariant_lines`
+    rendered as `(verified by: ?)`. gate.py's L-06 check cannot resolve that mark, so the
+    acceptance would push spec content that turns the BASE branch's own gate RED (S9)."""
+    prov = accept.junit_ac_test_ids(tmp_path / ".gate")
+    assert prov.node_ids == {} and prov.evidence is False
+    # the rendering is unchanged — it is the new gate, not the renderer, that stops the merge.
+    lines = accept.build_invariants([_crit("x", "AC-1", "add returns the sum")], prov.node_ids)
+    assert lines == ["- add returns the sum (verified by: ?)"]
+
+
+def test_unresolved_target_still_reports_the_remaining_gates(tmp_path: Path) -> None:
+    """F-09 — an unresolvable target made gate_dependent_checks return early, so spec.lint and
+    orphan.sweep vanished from the human's output with no trace (fail-closed overall, but the
+    reporting half of the same disease)."""
+    repo = make_repo(
+        tmp_path / "app",
+        change_md=CHANGE_MD.replace("Affects: core.md", "Affects: <!-- TODO -->"),
+        verdict_md=VERDICT_ADVERSARIAL,
+        extra_caps={"extra.md": EXTRA_CAPABILITY_MD},
+        overview_md=OVERVIEW_MULTI,
+    )
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "[FAIL] merge.fidelity" in proc.stdout and "cannot determine target" in proc.stdout
+    for gate_id in ("spec.lint", "orphan.sweep", "merge.placement", "affects.intersection"):
+        assert f"] {gate_id} —" in proc.stdout, f"{gate_id} vanished from the report"
+
+
+def test_every_reported_gate_id_is_registered(tmp_path: Path) -> None:
+    """The registry is the parametrised rule's index: a gate missing from it is a gate the
+    undetermined-input test cannot walk."""
+    source = (TOOLS_DIR / "accept.py").read_text(encoding="utf-8")
+    emitted = set(re.findall(r'Result\(\s*"([a-z][a-z.\-]+)"', source))
+    assert emitted, "the Result-id scan found nothing — the regex drifted from the source"
+    assert emitted <= set(accept.GATES), f"unregistered gate id(s): {sorted(emitted - set(accept.GATES))}"
+    for gate_id in accept.GATES:
+        assert f'"{gate_id}"' in source, f"{gate_id} is registered but never reported"
+
+
+# --- one undetermined-input scenario per registered gate ---------------------------------
+
+MINI_VERDICT_CHECKS = [
+    {"id": "docker.alembic", "status": "SKIP", "detail": "DOCKER SKIPPED (forced off via GATE_DOCKER=0)"},
+    {"id": "criteria.junit-backing", "status": "PASS", "detail": "2 [x] criteria junit-backed"},
+    {"id": "criteria.manual-verdict", "status": "PASS", "detail": "0 [m] criteria have verdict.md entries"},
+]
+
+
+def _mini_tree(
+    tmp_path: Path,
+    *,
+    change_md: str = CHANGE_MD,
+    criteria: str = CRITERIA_FLIPPED,
+    overview: str | None = OVERVIEW_MD,
+    caps: dict[str, str] | None = None,
+    others: dict[str, str] | None = None,
+) -> Path:
+    """A spec tree with no git and no gate — enough to call a gate function directly."""
+    root = tmp_path / "tree"
+    (root / CHANGE_DIR).mkdir(parents=True, exist_ok=True)
+    (root / CHANGE_DIR / "change.md").write_text(change_md, encoding="utf-8")
+    (root / CHANGE_DIR / "criteria.md").write_text(criteria, encoding="utf-8")
+    if overview is not None:
+        (root / "specs" / "demo" / "overview.md").write_text(overview, encoding="utf-8")
+    for name, text in ({"core.md": CAPABILITY_MD} if caps is None else caps).items():
+        (root / "specs" / "demo" / name).write_text(text, encoding="utf-8")
+    for rel, text in (others or {}).items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    return root
+
+
+def _mini_ctx(root: Path, *, verdict: str | None = None):
+    return accept.AcceptContext(
+        tree=root,
+        change_id="demo/001",
+        ctx="demo",
+        nnn="001",
+        change_dir=root / CHANGE_DIR,
+        base="main",
+        branch="change/demo-001",
+        head="0" * 40,
+        change_md=(root / CHANGE_DIR / "change.md").read_text(encoding="utf-8"),
+        criteria_text=(root / CHANGE_DIR / "criteria.md").read_text(encoding="utf-8"),
+        verdict_text=verdict,
+    )
+
+
+def _gate_checks(tmp_path: Path, *, verdict: dict | None = None, **tree_kwargs) -> list:
+    root = _mini_tree(tmp_path, **tree_kwargs)
+    (root / ".claude" / "templates").mkdir(parents=True, exist_ok=True)
+    (root / ".claude" / "templates" / "capability.md").write_text(CAPABILITY_TEMPLATE, encoding="utf-8")
+    payload = {"result": "GREEN", "sha": "0" * 40, "checks": MINI_VERDICT_CHECKS} if verdict is None else verdict
+    results, _ = accept.gate_dependent_checks(_mini_ctx(root), payload)
+    return results
+
+
+# Each scenario feeds ONE gate an input that cannot be determined and returns the reported
+# results — or None when the whole run aborts loudly before any gate can speak (legal only for
+# a TRUST gate: nothing merges). Adding a gate to accept.GATES without adding a scenario here
+# fails test_no_gate_passes_on_undetermined_input, so a future gate is covered by construction.
+UNDETERMINED_SCENARIOS = {
+    # the change directory itself cannot be found — nothing about ESCALATE is knowable.
+    "escalate": lambda tmp: _abort(lambda: accept.resolve(_mini_tree(tmp, caps={}), "demo/002", "main")),
+    # criteria.md carries no criterion at all.
+    "criteria.complete": lambda tmp: accept.prechecks(
+        _mini_ctx(_mini_tree(tmp, criteria="# Criteria — demo/001\n<!-- none written yet -->\n"))
+    ),
+    # the base branch does not resolve, so the change's own file set is unknowable (F-01).
+    "verdict.freshness": lambda tmp: _abort(lambda: accept.resolve(make_repo(tmp / "app").root, "demo/001", "ghost")),
+    # a companion is declared but its acceptance state cannot be established (no tag).
+    "companion": lambda tmp: accept.prechecks(
+        _mini_ctx(_mini_tree(tmp, change_md=CHANGE_MD.replace("Affects:", "Companion: other/001\nAffects:")))
+    ),
+    # the target capability cannot be determined -> assume a birth -> the pass is required (F-02).
+    "adversarial.presence": lambda tmp: accept.prechecks(
+        _mini_ctx(
+            _mini_tree(
+                tmp,
+                change_md=CHANGE_MD.replace("Affects: core.md", "Affects: <!-- TODO -->"),
+                caps={"core.md": CAPABILITY_MD, "extra.md": EXTRA_CAPABILITY_MD},
+                overview=OVERVIEW_MULTI,
+            )
+        )
+    ),
+    # a gate verdict that carries no result at all.
+    "gate.green": lambda tmp: _gate_checks(tmp, verdict={}),
+    # no docker.alembic check in the verdict: whether the tier ran is unknown (F-07).
+    "docker.tier": lambda tmp: _gate_checks(tmp, verdict={"result": "GREEN", "sha": "0" * 40, "checks": []}),
+    "criteria.junit-backing": lambda tmp: _gate_checks(tmp, verdict={"result": "GREEN", "sha": "", "checks": []}),
+    "criteria.manual-verdict": lambda tmp: _gate_checks(tmp, verdict={"result": "GREEN", "sha": "", "checks": []}),
+    # no junit report in .gate/ -> no criterion resolves to a test node-id (F-06).
+    "invariant.provenance": lambda tmp: _gate_checks(tmp),
+    # another in-flight change whose own Affects cannot be resolved (F-07).
+    "affects.intersection": lambda tmp: _gate_checks(
+        tmp,
+        caps={"core.md": CAPABILITY_MD, "extra.md": EXTRA_CAPABILITY_MD},
+        overview=OVERVIEW_MULTI,
+        others={"specs/demo/changes/002-other/change.md": "Class: behavioral\nAffects: <!-- TODO -->\n"},
+    ),
+    # no acceptance criterion can be read from either source (F-04).
+    "merge.fidelity": lambda tmp: _gate_checks(
+        tmp,
+        change_md="# demo/001\n\nClass: behavioral\nAffects: core.md\n\n## Task\nDo it.\n",
+        criteria="# Criteria — demo/001\n<!-- none written yet -->\n",
+    ),
+    # multi-target Affects with no approved placement map: distribution is undecided (and
+    # --execute refuses it outright — test_multi_target_execute_without_map_is_refused).
+    "merge.placement": lambda tmp: _gate_checks(
+        tmp,
+        change_md=MULTI_CHANGE_MD,
+        caps={"core.md": CAPABILITY_MD, "extra.md": EXTRA_CAPABILITY_MD},
+        overview=OVERVIEW_MULTI,
+    ),
+    # no overview.md: the context map cannot be checked (F-03).
+    "spec.lint": lambda tmp: _gate_checks(tmp, overview=None),
+    # a `## Removed` heading whose body names no sweepable symbol (F-05).
+    "orphan.sweep": lambda tmp: _gate_checks(
+        tmp,
+        change_md=CHANGE_MD + "\n## Removed\n\nThe legacy export endpoint, entirely.\n",
+    ),
+}
+
+
+def _abort(call) -> None:
+    """Run a call that must refuse to produce any verdict at all; returns None (= aborted)."""
+    with pytest.raises(accept.AcceptError):
+        call()
+    return None
+
+
+@pytest.mark.parametrize("gate_id", sorted(accept.GATES))
+def test_no_gate_passes_on_undetermined_input(gate_id: str, tmp_path: Path) -> None:
+    """THE rule T10f pins (notes/19_accept_gate_audit.md):
+
+        a gate whose input could not be determined returns FAIL if it guards trust, FLAG if it
+        is a review aid — never PASS, never absent from the report.
+
+    Seven gates broke it, all the same way: a helper that could not determine its input returned
+    an empty value and the gate read "empty" as "nothing wrong" instead of "nothing known". This
+    test walks the gate registry, so the eighth gate is covered by construction."""
+    assert gate_id in UNDETERMINED_SCENARIOS, (
+        f"{gate_id} is registered in accept.GATES with no undetermined-input scenario — add one: "
+        "a gate nobody feeds unknown input to is a gate nobody knows the direction of"
+    )
+    results = UNDETERMINED_SCENARIOS[gate_id](tmp_path)
+    if results is None:
+        # the whole run aborted (AcceptError): nothing can merge, so only a TRUST gate may.
+        assert accept.GATES[gate_id] == accept.TRUST
+        return
+    reported = [r for r in results if r.id == gate_id]
+    assert reported, f"{gate_id} is absent from the report on undetermined input"
+    status = reported[0].status
+    assert status != accept.PASS, f"{gate_id} PASSed on input it could not determine: {reported[0].detail}"
+    expected = accept.FAIL if accept.GATES[gate_id] == accept.TRUST else accept.FLAG
+    assert status == expected, f"{gate_id} returned {status}, expected {expected}: {reported[0].detail}"
+
+
+def test_spec_lint_sees_the_inputs_it_used_to_be_blind_to(tmp_path: Path) -> None:
+    """F-03 a+b — a missing overview.md DISABLED the coverage check by its own `if overview_text`
+    guard and reported "clean"; and the duplicate check compared filesystem names, which are
+    unique by construction, so it was dead code — the duplicate a human can create is a repeated
+    entry in overview.md's Capabilities list."""
+    no_overview = _spec_lint_result(_mini_tree(tmp_path / "a", overview=None))
+    assert no_overview.status == accept.FLAG
+    assert "overview.md is absent" in no_overview.detail
+    duplicated = OVERVIEW_MD.replace(
+        "- `core.md` — arithmetic core",
+        "- `core.md` — arithmetic core\n- `core.md` — arithmetic core (listed twice by hand)",
+    )
+    dupes = _spec_lint_result(_mini_tree(tmp_path / "b", overview=duplicated))
+    assert dupes.status == accept.FLAG
+    assert "names `core.md` more than once" in dupes.detail
+
+
+def _spec_lint_result(root: Path):
+    return accept._spec_lint(_mini_ctx(root))
 
 
 def test_help_lists_flags() -> None:

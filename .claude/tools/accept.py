@@ -45,6 +45,19 @@ Plus one cross-§ gate on the evaluator↔accept seam T09 opened (spec §6 step 
 adversarial pass (M/L depth or the first change of a capability) — a structural hold on the
 pass having run, since criteria_guard cannot tell a human evaluator from a self-certifying one.
 
+THE UNDETERMINED-INPUT RULE (T10f, notes/19_accept_gate_audit.md)
+
+    A gate whose input could not be DETERMINED returns FAIL if it guards trust, FLAG if it is
+    a review aid. Never PASS, never absent from the report.
+
+An audit of this script's own gates found seven fail-open paths, all one sentence in different
+clothes: a helper that cannot determine its input returned an empty/neutral value, and the gate
+read "empty" as "nothing wrong" instead of "nothing known". So every helper that can fail to
+determine its input now says so in its return type — `Targets.known`, `Provenance.evidence`, a
+loud `AcceptError` for an unusable git result — and `GATES` below registers each gate's
+direction, walked by `test_no_gate_passes_on_undetermined_input` so a gate added later is
+covered by construction.
+
 Stdlib-only. gate.py and criteria_lint.py are imported from this directory — the criteria
 grammar and the junit-backing checker have exactly one home (C7).
 """
@@ -72,6 +85,37 @@ GATE_DIR_NAME = ".gate"
 VERDICT_BASENAME = "verdict.md"
 
 PASS, FAIL, FLAG, SKIP = "PASS", "FAIL", "FLAG", "SKIP"
+
+# The two gate classes the undetermined-input rule (module docstring, T10f) distinguishes.
+TRUST, REVIEW = "trust", "review"
+
+# Every gate this script can report, and what it guards. A gate whose input could not be
+# determined must return FAIL when its class is TRUST and FLAG when it is REVIEW — never PASS,
+# and never be silently absent from the report.
+#   TRUST  — the merge is not allowed to happen on unknown input (freshness, criteria,
+#            provenance, adversarial presence, merge fidelity).
+#   REVIEW — a human-facing review aid; unknown input is surfaced, not blocking.
+# `merge.placement` is REVIEW here because spec §5.4 splits its two halves deliberately: check
+# mode FLAGs a multi-target `Affects` with no approved map, and `--execute` refuses it outright
+# (run(), pinned by test_multi_target_execute_without_map_is_refused) — so nothing merges on an
+# undetermined placement even though the check-mode status is a FLAG.
+GATES: dict[str, str] = {
+    "escalate": TRUST,
+    "criteria.complete": TRUST,
+    "verdict.freshness": TRUST,
+    "companion": TRUST,
+    "adversarial.presence": TRUST,
+    "gate.green": TRUST,
+    "docker.tier": REVIEW,
+    "criteria.junit-backing": TRUST,
+    "criteria.manual-verdict": TRUST,
+    "invariant.provenance": TRUST,
+    "affects.intersection": REVIEW,
+    "merge.fidelity": TRUST,
+    "merge.placement": REVIEW,
+    "spec.lint": REVIEW,
+    "orphan.sweep": REVIEW,
+}
 
 
 @dataclass
@@ -144,17 +188,49 @@ def _significant_tokens(text: str) -> set[str]:
 # ---------------------------------------------------------------------------------------
 
 
-def junit_ac_test_ids(gate_dir: Path) -> dict[str, str]:
-    """Map each ac-id to a PASSED test node-id, correlating the ac-marked junit testcases
-    with the collected node-ids in the gate's inventory. The provenance mark an invariant
-    carries (verified by: <node-id>) must be a real node-id gate.py's L-06 check can grep."""
+@dataclass(frozen=True)
+class Provenance:
+    """ac-id -> PASSED test node-id, plus what could NOT be determined (T10f F-06).
+
+    `evidence`     — this run's junit report was found at all. Without it nothing is known
+                     about provenance; an empty `node_ids` then means "unknown", not "none".
+    `uncorrelated` — ac-ids whose passed junit testcase matched no single node-id in the
+                     gate's inventory (missing inventory, or an ambiguous same-named test).
+    An invariant may only be written with a resolvable node-id: `gate.py`'s L-06 check greps
+    the test corpus for the referenced test, so a `(verified by: ?)` merged into a capability
+    file turns the BASE branch's own gate RED — the acceptance script breaking S9.
+    """
+
+    node_ids: dict[str, str]
+    evidence: bool
+    uncorrelated: tuple[str, ...] = ()
+
+
+def _node_classname(node_id: str) -> str:
+    """The junit `classname` a pytest node-id maps to: `tests/a/b.py::C::test_x` -> `tests.a.b.C`."""
+    parts = node_id.split("::")
+    module = parts[0][:-3] if parts[0].endswith(".py") else parts[0]
+    return ".".join([module.replace("\\", "/").replace("/", "."), *parts[1:-1]])
+
+
+def junit_ac_test_ids(gate_dir: Path) -> Provenance:
+    """Correlate the ac-marked, PASSED junit testcases with the collected node-ids in the
+    gate's inventory. The provenance mark an invariant carries (verified by: <node-id>) must be
+    a real node-id gate.py's L-06 check can grep.
+
+    Correlation is on junit's (classname, name) pair, not on the function name alone: two
+    same-named tests in different files (`tests/unit/...::test_create` and
+    `tests/integration/...::test_create` — not an exotic shape) otherwise attributed the
+    invariant to whichever node-id sorted first, i.e. to the wrong file (T10f F-06). A junit
+    without usable classnames still correlates when exactly ONE passed node-id carries the
+    name; anything ambiguous is reported as uncorrelated instead of guessed."""
     import json  # noqa: PLC0415
 
     junit = gate_dir / "last-run.xml"
     inventory = gate_dir / "inventory.json"
     if not junit.exists():
-        return {}
-    ac_to_name: dict[str, str] = {}
+        return Provenance({}, evidence=False)
+    ac_to_case: dict[str, tuple[str, str]] = {}
     root = ET.parse(junit).getroot()
     for tc in root.iter("testcase"):
         if any(tc.find(t) is not None for t in ("failure", "error", "skipped")):
@@ -162,18 +238,24 @@ def junit_ac_test_ids(gate_dir: Path) -> dict[str, str]:
         name = tc.get("name")
         for prop in tc.iter("property"):
             if prop.get("name") == "ac" and prop.get("value") and name:
-                ac_to_name.setdefault(str(prop.get("value")), name)
+                ac_to_case.setdefault(str(prop.get("value")), (tc.get("classname") or "", name))
     outcomes: dict[str, str] = {}
     if inventory.exists():
         data = json.loads(inventory.read_text(encoding="utf-8"))
         outcomes = dict(data.get("outcomes", {}))
+    passed = [node_id for node_id, outcome in sorted(outcomes.items()) if outcome == "passed"]
     result: dict[str, str] = {}
-    for ac_id, name in ac_to_name.items():
-        for node_id, outcome in outcomes.items():
-            if outcome == "passed" and node_id.rsplit("::", 1)[-1] == name:
-                result[ac_id] = node_id
-                break
-    return result
+    unresolved: list[str] = []
+    for ac_id, (classname, name) in sorted(ac_to_case.items()):
+        candidates = [n for n in passed if n.rsplit("::", 1)[-1] == name]
+        exact = [n for n in candidates if _node_classname(n) == classname]
+        if len(exact) == 1:
+            result[ac_id] = exact[0]
+        elif len(candidates) == 1:
+            result[ac_id] = candidates[0]
+        else:
+            unresolved.append(ac_id)
+    return Provenance(result, evidence=True, uncorrelated=tuple(unresolved))
 
 
 # ---------------------------------------------------------------------------------------
@@ -201,7 +283,13 @@ def build_invariants(criteria: list, ac_ids: dict[str, str]) -> list[str]:
 def instantiate_capability(ctx: str, capability: str) -> str:
     """A NEW capability file is born from the template — /spec never creates capability
     files, this script is the template's sole consumer (T03 finding 6)."""
-    template = (TEMPLATES_DIR / "capability.md").read_text(encoding="utf-8")
+    template_path = TEMPLATES_DIR / "capability.md"
+    if not template_path.exists():
+        raise AcceptError(
+            f"capability template {template_path} not found — a capability-birthing change cannot be "
+            "merged without it (is the .claude/ plugin tree complete?)"
+        )
+    template = template_path.read_text(encoding="utf-8")
     name = capability[:-3] if capability.endswith(".md") else capability
     return template.replace("<context>", ctx, 1).replace("<capability>", name, 1)
 
@@ -214,21 +302,42 @@ def append_invariants(text: str, invariants: list[str]) -> str:
     return text.rstrip() + "\n" + "\n".join(invariants) + "\n"
 
 
-def _overview_capabilities(tree: Path, ctx: str) -> list[str]:
-    """The `*.md` capability files named in overview.md's `## Capabilities` list — the context
-    map the /spec session authors, so it carries the human's chosen capability name."""
+def _overview_capability_tokens(tree: Path, ctx: str) -> list[str]:
+    """Every `*.md` token in overview.md's `## Capabilities` list, IN ORDER and WITH repeats —
+    the raw list, so spec-lint can see a capability listed twice (T10f F-03)."""
     overview = tree / "specs" / ctx / "overview.md"
     if not overview.exists():
         return []
     body = _section(overview.read_text(encoding="utf-8"), "Capabilities")
+    return [tok for tok in re.findall(r"`?([A-Za-z0-9_.\-]+\.md)`?", body) if tok != "overview.md"]
+
+
+def _overview_capabilities(tree: Path, ctx: str) -> list[str]:
+    """The `*.md` capability files named in overview.md's `## Capabilities` list — the context
+    map the /spec session authors, so it carries the human's chosen capability name."""
     files: list[str] = []
-    for tok in re.findall(r"`?([A-Za-z0-9_.\-]+\.md)`?", body):
-        if tok != "overview.md" and tok not in files:
+    for tok in _overview_capability_tokens(tree, ctx):
+        if tok not in files:
             files.append(tok)
     return files
 
 
-def resolve_targets(tree: Path, ctx: str, change_md: str, birth_slug: str | None = None) -> list[str]:
+@dataclass(frozen=True)
+class Targets:
+    """The capability files a change's invariants merge into (T10f F-02).
+
+    `known` is False when the target could NOT BE DETERMINED — never "this change targets
+    nothing": every change merges into at least one capability file, so an empty resolution is
+    missing knowledge and every caller must treat it as such. The empty list read as "nothing
+    to worry about" is what let a capability-birthing change skip the mandatory adversarial
+    pass, and what makes an unresolvable in-flight `Affects` unable to intersect.
+    """
+
+    files: tuple[str, ...]
+    known: bool
+
+
+def resolve_targets(tree: Path, ctx: str, change_md: str, birth_slug: str | None = None) -> Targets:
     """Capability files the invariants merge into: the Affects line, else the single existing
     capability of the context, else — for the FIRST change of a context, whose acceptance BIRTHS
     the capability file — the capability the /spec author DECLARED in overview.md's Capabilities
@@ -258,7 +367,7 @@ def resolve_targets(tree: Path, ctx: str, change_md: str, birth_slug: str | None
                 derived = re.sub(r"^\d+-", "", birth_slug).strip()
                 if derived:
                     files = [f"{derived}.md"]
-    return files
+    return Targets(tuple(files), known=bool(files))
 
 
 @dataclass
@@ -290,14 +399,15 @@ def compute_merge(
     map is needed (`needs_placement`), with an invalid map it refuses (`placement_error`).
     `birth_slug` (the change dir name) lets a capability-birthing first change derive its target
     when it carries no Affects line — see resolve_targets."""
-    targets = resolve_targets(tree, ctx, change_md, birth_slug)
-    if not targets:
+    resolved = resolve_targets(tree, ctx, change_md, birth_slug)
+    if not resolved.known:
         return MergePlan(
             [],
             "",
             [],
             "cannot determine target capability file — add an 'Affects: <capability>.md' line to change.md",
         )
+    targets = list(resolved.files)
     inv_pairs = build_invariant_lines(criteria, ac_ids)
     invariants = [line for _, line in inv_pairs]
 
@@ -369,11 +479,24 @@ def merge_fidelity_violations(ac_texts: list[tuple[str, str]], merged_text: str)
 
     Token-set matching (the §5.4 grep-class, deliberately weakened from substring per the
     task's Escalate-if: robust to backtick/punctuation drift between change.md and the merged
-    invariant, still catches a criterion that produced no invariant at all)."""
+    invariant, still catches a criterion that produced no invariant at all).
+
+    Both vacuous inputs are violations, not a pass (T10f F-04): with no criterion at all the
+    gate has verified nothing, and a criterion whose whole text carries no comparable token has
+    an empty token set — so it can never be "missing" from any merge, whatever the merge says."""
     merged = _significant_tokens(merged_text)
     out: list[str] = []
+    if not ac_texts:
+        return [
+            "no acceptance criteria could be read from change.md or criteria.md — merge fidelity is "
+            "unverifiable, so the merge is not proven to carry anything (L-11)"
+        ]
     for ac_id, text in ac_texts:
-        missing = _significant_tokens(text) - merged
+        tokens = _significant_tokens(text)
+        if not tokens:
+            out.append(f"{ac_id}: carries no comparable token — its presence in the merge is unverifiable (L-11)")
+            continue
+        missing = tokens - merged
         if missing:
             out.append(f"{ac_id}: not found in the prepared merge (missing tokens: {sorted(missing)})")
     return out
@@ -606,6 +729,15 @@ def resolve(tree: Path, change_id: str, base: str) -> AcceptContext:
     if not change_md_path.exists() or not criteria_path.exists():
         raise AcceptError(f"{change_dir} is missing change.md and/or criteria.md")
     verdict_path = change_dir / VERDICT_BASENAME
+    # The base must resolve BEFORE any gate runs: every `base...HEAD` diff below is a gate's
+    # EVIDENCE, and an unresolvable base used to yield an empty diff that read as "nothing
+    # intersects" — one CLI typo turning an L-04 deny into ACCEPTABLE (T10f F-01). The default
+    # is `main`; a repo whose S9 base is named otherwise must be told with --base.
+    if _git(tree, "rev-parse", "--verify", f"{base}^{{commit}}")[0] != 0:
+        raise AcceptError(
+            f"base branch {base!r} does not resolve to a commit in {tree} — pass the S9 base with "
+            "--base <branch>; acceptance cannot be judged against a base it cannot see"
+        )
     _, head = _git(tree, "rev-parse", "HEAD", check=True)
     _, branch = _git(tree, "rev-parse", "--abbrev-ref", "HEAD", check=True)
     return AcceptContext(
@@ -675,8 +807,10 @@ def prechecks(actx: AcceptContext) -> list[Result]:
     else:
         verdict_sha = parse_verdict_sha(actx.verdict_text)
         verdict_rel = str((actx.change_dir / VERDICT_BASENAME).relative_to(actx.tree))
-        # the verdict.md commit itself is metadata, never a reason to recompute the verdict
-        _, out = _git(actx.tree, "diff", "--name-only", f"{actx.base}...{actx.head}")
+        # the verdict.md commit itself is metadata, never a reason to recompute the verdict.
+        # check=True: this diff IS the freshness gate's evidence — an unusable git result must
+        # abort loudly, never degrade into an empty (== "nothing intersects") set (T10f F-01).
+        _, out = _git(actx.tree, "diff", "--name-only", f"{actx.base}...{actx.head}", check=True)
         change_files = {line for line in out.splitlines() if line.strip() and line != verdict_rel}
         if verdict_sha is None or verdict_sha == actx.head:
             status, detail = freshness_state(verdict_sha, actx.head, set(), change_files)
@@ -720,9 +854,19 @@ def prechecks(actx: AcceptContext) -> list[Result]:
     # gate (spec §6 step 4): the adversarial-pass section is present when the change class
     # demands it (M/L or first-change-of-a-capability). This is the accept side of the
     # evaluator↔accept seam T09 opened — /implement writes the section, accept checks it.
-    targets = resolve_targets(actx.tree, actx.ctx, actx.change_md)
-    creates_new = any(not (actx.tree / "specs" / actx.ctx / name).exists() for name in targets) if targets else False
+    # birth_slug is passed exactly as compute_merge passes it — one derivation, one home (C7).
+    # Before T10f this call site omitted it and read an empty resolution as `creates_new=False`,
+    # so a capability-BIRTHING first change (the F1 primary path) was reported as "S depth on an
+    # existing capability" and escaped the pass the spec makes mandatory for it (F-02). Unknown
+    # is now treated as a birth: a spurious adversarial pass costs one agent run, a skipped one
+    # on a capability birth means an unreviewed first change.
+    targets = resolve_targets(actx.tree, actx.ctx, actx.change_md, actx.change_dir.name)
+    creates_new = not targets.known or any(
+        not (actx.tree / "specs" / actx.ctx / name).exists() for name in targets.files
+    )
     required, why = adversarial_required(actx.change_md, creates_new)
+    if not targets.known:
+        why = "the target capability file could not be determined — assuming a capability birth"
     if not required:
         results.append(Result("adversarial.presence", PASS, f"adversarial pass not required — {why}"))
     elif adversarial_section_filled(actx.verdict_text):
@@ -756,8 +900,21 @@ def gate_dependent_checks(
 
     # gate 2: Docker-exempt integration tests surfaced EXPLICITLY (T04b).
     exempt = verdict.get("docker_exempt") or []
-    docker_detail = next((c["detail"] for c in verdict.get("checks", []) if c["id"] == "docker.alembic"), "")
-    if exempt:
+    docker_check = check_by_id.get("docker.alembic")
+    docker_detail = docker_check["detail"] if docker_check else ""
+    if docker_check is None and not exempt:
+        # T04b's whole point is that a skipped Docker tier is never a silent default. An ABSENT
+        # check used to fall through to PASS "Docker tier ran" — asserting a tier ran on the
+        # evidence of its absence (T10f F-07).
+        results.append(
+            Result(
+                "docker.tier",
+                FLAG,
+                "the gate verdict carries no docker.alembic check — whether the Docker/migration tier "
+                "ran cannot be determined from this run (T04b)",
+            )
+        )
+    elif exempt:
         results.append(
             Result(
                 "docker.tier",
@@ -792,15 +949,42 @@ def gate_dependent_checks(
     # prepare the merge (needs junit-derived provenance).
     lines = criteria_lint._strip_html_comments(actx.criteria_text.splitlines())
     criteria = criteria_lint.iter_criteria(lines)
-    ac_ids = junit_ac_test_ids(actx.tree / GATE_DIR_NAME)
-    plan = compute_merge(actx.tree, actx.ctx, actx.change_md, criteria, ac_ids, placement, actx.change_dir.name)
-    if plan.error:
-        results.append(Result("merge.fidelity", FAIL, plan.error))
-        return results, None
+    prov = junit_ac_test_ids(actx.tree / GATE_DIR_NAME)
+
+    # gate 1d: every PROVEN criterion resolves to a real test node-id (T10f F-06). Without it an
+    # invariant merges as `(verified by: ?)`, which gate.py's L-06 check cannot resolve — i.e.
+    # this script would push spec content that turns the base branch's own gate RED (S9).
+    proven = [c.ac_id for c in criteria if c.state == "x"]
+    unresolved = [ac for ac in proven if ac not in prov.node_ids]
+    if unresolved:
+        reason = (
+            "no junit report from this run in .gate/"
+            if not prov.evidence
+            else f"uncorrelated in the gate's test inventory: {', '.join(prov.uncorrelated) or 'no ac-marked testcase'}"
+        )
+        results.append(
+            Result(
+                "invariant.provenance",
+                FAIL,
+                f"{len(unresolved)} proven criterion/criteria have no resolvable test node-id ({reason}): "
+                f"{', '.join(unresolved)} — their invariants would merge as '(verified by: ?)', which makes "
+                "gate.py's spec.invariant-tests (L-06) RED on the base branch",
+            )
+        )
+    else:
+        results.append(
+            Result("invariant.provenance", PASS, f"all {len(proven)} proven criteria resolve to a passed test node-id")
+        )
+
+    plan = compute_merge(actx.tree, actx.ctx, actx.change_md, criteria, prov.node_ids, placement, actx.change_dir.name)
+    # An unresolved target FAILs merge-fidelity — but it must not ERASE the remaining gates from
+    # the human's output (T10f F-09): they are computed and reported below either way.
+    born = () if plan.error else tuple(n for n in plan.targets if not (actx.tree / "specs" / actx.ctx / n).exists())
 
     # gate 3: Affects-intersection vs in-flight changes → flag list (L-03).
-    _, my_affects = _affects_set(actx.tree, actx.ctx, actx.change_md)
+    my_affects, my_known = _affects_paths(actx.tree, actx.ctx, actx.change_md, actx.change_dir.name)
     intersections: list[str] = []
+    undetermined: list[str] = []
     for other in sorted((actx.tree / "specs").glob("*/changes/*")):
         if not other.is_dir() or other == actx.change_dir:
             continue
@@ -808,44 +992,61 @@ def gate_dependent_checks(
         if not other_md.exists():
             continue
         o_ctx = other.parent.parent.name
-        _, o_aff = _affects_set(actx.tree, o_ctx, other_md.read_text(encoding="utf-8"))
+        rel = str(other.relative_to(actx.tree))
+        o_aff, o_known = _affects_paths(actx.tree, o_ctx, other_md.read_text(encoding="utf-8"), other.name)
+        if not o_known:
+            # an in-flight change whose own Affects cannot be resolved contributes an empty set,
+            # so it could never intersect — L-03 silently skipped it (T10f F-07).
+            undetermined.append(rel)
+            continue
         shared = my_affects & o_aff
         if shared:
-            rel = str(other.relative_to(actx.tree))
             intersections.append(f"{rel} shares {', '.join(sorted(shared))}")
-    if intersections:
+    if not my_known:
         results.append(
             Result(
                 "affects.intersection",
                 FLAG,
-                "in-flight changes touch the same capability files — re-review their criteria (L-03): "
-                + "; ".join(intersections),
+                "this change's own Affects could not be determined, so an intersection with an in-flight "
+                "change cannot be ruled out (L-03)",
             )
         )
+    elif intersections or undetermined:
+        detail = "in-flight changes touch the same capability files — re-review their criteria (L-03): "
+        parts = list(intersections)
+        parts += [f"{rel} has an undeterminable Affects — intersection cannot be ruled out" for rel in undetermined]
+        results.append(Result("affects.intersection", FLAG, detail + "; ".join(parts)))
     else:
         results.append(Result("affects.intersection", PASS, "no in-flight change intersects this change's Affects"))
 
     # gate 4: merge-fidelity.
-    ac_texts = _change_ac_texts(actx.change_md)
-    if not ac_texts:
-        # fall back to criteria.md texts so the gate still asserts every criterion landed
-        ac_texts = [(c.ac_id, c.text) for c in criteria]
-    violations = merge_fidelity_violations(ac_texts, "\n".join(plan.invariants))
-    if violations:
-        results.append(
-            Result(
-                "merge.fidelity",
-                FAIL,
-                "acceptance criteria absent from the prepared merge (L-11):\n" + "\n".join(violations),
-            )
-        )
+    if plan.error:
+        results.append(Result("merge.fidelity", FAIL, plan.error))
     else:
-        results.append(
-            Result(
-                "merge.fidelity", PASS, f"all {len(ac_texts)} acceptance criteria are present in the merge diff (L-11)"
+        ac_texts = _change_ac_texts(actx.change_md)
+        if not ac_texts:
+            # fall back to criteria.md texts so the gate still asserts every criterion landed
+            ac_texts = [(c.ac_id, c.text) for c in criteria]
+        violations = merge_fidelity_violations(ac_texts, "\n".join(plan.invariants))
+        if violations:
+            results.append(
+                Result(
+                    "merge.fidelity",
+                    FAIL,
+                    "acceptance criteria absent from the prepared merge (L-11):\n" + "\n".join(violations),
+                )
             )
-        )
-    if plan.placement_error:
+        else:
+            results.append(
+                Result(
+                    "merge.fidelity",
+                    PASS,
+                    f"all {len(ac_texts)} acceptance criteria are present in the merge diff (L-11)",
+                )
+            )
+    if plan.error:
+        results.append(Result("merge.placement", SKIP, "no target capability file resolved — nothing to place"))
+    elif plan.placement_error:
         results.append(Result("merge.placement", FAIL, plan.placement_error))
     elif plan.needs_placement:
         results.append(
@@ -867,19 +1068,28 @@ def gate_dependent_checks(
                 "invariants distributed across " + ", ".join(plan.targets) + " per the approved placement map",
             )
         )
+    else:
+        results.append(
+            Result("merge.placement", PASS, f"single-target Affects ({plan.targets[0]}) — placement is deterministic")
+        )
 
     # gate 5: spec-lint (surfaced for the human's review diff — L-07/O-13).
-    results.append(_spec_lint(actx))
+    results.append(_spec_lint(actx, born))
 
     # gate 6: orphan sweep for removal-flavour changes (V-02).
     results.append(_orphan_sweep(actx))
 
-    return results, plan
+    return results, (None if plan.error else plan)
 
 
-def _affects_set(tree: Path, ctx: str, change_md: str) -> tuple[str, set[str]]:
-    targets = resolve_targets(tree, ctx, change_md)
-    return ctx, {f"specs/{ctx}/{t}" for t in targets}
+def _affects_paths(tree: Path, ctx: str, change_md: str, birth_slug: str | None = None) -> tuple[set[str], bool]:
+    """(capability paths the change affects, whether they could be determined at all).
+
+    `birth_slug` is the change dir's name, passed for THIS change and for every in-flight one:
+    the same derivation prechecks and compute_merge use, so a capability-birthing change is not
+    reported as "Affects undeterminable" on the workflow's primary path (C7)."""
+    targets = resolve_targets(tree, ctx, change_md, birth_slug)
+    return {f"specs/{ctx}/{t}" for t in targets.files}, targets.known
 
 
 def _change_ac_texts(change_md: str) -> list[tuple[str, str]]:
@@ -887,29 +1097,48 @@ def _change_ac_texts(change_md: str) -> list[tuple[str, str]]:
     return [(m.group(1), m.group(2).strip()) for m in re.finditer(r"(?m)^-\s*(AC-\d+):\s*(.+?)\s*$", section)]
 
 
-def _spec_lint(actx: AcceptContext) -> Result:
+def _spec_lint(actx: AcceptContext, born: tuple[str, ...] = ()) -> Result:
+    """§5.4 item 5: dangling refs, duplicate capabilities, >300-line files, a capability missing
+    from overview.md — over the tree AS THIS ACCEPTANCE WILL LEAVE IT.
+
+    `born` names the capability files this acceptance creates. Reading only the pre-merge tree
+    made the greenfield birth case produce a FALSE dangling-ref finding (overview.md points at
+    the capability the merge is about to write) and let a born capability skip the overview-map
+    check entirely (T10f F-03c). Three more holes closed here (F-03/F-10): a missing overview.md
+    used to DISABLE the coverage check by its own `if overview_text` guard and report "clean";
+    the duplicate check compared filesystem names, which are unique by construction, so it was
+    dead code — the duplicate a human can actually create is a repeated entry in the
+    `## Capabilities` list; and findings were emitted once per occurrence, not per (file, ref)."""
     ctx_dir = actx.tree / "specs" / actx.ctx
     findings: list[str] = []
     overview = ctx_dir / "overview.md"
-    overview_text = overview.read_text(encoding="utf-8") if overview.exists() else ""
-    cap_files = [p for p in sorted(ctx_dir.glob("*.md")) if p.name != "overview.md"]
-    seen: set[str] = set()
-    for path in ctx_dir.rglob("*.md"):
+    listed_tokens = _overview_capability_tokens(actx.tree, actx.ctx)
+    listed = set(listed_tokens)
+    known: set[str] = {p.name for p in ctx_dir.glob("*.md")} | set(born)
+    for path in sorted(ctx_dir.rglob("*.md")):
         if "changes" in path.parts:
             continue
         text = path.read_text(encoding="utf-8")
         if len(text.splitlines()) > 300:
             findings.append(f"{path.relative_to(actx.tree)} exceeds 300 lines — cut it (S7)")
+        seen_refs: set[str] = set()
         for ref in re.findall(r"`([A-Za-z0-9_./-]+\.md)`", text):
             base = ref.split("/")[-1]
-            if not (ctx_dir / base).exists() and not (actx.tree / ref).exists():
-                findings.append(f"{path.relative_to(actx.tree)} references missing spec file `{ref}`")
-    for cap in cap_files:
-        if cap.name in seen:
-            findings.append(f"duplicate capability file listing: {cap.name}")
-        seen.add(cap.name)
-        if overview_text and cap.name not in overview_text:
-            findings.append(f"capability {cap.name} is missing from overview.md's map")
+            if base in known or (actx.tree / ref).exists() or ref in seen_refs:
+                continue
+            seen_refs.add(ref)
+            findings.append(f"{path.relative_to(actx.tree)} references missing spec file `{ref}`")
+    if not overview.exists():
+        findings.append(
+            f"specs/{actx.ctx}/overview.md is absent — the context map cannot be checked, so nothing here "
+            "says whether the context's capabilities are listed (L-07/O-13)"
+        )
+    else:
+        for name in sorted({t for t in listed_tokens if listed_tokens.count(t) > 1}):
+            findings.append(f"overview.md's Capabilities list names `{name}` more than once")
+        for name in sorted(n for n in known if n != "overview.md"):
+            if name not in listed:
+                findings.append(f"capability {name} is missing from overview.md's map")
     if findings:
         return Result("spec.lint", FLAG, "spec-lint findings for the review diff (L-07/O-13):\n" + "\n".join(findings))
     return Result(
@@ -941,7 +1170,17 @@ def _orphan_sweep(actx: AcceptContext) -> Result:
         )
     terms = list(flavour.terms)
     if not terms:
-        return Result("orphan.sweep", PASS, "removal-flavour change lists no concrete removed symbols to sweep")
+        # FLAG for the same reason the missing-heading case is one (T06f part B): the sweep did
+        # not run. The old PASS read as "the sweep ran and found nothing" while a prose-only
+        # `## Removed` ("the legacy export endpoint, entirely") left V-02 silently unchecked
+        # (T10f F-05). Non-blocking: no command emits a machine-readable removal list yet.
+        return Result(
+            "orphan.sweep",
+            FLAG,
+            "change.md has a `## Removed` heading but its body names no symbol the sweep can use "
+            "(node-ids or `backticked` names) — V-02 did NOT run: prose is never harvested. List the "
+            "removed symbols/node-ids under the heading, or confirm in review that nothing is orphaned",
+        )
     spec_text = "\n".join(
         p.read_text(encoding="utf-8") for p in (actx.tree / "specs" / actx.ctx).glob("*.md") if p.name != "overview.md"
     )
@@ -1025,16 +1264,12 @@ def run(tree: Path, change_id: str, base: str, do_execute: bool, placement: dict
     print()
 
     if gate_blocked:
-        for cid in (
-            "gate.green",
-            "docker.tier",
-            "criteria.junit-backing",
-            "criteria.manual-verdict",
-            "merge.fidelity",
-            "spec.lint",
-            "orphan.sweep",
-        ):
-            results.append(Result(cid, SKIP, "gate.py + merge not run — a structural precondition already denied"))
+        # Every registered gate that did not run is still REPORTED, as SKIP — derived from GATES
+        # so a gate added later cannot quietly vanish from a denied run's output (T10f).
+        reported = {r.id for r in results}
+        for cid in GATES:
+            if cid not in reported:
+                results.append(Result(cid, SKIP, "gate.py + merge not run — a structural precondition already denied"))
     else:
         verdict = run_gate(actx)
         print()
