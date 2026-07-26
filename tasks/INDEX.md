@@ -160,7 +160,7 @@ theme (thin `SKILL.md` router + one `<topic>.md` per artifact, read on demand). 
   `CLAUDE.md`'s "every skill follows the four-section body" (and its stale 44→13 line), and the two
   agent prompts that name `testing-unit` as "the one home" for content that will live in a file
   auto-invocation does not inject. Depends: T13.
-- [ ] T13b — **the skill-format contract has no gate — by S4's litmus it is prose.** Nothing checks that
+- [x] T13b — **the skill-format contract has no gate — by S4's litmus it is prose.** Nothing checks that
   a topic file lacks frontmatter, that every topic is pointed at, that a pointer resolves, or that a
   pointer reads as an instruction rather than a summary — the last being the only thing between shape 2
   and an agent writing an artifact from the router's paraphrase. T14's Verification greps them **once,
