@@ -176,6 +176,16 @@ Gate: GREEN · SHA: fixture · junit: .gate/last-run.xml
 """
 
 
+ESCALATE_FILE = """\
+# ESCALATE (hook-authored, spec §5.3 / E-08)
+
+gate.py stayed RED after 3 implementer passes.
+Failed checks: toolchain.pytest
+
+accept.py denies while this file exists; only a human removes it.
+"""
+
+
 def _load_gate_module():
     spec = importlib.util.spec_from_file_location("gate_under_test", TOOLS_DIR / "gate.py")
     assert spec is not None and spec.loader is not None
@@ -236,7 +246,7 @@ class FixtureRepo:
         return {c["id"]: c["status"] for c in self.verdict()["checks"]}
 
 
-def make_repo(root: Path, *, change_md: str = CHANGE_MD, tag: bool = True) -> FixtureRepo:
+def make_repo(root: Path, *, change_md: str = CHANGE_MD, tag: bool = True, escalate: bool = False) -> FixtureRepo:
     repo = FixtureRepo(root)
     repo.write("pyproject.toml", PYPROJECT)
     repo.write(".gitignore", GITIGNORE)
@@ -247,6 +257,8 @@ def make_repo(root: Path, *, change_md: str = CHANGE_MD, tag: bool = True) -> Fi
     repo.write("specs/demo/core.md", CAPABILITY_MD)
     repo.write("specs/demo/changes/001-thing/change.md", change_md)
     repo.write("specs/demo/changes/001-thing/criteria.md", CRITERIA_MD)
+    if escalate:
+        repo.write("specs/demo/changes/001-thing/ESCALATE", ESCALATE_FILE)
     for name in TOOL_FILES:
         repo.write(f".claude/tools/{name}", (TOOLS_DIR / name).read_text(encoding="utf-8"))
     repo.git("init", "-q")
@@ -305,6 +317,7 @@ def test_green_tree_is_green(repo: FixtureRepo) -> None:
         "integrity.protected-trees",
         "integrity.criteria-flips",
         "integrity.change-frozen",
+        "integrity.escalate-intact",
         "integrity.test-inventory",
         "integrity.self-hash",
     ):
@@ -367,6 +380,7 @@ def test_no_baseline_skips_integrity_loudly(tmp_path: Path) -> None:
         "integrity.protected-trees",
         "integrity.criteria-flips",
         "integrity.change-frozen",
+        "integrity.escalate-intact",
         "integrity.test-inventory",
     ):
         assert statuses[check_id] == "SKIP"
@@ -731,6 +745,52 @@ def test_removal_listed_in_change_md_is_legal(tmp_path: Path) -> None:
     proc = repo.gate()
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert repo.statuses()["integrity.test-inventory"] == "PASS"
+
+
+def test_escalate_deleted_since_baseline_is_red(tmp_path: Path) -> None:
+    # §5.3/E-08 bypass: the agent that hit its iteration ceiling unlocks itself by deleting the
+    # hook-written ESCALATE (accept.py only checks whether the file exists NOW). The change dir
+    # is not in PROTECTED_PATHS by design, so the disappearance needs its own baseline check.
+    repo = make_repo(tmp_path / "app", escalate=True)
+    (repo.root / "specs/demo/changes/001-thing/ESCALATE").unlink()
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert repo.statuses()["integrity.escalate-intact"] == "FAIL"
+    assert "specs/demo/changes/001-thing/ESCALATE" in proc.stdout
+    assert "only a human may clear it" in proc.stdout
+
+
+def test_escalate_still_present_is_not_a_gate_failure(tmp_path: Path) -> None:
+    # The gate reports on the file's DISAPPEARANCE, not its existence: while the ESCALATE
+    # stands, accept.py is the script that denies (§5.4 gate 2) — the gate must stay usable
+    # so the human can see whether the tree is otherwise green.
+    repo = make_repo(tmp_path / "app", escalate=True)
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert repo.statuses()["integrity.escalate-intact"] == "PASS"
+
+
+def test_change_without_an_escalate_is_unaffected(repo: FixtureRepo) -> None:
+    # The overwhelmingly common case: no ESCALATE was ever written for this change.
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    statuses = repo.statuses()
+    assert statuses["integrity.escalate-intact"] == "PASS"
+    assert "no ESCALATE file at the baseline commit" in proc.stdout
+
+
+def test_human_removal_followed_by_a_rebaseline_is_not_punished(tmp_path: Path) -> None:
+    # The legal path: the human clears the lock, the removal is committed, and the baseline
+    # moves onto that commit (red_check.py --rebaseline). The new baseline carries no
+    # ESCALATE, so the check goes quiet — the clearing is recorded in git, not undetectable.
+    repo = make_repo(tmp_path / "app", escalate=True)
+    (repo.root / "specs/demo/changes/001-thing/ESCALATE").unlink()
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "human clears the ESCALATE")
+    repo.git("tag", "-f", "baseline/demo-001")
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert repo.statuses()["integrity.escalate-intact"] == "PASS"
 
 
 def test_gate_edited_on_work_tree_is_red(repo: FixtureRepo) -> None:

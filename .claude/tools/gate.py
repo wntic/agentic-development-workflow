@@ -923,6 +923,47 @@ def check_change_frozen(ctx: GateContext) -> Check:
     return Check("integrity.change-frozen", "PASS", "change.md identical to baseline (E-12)")
 
 
+def check_escalate_intact(ctx: GateContext) -> Check:
+    # §5.3 / E-08: the iteration-ceiling `ESCALATE` file is a human-only lock — accept.py
+    # denies while it exists and "снять файл может только человек". That was prose: the
+    # change directory is deliberately NOT in PROTECTED_PATHS (criteria.md flips and
+    # verdict.md writes are legal cycle traffic, so a blanket freeze would deadlock the very
+    # cycle the lock guards), so an agent that hit its ceiling could delete the file and be
+    # invisible to both scripts. The disappearance is therefore checked on its own: an
+    # ESCALATE carried by the baseline commit must still be in the work tree.
+    #
+    # The legal human path is unchanged in kind from every other baseline-anchored fact
+    # (S4/S8): clear the file, then move the baseline (`red_check.py --rebaseline`) — the new
+    # baseline no longer carries it, so the check goes quiet. The gate cannot tell a human
+    # from an agent at the filesystem (neither can criteria_guard); it only makes the removal
+    # visible, which is what turns it into a deliberate, recorded act.
+    #
+    # The ls-tree is guarded explicitly rather than routed through _baseline_paths(): a git
+    # call that could not be answered must not read as "no ESCALATE at the baseline"
+    # (notes/19, the fail-open class).
+    rc, out = _git(ctx.tree, "ls-tree", "-r", "--name-only", str(ctx.baseline), "--", "specs")
+    if rc != 0:
+        return Check("integrity.escalate-intact", "FAIL", f"git ls-tree against baseline failed:\n{_tail(out)}")
+    baseline_escalates = [
+        line.strip() for line in out.splitlines() if line.strip().endswith("/ESCALATE") and "/changes/" in line
+    ]
+    if not baseline_escalates:
+        return Check("integrity.escalate-intact", "PASS", "no ESCALATE file at the baseline commit (§5.3/E-08)")
+    gone = [rel for rel in baseline_escalates if not (ctx.tree / rel).exists()]
+    if gone:
+        return Check(
+            "integrity.escalate-intact",
+            "FAIL",
+            "ESCALATE removed since the baseline — only a human may clear it, and clearing it "
+            "means re-baselining the change (§5.3/E-08):\n" + "\n".join(gone),
+        )
+    return Check(
+        "integrity.escalate-intact",
+        "PASS",
+        f"{len(baseline_escalates)} ESCALATE file(s) from the baseline still present (§5.3/E-08)",
+    )
+
+
 def _is_integration_node(node_id: str) -> bool:
     # node-ids are rootdir-relative (the gate pins rootdir); the integration suite lives
     # under tests/integration/ by house convention (path-based collection).
@@ -1123,6 +1164,7 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
             "integrity.protected-trees",
             "integrity.criteria-flips",
             "integrity.change-frozen",
+            "integrity.escalate-intact",
             "integrity.test-inventory",
         ):
             checks.append(Check(check_id, "SKIP", skip))
@@ -1130,6 +1172,7 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
         checks.append(check_protected_trees(ctx))
         checks.append(check_criteria_flips(ctx))
         checks.append(check_change_frozen(ctx))
+        checks.append(check_escalate_intact(ctx))
         inventory_check, docker_exempt = check_test_inventory(
             ctx, pytest_check, docker_available=docker_probe.available
         )
