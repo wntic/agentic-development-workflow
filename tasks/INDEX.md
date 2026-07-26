@@ -599,7 +599,7 @@ files existed with no line here, which makes `/build-task`'s "every *Depends on*
   the habit is what T06i measured twelve false positives' worth of damage from. Fix = a **scoped** lane
   from `v3-builder.md` (`.claude/**`, `tasks/`, `notes/`, design docs) that stays **denied** on
   `src/`, `tests/`, `specs/`. Depends: T06d, T06f, T06i, T06k, T18.
-- [ ] T09j — `red_check.py` calls the shared `criteria_lint.strip_html_comments` **and** carries its own
+- [x] T09j — `red_check.py` calls the shared `criteria_lint.strip_html_comments` **and** carries its own
   `_strip_html_comments` regex thirty lines below, and the two are **not** equivalent: the regex deletes
   the span including newlines (shifting every later line number) while the shared helper blanks in
   place, which is the contract T10k made public because the layer depends on it. One rule, two grammars,
