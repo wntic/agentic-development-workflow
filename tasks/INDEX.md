@@ -578,7 +578,7 @@ files existed with no line here, which makes `/build-task`'s "every *Depends on*
   fixed its arguments, `accept.run()`'s no-plan branch still **prints a merge that did not happen** —
   unreachable today, which is why it should be fixed rather than trusted. From T10k findings 2 and 5.
   Depends: T10k, T17, T09f.
-- [ ] T20 — the `invisible` class **cannot be run and has no implemented proof**: `red_check.py` has no
+- [x] T20 — the `invisible` class **cannot be run and has no implemented proof**: `red_check.py` has no
   `Class:` parse at all (so it can never obtain a baseline tag, and `/implement` step 1 blocks), and its
   declared "empty before/after OpenAPI diff" exists in no script. T09g settled that it is not a lane to
   extend for test-strengthening; it still needs to either work or go. Building the diff also gives T17's
