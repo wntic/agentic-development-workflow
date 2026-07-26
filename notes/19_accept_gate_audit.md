@@ -90,6 +90,36 @@ guard on neither of the two `git diff` calls that produce a gate's *evidence* �
 `merge-base` / `rev-parse --verify` probes do read `rc`, correctly). The two scripts disagree about
 what an unusable git result means.
 
+> **CORRECTION (2026-07-26, T04f).** The first sentence above — "**every** `_git` call in its
+> integrity checks is followed by `if rc != 0`" — **was false when written**, and this register
+> stated it as fact while using `gate.py` as the counter-example the fix should imitate.
+> `_baseline_paths()` did `return [...] if rc == 0 else []`: an unanswerable `git ls-tree` was
+> indistinguishable from "the baseline commit carries no such path" — this file's own root-cause
+> sentence, one function away from `escalate_state()`, which spells the opposite reflex out in a
+> docstring. Its three callers (`integrity.criteria-flips`, `integrity.change-frozen`,
+> `integrity.test-inventory`) failed **closed** only by luck: the per-file `_baseline_blob()` fails
+> for the same reason, and the resulting FAIL blamed the work tree — "created after the baseline
+> commit" — for a git failure. Fail-closed-with-the-wrong-cause is how the fuse stayed unlit: no run
+> ever went green, so nobody looked, and the misleading sentence sent the next reader after the
+> spec files instead of after git.
+>
+> **Fixed in T04f:** the helper raises `GateError`, each caller turns that into a FAIL naming the git
+> call, and `_baseline_blob_problem()` refuses to attribute an unreadable blob to a path the baseline
+> tree lists.
+>
+> **What survives of the claim, after a sweep of every `_run`/`_git` in `gate.py`:** the reflex is
+> real everywhere else it matters — `check_protected_trees` (both calls), `escalate_state` (both),
+> `collect_baseline_inventory` (`git archive` + the collection run), `check_self_hash` (all three)
+> and the ref-resolution probes in `resolve_context()`. The sweep found **no second fail-open site**,
+> and two rc's that are discarded but degrade *loudly* by design, recorded here so the next reader
+> need not re-derive them: `rev-parse HEAD` → `sha: UNKNOWN` in the printed header and in
+> `verdict.json` (reachable only on an unborn HEAD, where there is no baseline either, so integrity
+> is already SKIPPED loudly), and `status --porcelain` → the `dirty` flag, which is human-facing
+> metadata no gate and no hook reads, and which a failing `git status` sets to `True` anyway because
+> the helper merges stderr into its output. The habit was real; the blanket "every" was not — i.e. the
+> paragraph directly above this correction, applied to the script it holds up as the good example:
+> "each one is an author remembering", and one author did not.
+
 ---
 
 ## Findings
