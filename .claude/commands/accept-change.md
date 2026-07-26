@@ -39,17 +39,19 @@ refuses loudly rather than guessing; then, and only then, ask the human which br
 and pass `--base <branch>` — here **and** in step 6, identically.
 
 This runs the deterministic §5.4 preconditions and prints the prepared merge diff without
-touching anything: criteria complete + junit-backed, `gate.py` GREEN re-run on the branch,
-verdict freshness, Companion, Affects-intersection, merge-fidelity, spec-lint, orphan sweep
-(removal), and the adversarial-pass presence check (spec §6 step 4). **Read its output; do not
-re-derive any of these yourself.**
+touching anything. **The gate list is not repeated here** — `accept.py` prints one
+`[PASS|FAIL|FLAG|SKIP] <gate-id>` line per registered gate, and its `GATES` registry is the only
+enumeration of them (C7: a list restated in prose drifts, and this one already had). **Read the
+script's output; do not re-derive any gate yourself and do not expect a gate the output does not
+name.**
 
 - **Any `[FAIL]` / `verdict: DENIED`** → stop here. Relay the failing gate(s) verbatim to the
   human; acceptance cannot proceed until `/adw:implement` (or the human) resolves them. A present
   `ESCALATE` file only the human removes.
-- **`verdict: ACCEPTABLE`** → carry the printed merge diff and every `[FLAG]` line
-  (Affects-intersection, spec-lint, merge.placement, a SKIPPED Docker tier) forward into the
-  review material below — flags never block, but the human decides on them.
+- **`verdict: ACCEPTABLE`** → carry the printed merge diff and every `[FLAG]` line forward into
+  the review material below — flags never block, but the human decides on them. When the verdict
+  line adds *"pending the placement map"*, the change is acceptable but **not** yet executable:
+  step 4 is owed first.
 
 ## 2. Contradiction hunt (the LLM slice of §5.4 gate 5)
 
@@ -101,9 +103,9 @@ spec-write owners are `accept.py` and `/adw:spec` only).
 ## 5. Human review of the merge
 
 Present to the human, together: the prepared merge diff (criteria → capability invariants), the
-contradiction-hunt list from step 2, every `[FLAG]` from step 1 (Affects-intersection, spec-lint,
-placement, a SKIPPED Docker tier — accepting a skipped tier is a conscious call, T04b), and the
-confirmed `[m]` set from step 3. Ask for explicit approval to merge. On anything short of a clear
+contradiction-hunt list from step 2, every `[FLAG]` the script printed in step 1 — whichever they
+are, including a SKIPPED Docker tier, since accepting a skipped tier is a conscious call (T04b) —
+and the confirmed `[m]` set from step 3. Ask for explicit approval to merge. On anything short of a clear
 yes, stop — nothing is written.
 
 ## 6. Execute (accept.py) and relay the drift check
