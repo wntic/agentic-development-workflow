@@ -52,8 +52,9 @@ Companion: <context>/NNN       <!-- only for a paired cross-context change, dele
        a symbol named in a sentence alone is invisible to the sweep. Acceptance FAILs while any
        harvested name still lives in `src/**` or in a capability file.
      - the gate's baseline test-inventory (E-05) treats a baseline test as legally removed only
-       when its node-id appears somewhere in this change.md, so an obsolete test deleted without
-       its node-id listed here is RED for the whole cycle.
+       when its node-id appears in this change.md's **content** — comment text does not count, the
+       gate strips comments before matching (T04h) — so an obsolete test deleted without its
+       node-id listed here is RED for the whole cycle.
 
      Written HERE, in the /adw:spec session, before the baseline: change.md is frozen against the
      baseline commit (E-12), so the list cannot be back-filled once the cycle has started, and no

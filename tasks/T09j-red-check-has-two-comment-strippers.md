@@ -16,6 +16,14 @@ text-oriented). The defect is that one rule has two implementations in one file 
 why, which is the C7 mistake that the `_section`-parse trio (T10h finding 2, T03c finding 8) already
 had to be ruled on once.
 
+**1b. And `accept.py` carries three more of the same** (T04h finding 4, added 2026-07-27):
+`classify_removal`, `_significant_tokens` and `_has_real_content` each do their own
+`re.sub(r"<!--.*?-->", …)` — the **deleting** grammar again — while the same file imports the public
+line-preserving `strip_html_comments` for `_spec_lint` and `_overview_capability_tokens`. So the count
+across the layer is **one shared helper plus four private re-implementations in two files**, and T10k
+promoted the shared one to public precisely because the layer depends on its contract. Same rule, same
+task: pick one grammar per need and write down why, or route them through the shared helper.
+
 **2. `accept.run()`'s no-plan branch prints a merge that did not happen.** T10k fixed its arguments
 (it was passing raw `base`/`tree`, a latent `TypeError`), but the branch then prints
 `merged <branch> into <base>, tagged change/…, deleted the change dir` **although nothing was merged**

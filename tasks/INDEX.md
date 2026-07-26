@@ -569,6 +569,16 @@ files existed with no line here, which makes `/build-task`'s "every *Depends on*
   *can* run (`git diff @{u}` over the anchor dirs after a `fetch`) — and in `check_self_hash`'s
   docstring. No behaviour change; option (c), a checksum pinned outside the plugin, remains the only
   real close and adds a concept nobody owns.
+- [ ] T04i — two T04h findings about the legal-removal allowance. **(1)** It is collected from **every**
+  change dir in the baseline tree (all `specs/**/changes/**/change.md` blobs concatenated), so change A's
+  `## Removed` list authorises deleting a baseline test during change B's cycle — usually one document
+  under S9, but a `Companion:` pair puts two there **by design**, which is why the obvious narrowing is
+  a real question rather than a one-liner. **(2)** A granted removal is **silent and mislabelled**: the
+  check prints `all N baseline tests collected and run (E-05)` where N counts the removed test that was
+  neither collected nor run, and nothing about the grant reaches the verdict. Compare T04b's Docker
+  carve-out, loud by construction with `docker_exempt` in the verdict — that asymmetry is the point,
+  since `/accept-change` shows the gate's output to the human precisely so consequential things are
+  seen. Depends: T04h, T04b, T09b, T03c.
 - [ ] T05b — the freshness gate's **second** `git diff` still discards its rc (`_, out = _git(...,
   verdict_sha, actx.head)`), so an unusable diff yields an empty `changed_since` that reads as
   *"nothing changed since the pin"* — the register's root-cause sentence on a **TRUST** gate. T10f fixed
