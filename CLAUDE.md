@@ -29,6 +29,14 @@ The v2→v3 shift in one line: v2 emitted a disposable app from a YAML manifest 
 directory; v3 maintains the app in-repo under branch-per-change, and the spec compounds into living
 documentation instead of being rendered from a schema.
 
+**What ships, in one rule: `.claude/` IS the Claude Code plugin (`adw`), and a file ships iff it
+lives under it** (T15). So `tasks/`, `notes/`, both design docs, this file and any trial app are dev
+artifacts a consumer never sees — which is why they keep the bare command names while everything
+inside `.claude/**` refers to commands as `/adw:<name>` (a bare `/spec` is *Unknown command* in a
+consumer). Packaging reference, release procedure and the measured platform facts:
+**`notes/21_plugin_packaging.md`**. Do not enable both loads at once — checked out *and* installed
+fires every hook twice.
+
 **Status: v3 is being built.** The build-out is decomposed into `tasks/` (T01–T11, status in
 `tasks/INDEX.md`), executed one task per `v3-builder` dispatch via `/build-task`. Anything marked
 *planned (TNN)* below does not exist yet — check the INDEX before assuming a tool is available.
@@ -169,13 +177,18 @@ workflow_v3_spec.md               # THE v3 design doc (Russian) — read first; 
 notes/15_v3_design_review.md      # the 5-probe adversarial review register — design canon
 codegen_workflow_spec.md          # v2 rationale — archive, kept for the "why" of what survived
 tasks/                            # v3 build-out: INDEX.md (status) + one file per task (T01–T11)
-.claude/
+notes/21_plugin_packaging.md      # what ships, the release procedure, the measured platform facts
+.claude/                          # THE PLUGIN ROOT (`adw`) — everything here ships, nothing else does
+  .claude-plugin/plugin.json      # the manifest
+  bin/adw.py                      # the one invocation form: `${CLAUDE_PLUGIN_ROOT}/bin/adw.py <tool>`
   skills/                         # knowledge layer — 44 skills now, merged to ~13 (T08) after the
                                   #   paid-fixes inventory + test-principles rewrite (T07)
   tools/
     gate.py                       # "is it green" — the trust anchor            (planned, T04)
     accept.py                     # "may it merge" — acceptance preconditions   (planned, T05)
   hooks/                          # criteria-guard, bash-guard, stop-gates      (planned, T06)
+    hooks.json                    #   the same wiring for an INSTALLED load; settings.json is the
+                                  #   checked-out twin (a plugin cannot ship hooks in settings.json)
   agents/                         # v3-builder (build-out executor); test-author / implementer /
                                   #   evaluator (planned, T09); v2 agents purged in T02
   commands/                       # orient, commit, brainstorm, build-task; /spec (T03),
@@ -233,12 +246,23 @@ testcontainers; every acceptance criterion is pinned by an `@pytest.mark.ac("AC-
 
 The project uses **uv** and targets **Python 3.12**.
 
-```bash
-# the single point of truth for "green" (planned, T04 — does not exist yet):
-uv run .claude/tools/gate.py            # add --criteria to cross-check criteria.md flips
+Every tool is reached through one shim, `bin/adw.py` (T15). At a plain terminal name it by path;
+inside a session, shipped files use `"${CLAUDE_PLUGIN_ROOT}/bin/adw.py"`, which resolves in both
+layouts (see `notes/21`) — the two are the same file.
 
-# acceptance preconditions (planned, T05):
-uv run .claude/tools/accept.py <context>/NNN
+```bash
+# the single point of truth for "green"
+uv run .claude/bin/adw.py gate                      # --criteria to cross-check criteria.md flips
+
+# acceptance preconditions
+uv run .claude/bin/adw.py accept <context>/NNN
+
+# the red baseline, and the criteria lint
+uv run .claude/bin/adw.py red-check --change <context>/NNN
+uv run .claude/bin/adw.py criteria-lint <path-to-criteria.md>
+
+# the meta layer's own suite (must pass with no src/ in the tree — T15's acceptance test)
+uv run pytest .claude/tools
 
 # the build-out itself: execute ONE task with the v3-builder agent
 /build-task tasks/TNN-<slug>.md         # tick tasks/INDEX.md only on green verification
@@ -246,8 +270,6 @@ uv run .claude/tools/accept.py <context>/NNN
 
 `mypy` stays load-bearing (contract drift shows up as type errors), but the command you run is
 `gate.py` — the toolchain config lives inside it, so there is exactly one definition of "green".
-Until T04 lands, there is **no gate to run**: the v2 validator and its machinery were purged in T02
-(recoverable from git history; tag `v2-archive` on `main`).
 
 ## Conventions when extending the workflow
 
