@@ -76,7 +76,15 @@ implementer as a **CONTRACT-CHANGE** (it cannot `uv add`), which routes back to 
    trivially-passing test. Name it explicitly in your report as an **`[m]`-candidate** (the
    human, not you, later accepts it as `[m]` with a reason — spec §3.3). Do not mark
    `criteria.md`; you cannot write it, and states are the evaluator's / human's to flip.
-3. **Removal-class change** (behavioral, removal flavour): you own deleting or reworking the
+3. **`Class: hardening`** (the tests get stronger, behaviour stays identical): your tests are
+   **green on arrival** and that is correct — the behaviour they pin already works, and the wrong
+   code they must catch is described in change.md's `## Mutations`, one unified diff per mutation.
+   Write each test so it fails when *that* patch is applied: read the mutation, then assert the
+   thing it breaks (the bystander row a rewrite would clobber, the response the wrong branch would
+   give). `red_check` proves it by applying every mutation in a throwaway worktree. Never weaken a
+   test to make it red here, and never edit `## Mutations` — it is the human's, frozen in the
+   baseline; a mutation nothing kills is a finding for the human, not a spec to adjust.
+4. **Removal-class change** (behavioral, removal flavour): you own deleting or reworking the
    now-obsolete tests. **List every deleted/reworked test in the change's `change.md` Removed
    tests block** (already written in `/adw:spec`) — the gate's baseline test-inventory treats only
    the tests listed there as legally removed; anything else missing from the baseline is RED.
@@ -91,7 +99,9 @@ uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" red-check --change <context>/NNN
 ```
 
 It asserts every `AC-n` has at least one marked test and every marked test is RED, then tags
-`baseline/<context>-NNN` on the commit. The commit order is: (1) the `deps:` commit (above),
+`baseline/<context>-NNN` on the commit. (For a `hardening` change the same command asks that
+class's question instead — every marked test **passes** on the unmutated code and each declared
+mutation makes the AC it names go RED; the report says `HARDENING-CHECK` rather than `RED-CHECK`.) The commit order is: (1) the `deps:` commit (above),
 then (2) your tests-only baseline commit. Commit the tests **before** running `red_check` (the
 red commit is the integrity baseline for the whole cycle, spec §5.1/§6). On a greenfield first
 change a test whose module import fails because the package is not written yet counts as RED

@@ -38,8 +38,13 @@ sections: `.claude/templates/change.md` (sections, classes, binding/non-binding 
 3. **Interview.** Ask the human about every ambiguity (AskUserQuestion) — idempotency,
    permissions, failure modes, limits — until the acceptance criteria write themselves. Then
    propose, human decides:
-   - **Class** — behavioral (default) / bugfix / invisible; definitions live in the change.md
-     template. A removal is behavioral with the removed behaviour listed explicitly.
+   - **Class** — behavioral (default) / bugfix / invisible / hardening; definitions live in the
+     change.md template. A removal is behavioral with the removed behaviour listed explicitly.
+     A **hardening** change (the tests get stronger, behaviour stays identical — normally the
+     follow-up an adversarial pass earns) additionally needs a `## Mutations` section: **you and
+     the human write it here**, lifting the surviving mutations from the `## Adversarial review`
+     table of the change that found them. It is the class's baseline proof, so an agent inside the
+     cycle must never author it — the template states what `red_check` then enforces.
    - **Depth** — S/M/L (spec §3.2); litmus: if the diff fits one sentence, S is enough. Only
      Acceptance criteria are mandatory; do not inflate ceremony.
    - **Interface sketch** (M/L) — propose module/class names + ctor dependencies; once the

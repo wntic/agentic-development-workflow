@@ -1,13 +1,19 @@
 # <context>/NNN — <short change name>
 
-Class: behavioral    <!-- behavioral (default) | bugfix | invisible (spec §3.1).
+Class: behavioral    <!-- behavioral (default) | bugfix | invisible | hardening (spec §3.1).
                           behavioral, removal flavour: list the removed behaviour explicitly —
                           this change's test-author then owns deleting/reworking obsolete tests.
                           bugfix: the code diverged from an ALREADY recorded capability invariant;
                           AC = a reference to that invariant + a regression test.
                           invisible: refactor/deps/perf — behaviour unchanged; AC = "behaviour
                           unchanged", proof = full green gate + empty before/after OpenAPI diff
-                          (+ the perf metric, if one was claimed). -->
+                          (+ the perf metric, if one was claimed).
+                          hardening: the TESTS get stronger while behaviour stays identical — the
+                          change an adversarial pass earns when it finds a mutation the suite did
+                          not kill. Its tests pass on arrival, so there is no red phase: redness is
+                          replaced by a stronger pair (every ac-marked test passes against the
+                          unmutated code AND fails under each declared mutation), and the
+                          `## Mutations` section below becomes MANDATORY. -->
 Affects: <capability files>    <!-- brownfield: optional — delete the line and accept.py derives it
                                     (the context's single capability file). FIRST change of a context:
                                     there is no capability file yet, so accept.py births the one named
@@ -58,3 +64,34 @@ Companion: <context>/NNN       <!-- only for a paired cross-context change, dele
      here is not required to be proven live — its ac-marked test remains the proof. A spec
      with no answer to "how do we prove it is done" is not accepted into work (M/L; for S
      depth the fast-lane answer is implicit: gate.py --criteria over ac-marked tests). -->
+
+## Mutations
+<!-- `Class: hardening` ONLY — and MANDATORY there: this section is that class's whole baseline
+     proof, replacing the red phase its tests cannot have. Delete the section for every other
+     class (red_check reads it only for hardening).
+
+     One fenced unified diff per mutation — the wrong code the strengthened tests must catch —
+     each naming the AC ids it must kill in the text above its fence (a `### M-n — …` heading or
+     a plain sentence; both parse). Written by the HUMAN in the /adw:spec session, lifted from the
+     `## Adversarial review` table of the change that found the surviving mutation. Never written
+     by the agent that also writes the tests, and never invented to fit tests already written.
+
+     What red_check enforces before it will tag the baseline: every AC in criteria.md is named by
+     at least one mutation; every named AC exists in criteria.md; each diff applies at the
+     baseline commit with `git apply` and patches `src/**` only (mutating a test would make the
+     suite fail for a reason that proves nothing); every ac-marked test passes against the
+     unmutated code; and every AC a mutation names goes RED with that mutation applied.
+
+     Shape:
+
+     ### M-1 — must kill AC-8, AC-9
+     ```diff
+     --- a/src/app/infrastructure/postgres/users.py
+     +++ b/src/app/infrastructure/postgres/users.py
+     @@ -41,7 +41,6 @@
+              update(users)
+     -        .where(users.c.id == user.id)
+              .values(name=user.name)
+     ```
+-->
+

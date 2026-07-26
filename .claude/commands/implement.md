@@ -27,9 +27,9 @@ F-7). At most **one change per context** is in `/implement` at a time (spec §6)
    `.claude/hooks/subagent_stop.py`, T06) if it exists. A stale counter left by a prior
    change would otherwise trip an instant, false ESCALATE on this one — the ceiling counts
    blocks *within this change's* implementer loop, so it starts at zero here.
-3. Read `change.md` to learn the **Class** (behavioral / bugfix / invisible; removal is a
-   behavioral flavour) and **Depth** (S / M / L) — they decide the fast-lane and the
-   adversarial review below.
+3. Read `change.md` to learn the **Class** (behavioral / bugfix / invisible / hardening; removal
+   is a behavioral flavour) and **Depth** (S / M / L) — they decide the fast-lane, the
+   adversarial review, and — for `hardening` — the route through steps 1–2 below.
 
 ## 0.5 Precondition — a Python project exists (no bootstrap, no template)
 
@@ -79,6 +79,34 @@ and the gate's frozen-tree check never bites. Do not proceed until `red_check` i
 baseline tag exists. If the test-author reports an **`[m]`-candidate** (an AC no test can
 cover), carry it forward: the evaluator will mark it MANUAL-candidate and only the human sets
 `[m]`.
+
+## 1.5 `Class: hardening` — the change whose `src` diff is empty
+
+A **hardening** change makes the tests stronger while behaviour stays identical (the follow-up an
+adversarial pass earns when it finds a mutation the suite did not kill). It has no red phase and no
+`src/**` work at all, so this one class takes a different route through steps 1–2. Everything else
+(steps 0, 3, 4, 5) is unchanged.
+
+- **Step 1 stands, minus redness.** The test-author writes `tests/**` and commits the tests-only
+  baseline exactly as always, but its tests are **green on arrival** — do not ask it for redness and
+  never accept a test weakened until it fails. The same `red-check` command runs: it reads the
+  `Class:` line itself and asks this class's question instead — every ac-marked test **passes** at
+  the candidate commit, and each mutation declared in `change.md`'s `## Mutations` makes the AC ids
+  it names go **RED** in a throwaway worktree. On confirmation it tags `baseline/<context>-NNN` as
+  usual.
+- **Step 2 is skipped — dispatch no implementer.** There is nothing in `src/**` for it to write,
+  and a hardening change that touches `src/**` is a different change (send it back to `/adw:spec`).
+  Instead run the gate once yourself at the baseline commit:
+  `uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --change <context>/NNN`. GREEN → step 3.
+- **RED there is a TESTS-HANDBACK, never an ESCALATE.** `src/**` is untouched from a green base, so
+  the RED is in `tests/**` by construction (a type error in a new fixture, a lint finding) and only
+  the test-author can clear it. Return to step 1 with a fresh test-author, then re-anchor with
+  `red-check --change <context>/NNN --rebaseline`, which routes through the same hardening path.
+- **A mutation that does not apply, or that nothing kills, is a SPEC defect** — stop and hand it to
+  the human for `/adw:spec`. `## Mutations` is authored by the human and frozen in the baseline
+  (gate integrity, E-12); no agent in this cycle edits it to make the check pass. A surviving
+  mutation means the strengthened tests still do not catch the wrong code they were written for,
+  which is the whole finding this change exists to close.
 
 ## 2. implementer → green gate
 
