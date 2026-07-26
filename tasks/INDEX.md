@@ -309,11 +309,21 @@ What it surfaced is below. Every claim re-derived from source before filing.
   hole too), a new class proved by **mutation** rather than redness (strictly stronger, and the
   adversarial pass already produces it), or let the adversarial step commit within the change
   (collides with D4). Escalate the shape first; expect a §3 canon edit. Depends: T09, T09b, T09f, T03, T10.
-- [ ] T10i — Two T10f leftovers plus one cosmetic: `merge.placement`'s REVIEW-vs-TRUST class (its
+- [x] T10i — Two T10f leftovers plus one cosmetic: `merge.placement`'s REVIEW-vs-TRUST class (its
   check-mode FLAG means a multi-target change reads ACCEPTABLE while being un-executable);
   `/accept-change`'s prose gate list omits `invariant.provenance` (prefer replacing the enumeration
   with a pointer to the registry — enumerations in prose are how this drifted); `_spec_lint` emits
   duplicate findings. Depends: T10f, T10g.
+  **BUILT 2026-07-26.** `merge.placement` **stays REVIEW**, with the argument recorded next to the
+  registry entry: check mode is what `/accept-change` step 1 runs, and step 4 (propose the map) is
+  only reached on a non-denied run — so a TRUST deny would block the very acceptance whose map it
+  demands, while §5.4 says accept.py only *flags* the distribution. What was missing was legibility,
+  not severity: check mode now prints `verdict: ACCEPTABLE — pending the placement map --execute
+  requires`. Item 2 replaced the prose enumeration with a pointer to `GATES`. Item 3 turned out to
+  be **already fixed by T10f** at the (file, ref) level — not reproducible on the `users/002`
+  baseline any more — so it became a list-level dedupe plus the pin nobody had written; the honest
+  defect of the four was item 4, whose S7 half (every born capability file's ~20 template comment
+  lines counted toward the 300-line cut) had no filed symptom at all.
 - [x] T10g — `/accept-change` never passes `--base`, and `accept.py` defaults to `main` — but this
   repo's S9 base is `markdown-specs` (`main` is the v2 archive), and a consumer project may be on
   `master`. The `users/002` acceptance only worked because the operator passed `--base` by hand.
