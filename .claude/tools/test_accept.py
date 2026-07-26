@@ -613,6 +613,9 @@ def test_check_mode_green_prints_diff_without_touching_main(repo: FixtureRepo) -
     proc = repo.accept("demo/001", "--base", "main")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "verdict: ACCEPTABLE" in proc.stdout
+    # single-target: the verdict carries NO pending-input qualifier — `--execute` may run as is
+    # (the counterpart of test_multi_target_check_mode_flags_need_for_placement_map, T10i).
+    assert "pending" not in proc.stdout.rsplit("verdict:", 1)[-1]
     assert "PREPARED MERGE DIFF" in proc.stdout
     assert "verified by: tests/test_core.py::test_add" in proc.stdout
     # main is untouched: still no invariants merged, still on the change branch.
@@ -650,12 +653,17 @@ def _multi_repo(root: Path) -> FixtureRepo:
 
 def test_multi_target_check_mode_flags_need_for_placement_map(tmp_path: Path) -> None:
     # check mode (the command's step 1): multi-target Affects surfaces a merge.placement FLAG
-    # — not a deny — so the command knows to propose a map before --execute.
+    # — not a deny — so the command knows to propose a map before --execute. merge.placement
+    # stays REVIEW-class for exactly this reason (T10i item 1): a TRUST deny here would block
+    # the run whose step 4 produces the map, deadlocking every multi-target acceptance.
     repo = _multi_repo(tmp_path / "app")
     proc = repo.accept("demo/001", "--base", "main")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "[FLAG] merge.placement" in proc.stdout
     assert "verdict: ACCEPTABLE" in proc.stdout
+    # ...and the verdict line itself says the map is still owed, so "ACCEPTABLE" is never read
+    # as "ready for --execute" on a change --execute refuses (T10i item 1).
+    assert "verdict: ACCEPTABLE — pending the placement map --execute requires" in proc.stdout
     # nothing placed without an approved map.
     assert "verified by" not in repo.show("main", "specs/demo/core.md")
     assert "verified by" not in repo.show("main", "specs/demo/extra.md")

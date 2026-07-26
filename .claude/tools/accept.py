@@ -108,6 +108,14 @@ TRUST, REVIEW = "trust", "review"
 # mode FLAGs a multi-target `Affects` with no approved map, and `--execute` refuses it outright
 # (run(), pinned by test_multi_target_execute_without_map_is_refused) — so nothing merges on an
 # undetermined placement even though the check-mode status is a FLAG.
+# Re-opened and re-closed as REVIEW (T10i item 1) — do not "promote" it to TRUST: check mode is
+# what `/accept-change` step 1 runs, and its step 4 (propose a placement map for the human) is
+# only reached on a non-denied run. A TRUST classification would therefore DENY the very change
+# whose map the command exists to produce, deadlocking every multi-target acceptance — while
+# §5.4 says accept.py «при multi-target только флагует распределение». What was genuinely
+# missing is legibility, not severity: the check-mode verdict line now says the map is still
+# owed (run(), pinned by test_multi_target_check_mode_flags_need_for_placement_map), so nobody
+# reads a bare "ACCEPTABLE" on a change `--execute` will refuse.
 GATES: dict[str, str] = {
     "escalate": TRUST,
     "criteria.complete": TRUST,
@@ -1424,7 +1432,16 @@ def run(tree: Path, change_id: str, base: str | None, do_execute: bool, placemen
     print("== ACCEPT ==")
     for r in flags:
         print(f"FLAG: {r.id} — {r.detail.splitlines()[0]}")
-    print(f"verdict: {'DENIED' if denied else 'ACCEPTABLE'}")
+    if denied:
+        print("verdict: DENIED")
+    elif plan is not None and plan.needs_placement:
+        # A multi-target change is ACCEPTABLE and NOT yet executable: the placement map is a
+        # semantic act §5.4 gives to /accept-change, so check mode flags rather than denies
+        # (see the GATES note on merge.placement). Saying only "ACCEPTABLE" invited the next
+        # step to be `--execute`, which then refuses — the verdict line names the missing input.
+        print("verdict: ACCEPTABLE — pending the placement map --execute requires (merge.placement FLAG)")
+    else:
+        print("verdict: ACCEPTABLE")
 
     if do_execute:
         if denied:
