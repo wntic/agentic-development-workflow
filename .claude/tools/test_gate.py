@@ -144,10 +144,10 @@ Provide `add` and the app factory for the gate fixture.
 """
 
 # The removal vocabulary is spec §3.1's, pinned by T03c: the `REMOVED` marker plus the
-# `## Removed` section the change.md template ships. The gate reads node-ids out of the raw
-# change.md text (any mention counts as the legal-removal allowance), but the fixture writes them
-# where the author is instructed to — one spelling everywhere, so a reader of this fixture learns
-# the real shape.
+# `## Removed` section the change.md template ships. The gate reads node-ids out of the change.md
+# CONTENT — any mention outside an HTML comment counts as the legal-removal allowance (T04h) — but
+# the fixture writes them where the author is instructed to: one spelling everywhere, so a reader
+# of this fixture learns the real shape.
 CHANGE_MD_REMOVAL = """\
 # demo/001 — fixture removal change
 
@@ -159,6 +159,27 @@ Remove the `add` behaviour.
 ## Removed
 - `add` — the operation goes from the app surface.
 - `tests/test_core.py::test_add` — obsolete with it.
+
+## Acceptance criteria
+- AC-1: `add` operation is gone from the app surface.
+"""
+
+# The SAME removal change with the node-id left inside the instruction comment instead of being
+# written into the section — the shape every change inherits from the change.md template, since
+# the template's own comment documents this very reader. Comment text is not content, so this
+# grants NO allowance (T04h).
+CHANGE_MD_REMOVAL_IN_COMMENT = """\
+# demo/001 — fixture removal change
+
+Class: behavioral, REMOVED
+
+## Task
+Remove the `add` behaviour.
+
+## Removed
+<!-- One bullet per removed thing — the symbol/node-id in backticks:
+     - `add` — the operation goes from the app surface.
+     - `tests/test_core.py::test_add` — obsolete with it. -->
 
 ## Acceptance criteria
 - AC-1: `add` operation is gone from the app surface.
@@ -1077,6 +1098,24 @@ def test_removal_listed_in_change_md_is_legal(tmp_path: Path) -> None:
     assert repo.statuses()["integrity.test-inventory"] == "PASS"
 
 
+def test_removal_listed_only_in_a_comment_is_not_legal(tmp_path: Path) -> None:
+    # T04h, the pair of the test above: the SAME deletion, with the node-id living only inside
+    # change.md's instruction comment. The allowance is a permission, and a comment must not
+    # widen it — otherwise the template's own comment authorises deleting a baseline test for
+    # every change that keeps it (the fail-open direction of "a comment is not content").
+    repo = make_repo(tmp_path / "app", change_md=CHANGE_MD_REMOVAL_IN_COMMENT)
+    repo.write("specs/demo/core.md", "# demo — core capability\n\n- The `add` operation is being removed.\n")
+    repo.write(
+        "tests/test_core.py",
+        '"""Fixture tests after removal."""\n\nfrom app.core import add\n\n\n'
+        "def test_add_zero() -> None:\n    assert add(0, 0) == 0\n",
+    )
+    proc = repo.gate()
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert repo.statuses()["integrity.test-inventory"] == "FAIL"
+    assert "tests/test_core.py::test_add: in baseline inventory but not collected" in proc.stdout
+
+
 def test_escalate_deleted_since_baseline_is_red(tmp_path: Path) -> None:
     # §5.3/E-08 bypass: the agent that hit its iteration ceiling unlocks itself by deleting the
     # hook-written ESCALATE (accept.py only checks whether the file exists NOW). The change dir
@@ -1580,6 +1619,37 @@ def test_inventory_violations_unit() -> None:
         # carve-out is directory-keyed, not skip-reason-keyed).
         violations, _ = gate.inventory_violations(baseline, baseline, outcomes, "", docker_available=False)
         assert any("test_b" in v for v in violations), silenced
+
+
+def test_removal_allowance_ignores_html_comments_unit() -> None:
+    # T04h: the allowance is the only "a comment is not content" reader that widens a PERMISSION,
+    # so the strip lives inside this function — no caller can pass raw text and get the old
+    # behaviour back.
+    baseline = {"tests/t.py::test_a", "tests/t.py::test_b"}
+    collected = {"tests/t.py::test_a"}
+    outcomes = {"tests/t.py::test_a": "passed"}
+
+    def removals(text: str) -> list[str]:
+        violations, _ = gate.inventory_violations(baseline, collected, outcomes, text, docker_available=False)
+        return violations
+
+    # single-line comment, multi-line comment (the template's shape), and a comment on a line
+    # that also carries content: none of them may grant the allowance.
+    for commented in (
+        "<!-- - `tests/t.py::test_b` — obsolete with it. -->",
+        "## Removed\n<!-- One bullet per removed thing:\n     - `tests/t.py::test_b` — obsolete. -->\n",
+        "## Removed\n- `add` goes <!-- and with it tests/t.py::test_b -->\n",
+    ):
+        assert any("test_b" in v for v in removals(commented)), commented
+
+    # real content still grants it, comment or no comment in the same document
+    assert removals("## Removed\n- `tests/t.py::test_b` — obsolete.\n") == []
+    assert removals("<!-- instructions -->\n## Removed\n- `tests/t.py::test_b` — obsolete.\n") == []
+
+    # DELIBERATELY NOT SCOPED to the `## Removed` section (T04h's second half): a node-id in
+    # content anywhere in the frozen change.md still grants the allowance. Pinned so the ruling
+    # is visible — reversing it is a behaviour narrowing, not a bug fix.
+    assert removals("## Verification\nRun `pytest tests/t.py::test_b` by hand.\n") == []
 
 
 def test_docker_carveout_unit() -> None:

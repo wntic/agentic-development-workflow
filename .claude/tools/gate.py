@@ -1551,7 +1551,25 @@ def inventory_violations(
     # E-05: collected node-ids must be a superset of the baseline inventory; a baseline
     # test that is missing, skipped or xfailed = RED (deletion / deselect / conftest
     # silencing all collapse into this one check). Legal removals exist only when the
-    # change.md (frozen at baseline) lists the node-id.
+    # change.md (frozen at baseline) lists the node-id in its CONTENT.
+    #
+    # A comment is not content (T10j/T10k) — and here that rule guards a PERMISSION, not a
+    # reading: the allowance is a raw substring match over the whole change.md, so a node-id
+    # appearing anywhere in it would authorise deleting a baseline test. Inside an HTML comment
+    # that means the template's own instruction text, which every change keeps, silently
+    # widening the allowance for all of them — the fail-open direction (T04h). One grammar, one
+    # home (C7): the helper the criteria and capability-provenance checks already use, applied
+    # HERE so the property belongs to this function and not to whoever calls it.
+    #
+    # NOT scoped to the `## Removed` section, deliberately (T04h's second half). change.md is
+    # frozen against the baseline commit (E-12) and no agent inside the cycle may edit it (D4),
+    # so a node-id in non-comment text outside that section can only come from the human's own
+    # authoring in the /spec session — one document's slip, not a widening every change inherits
+    # from the template. Scoping would cost a FOURTH `#+ Removed` parser here (or an upward
+    # import of accept.py's, which would invert the layering: the gate is the lower script), and
+    # it narrows a permission whose owner is the human. Reopen it with a real recorded case: a
+    # node-id written in `## Verification` grants deletion of that very test, which is the shape
+    # to look for.
     #
     # Sole carve-out (spec §5.1, T04b): a COLLECTED baseline test under tests/integration/
     # reported `skipped` is NOT RED when the gate's own Docker probe found the daemon absent
@@ -1560,6 +1578,7 @@ def inventory_violations(
     # integration test (not collected) is still RED (finding 4: the deselect bypass); with
     # the daemon present there is no exemption at all; a non-integration skip is RED; and
     # only `skipped` is exempt (an xfail or a setup error still fails).
+    allowed_removals_text = "\n".join(_criteria_lint().strip_html_comments(allowed_removals_text.splitlines()))
     violations = []
     docker_skipped = []
     for node_id in sorted(baseline_ids):
@@ -1634,7 +1653,11 @@ def check_test_inventory(ctx: GateContext, pytest_check: Check, *, docker_availa
                 blob = _baseline_blob(ctx, rel)
                 if blob is None:
                     raise GateError(_baseline_blob_problem(ctx, rel, in_baseline_tree=True))
-                allowed += blob.decode("utf-8", errors="replace")
+                # Newline-separated: each blob is its own document, so the last line of one
+                # change.md must not glue onto the first line of the next and fabricate a
+                # node-id nobody wrote. (An UNTERMINATED comment in one document still blanks
+                # what follows it — that shrinks the allowance, i.e. fails closed.)
+                allowed += blob.decode("utf-8", errors="replace") + "\n"
     except GateError as exc:
         return Check("integrity.test-inventory", "FAIL", str(exc)), []
     inventory_path = ctx.gate_dir / INVENTORY_NAME
