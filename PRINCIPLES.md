@@ -146,6 +146,10 @@ vs the `/spec` session); coupling it to one orchestration leaks a layer. `v3 §7
 layer. *Litmus:* a skill covers one coherent theme an agent can pick by its `description` /
 `when_to_use` (post-merge granularity: `domain-model`, `restapi`, `testing-unit`, …); if its hard
 stops fire, the task asked for the wrong artifact — switch to the right skill, don't stretch this one.
+"One theme" permits **bundled per-topic reference files loaded on demand**: the theme is one
+auto-invocation entry (one `SKILL.md`, one frontmatter, one index line), not necessarily one file, so a
+theme past the size threshold keeps a thin `SKILL.md` router beside one `<topic>.md` per artifact
+(shape + threshold: `.claude/skills/CONVENTIONS.md`, "Skill format").
 *Why:* narrow, non-overlapping scope is what makes auto-invocation load the right knowledge. `v3 §7`
 
 **C3 · The human-onboarding purity test.** *Trigger:* any line in a skill. *Litmus:* would a new human

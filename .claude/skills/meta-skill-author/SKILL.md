@@ -1,14 +1,14 @@
 ---
 name: meta-skill-author
-description: Apply when adding a new skill to `.claude/skills/`. Produces one `<name>/SKILL.md` conforming to the catalog's canonical format — the `name` + `description` + `when_to_use` frontmatter (the last two drive auto-invocation, ≤1536 chars combined), the four-section body, and placeholder vocabulary — so agents reading the new skill apply it the same way they apply every existing one. Does not produce the agents that invoke skills (those live under `.claude/agents/`) or the spec format itself.
-when_to_use: Adding a brand-new skill to the knowledge catalog, or checking that a hand-written skill conforms to the canonical frontmatter and four-section body. Not for editing an existing skill (edit it directly) or sweeping cross-references after a rename.
+description: Apply when adding a new skill to `.claude/skills/`. Produces one `<name>/SKILL.md` — plus sibling `<topic>.md` files when the theme is large enough to need a router — conforming to the catalog's canonical format: the `name` + `description` + `when_to_use` frontmatter (the last two drive auto-invocation, ≤1536 chars combined), the four-section body, and placeholder vocabulary, so agents reading the new skill apply it the same way they apply every existing one. Does not produce the agents that invoke skills (those live under `.claude/agents/`) or the spec format itself.
+when_to_use: Adding a brand-new skill to the knowledge catalog, or checking that a hand-written skill conforms to the canonical frontmatter, the four-section body, and the single-topic-vs-router shape rule. Not for editing an existing skill (edit it directly) or sweeping cross-references after a rename.
 ---
 
 # Meta — Skill Author
 
-A skill in this catalog is **theme-narrow**: it covers one coherent theme an agent can pick by its `description` / `when_to_use` (e.g. `domain-model`, `restapi`, `testing-unit`). A theme may span several closely-related artifacts, each carried as its own `## …` section keeping the four-section shape. Skills are read by agents (or humans) as reference knowledge; the skill's job is to show how the right file(s) are written. Uniformity matters more than expressiveness — an agent that has read one skill should be able to apply any other.
+A skill in this catalog is **theme-narrow**: it covers one coherent theme an agent can pick by its `description` / `when_to_use` (e.g. `domain-model`, `restapi`, `testing-unit`). A theme may span several closely-related artifacts: a small theme carries them in one body, a large one keeps a thin `SKILL.md` router plus one `<topic>.md` per artifact (both shapes below). Skills are read by agents (or humans) as reference knowledge; the skill's job is to show how the right file(s) are written. Uniformity matters more than expressiveness — an agent that has read one skill should be able to apply any other.
 
-This skill produces one new `SKILL.md`. It does **not** modify other skills (that's an audit task), produce agents (`.claude/agents/`), or design the spec format.
+This skill produces one new `SKILL.md` (plus its topic files, if the theme needs them). It does **not** modify other skills (that's an audit task), produce agents (`.claude/agents/`), or design the spec format.
 
 ## When to use vs. neighbours
 
@@ -20,10 +20,13 @@ This skill produces one new `SKILL.md`. It does **not** modify other skills (tha
 ## File location
 
 ```
-.claude/skills/<full-skill-name>/SKILL.md
+.claude/skills/<full-skill-name>/
+    SKILL.md          # always: frontmatter + either the whole body (single-topic)
+                      #         or the router (multi-topic theme)
+    <topic>.md        # multi-topic theme only: one file per artifact, no frontmatter
 ```
 
-The directory name **is** the skill name (e.g. `domain-entity/SKILL.md`). One SKILL.md per directory, no other files unless the skill needs sibling assets (rare; explain in the body why).
+The directory name **is** the skill name (e.g. `domain-model/SKILL.md`). One `SKILL.md` per directory, and it is the only file with frontmatter — the sibling files a large theme bundles are topic files, not skills. Any other sibling asset is rare; explain in the body why it exists.
 
 ## Frontmatter (exact shape — no custom fields)
 
@@ -36,6 +39,8 @@ when_to_use: <one or two sentences naming the trigger situations — drives auto
 ```
 
 Only `name`, `description`, and `when_to_use`. `description` + `when_to_use` are the two fields the runtime lists for auto-invocation, so keep them ≤1536 characters combined. **No** other custom fields like `component:`, `produces:`, `layer:`. Tooling does not parse those; they make the format look variable.
+
+Frontmatter belongs to `SKILL.md` alone. A bundled `<topic>.md` starts at its `# ` title with no frontmatter block — a stray `name:` / `description:` there would advertise a phantom skill in the catalog listing and split one theme into two auto-invocation entries.
 
 Description rules:
 
@@ -80,12 +85,63 @@ Every skill has these sections, in this order, with these exact headings. Four a
 <Bullet list of "spec asks for X → stop, use `<other-skill>` (or fix the spec)". Each bullet is a single line. These are how the agent self-detects "I'm in the wrong skill".>
 ```
 
+## Where the body lives — single-topic skill vs. router + topics
+
+The four-section body above is invariant. What you decide is which of two shapes carries it.
+
+**Single-topic skill.** One `SKILL.md`: frontmatter + one four-section body. A theme covering a few artifacts an author reaches for together keeps each under its own `## ` heading inside that single body, still four-sectioned. This is the default.
+
+**Multi-topic theme (router + bundled topics).** `SKILL.md` shrinks to a router and each artifact's four-section body moves into a sibling `<topic>.md` the agent reads on demand. The theme is still **one** skill and one auto-invocation entry.
+
+**The threshold: a `SKILL.md` that would exceed ~500 lines becomes a router.** Below that, stay single-topic however many artifacts the theme covers — the number of artifacts is not a trigger, size is. Past ~500 lines a single artifact's body is a minority of what gets injected, so an agent writing one artifact pays several times over for knowledge it will not use; below it the whole theme is cheaper to inject than a routing round-trip is to risk.
+
+The router's shape:
+
+```markdown
+---
+name: <full-skill-name>
+description: <unchanged — the theme's trigger, as for any skill>
+when_to_use: <unchanged>
+---
+
+# <Title>
+
+<One short opening paragraph: what this theme covers and its hardest boundary.>
+
+## When to use vs. neighbours
+
+<2–4 bullets contrasting this THEME with adjacent themes, as in any skill.>
+
+<Then one imperative line per topic — the router's load-bearing content:>
+
+- <Writing artifact A (naming the sub-decisions it covers)> → **read `a.md` now**.
+- <Writing artifact B> → **read `b.md` now**.
+
+## <Cross-topic material — only what no single topic owns>
+
+<E.g. a tier's constitution: pyramid, naming, fixture discipline. A long one may become
+its own `constitution.md` with an imperative pointer like any other topic.>
+
+## Hard stops
+
+<Theme-level redirects only: "spec asks for X → stop, use `<other-skill>`". Artifact-level
+hard stops stay in their topic file.>
+```
+
+Rules for this shape:
+
+- **Pointers are instructions, not cross-references.** Only `SKILL.md` is injected; a topic file reaches the agent only if the agent opens it. Write "→ **read `endpoint.md` now**", never "see also `endpoint.md`" or "more detail in `endpoint.md`".
+- **Every topic is pointed at exactly once, and every pointer resolves.** An unpointed topic file is dead knowledge; a dangling pointer sends the agent to nothing.
+- **A topic file carries the full four-section body** (plus the optional helpers when load-bearing) and **no frontmatter**.
+- **Name the file after the artifact, not the theme:** `restapi/endpoint.md`, never `restapi/restapi-endpoint.md`.
+- **Nothing else changes:** the theme keeps its name, its frontmatter, and its single `CONVENTIONS.md` index entry.
+
 ## Rules
 
 1. **Match the section order exactly.** Agents scan section headings to decide what to read. Renaming or reordering breaks navigation.
 2. **No custom frontmatter fields.** Only `name` and `description`. Information that doesn't fit in the description goes in the body.
 3. **Templates are literal, not prose.** Show the entire file the agent should write. Use placeholders like `Foo`, `<root>`, `<subdomain>` consistently with CONVENTIONS.md.
-4. **One theme per skill.** A skill covers one coherent theme (which may span a few closely-related artifacts, each its own `##` section). If a candidate would cover two unrelated themes, split it. If its hard stops fire, the task asked for the wrong artifact — switch skills, don't stretch this one.
+4. **One theme per skill.** A skill covers one coherent theme, which may span several closely-related artifacts — held in one body, or in bundled topic files behind a router once the theme outgrows the threshold. "One theme" is one auto-invocation entry, not necessarily one file. If a candidate would cover two unrelated themes, split it into two skills. If its hard stops fire, the task asked for the wrong artifact — switch skills, don't stretch this one.
 5. **Cross-cutting rules are referenced, not restated.** Point to `architecture` (layers, packages, imports), `python-style` (typing, logging), and `conventions` (derivation) rather than copying their rules. Inlined slices (3–6 bullets) are acceptable when load-bearing. Toolchain commands are never restated — cite `gate.py`.
 6. **Hard stops are explicit.** Every plausible "wrong-skill" case becomes a hard stop with a redirect. This is how agents recover from misclassification without overreaching.
 7. **Use placeholder vocabulary.** `Foo` for the primary aggregate, `Bar` for the secondary, `myapp` for the project root. Never name a specific aggregate from the current application.
@@ -104,7 +160,7 @@ Creates one or more new files. Section emphasis:
 - `Template(s)` — full literal file content with placeholders. The agent copy-paste-modifies.
 - `Package wiring` — present when a new module needs registering in an `__init__.py`.
 
-Examples: the producing sections of `domain-model`, `application`, `infra-persistence`, `restapi`, `testing-unit`.
+Examples: the producing topics of `domain-model`, `application`, `infra-persistence`, `restapi`, `testing-unit`.
 
 ### Modifier
 
@@ -113,7 +169,7 @@ Extends an existing file rather than creating a new one. Section emphasis:
 - `Template(s)` — shows what gets inserted (a class body, a function, a decorator argument, a registry entry), not a whole file.
 - `Package wiring` — usually absent; the file already lives in a package.
 
-Examples: the DI-provider section of `infra-integration` (modifies `containers.py`), the error-responses section of `restapi` (adds a decorator kwarg), the compensating-tx section of `application` (shapes a handler body), the architecture-rule section of `testing-unit` (appends a test function).
+Examples: the DI-provider topic of `infra-integration` (modifies `containers.py`), the error-responses topic of `restapi` (adds a decorator kwarg), the compensating-tx topic of `application` (shapes a handler body), the architecture-rule topic of `testing-unit` (appends a test function).
 
 ### Bootstrap
 
@@ -122,7 +178,7 @@ Produces a fixed set of files, runs **once per project**. Section emphasis:
 - `Template(s)` — multiple full file templates under `###` subheadings, one per produced file.
 - `When to use vs. neighbours` — explicitly notes "one-shot per project" and the catalog-ordering that other skills depend on.
 
-Examples: the app-bootstrap section of `restapi`; the isolation, authed-client, and discovery-invariant sections of `testing-integration`.
+Examples: the app-bootstrap topic of `restapi`; the isolation, authed-client, and discovery-invariant topics of `testing-integration`.
 
 (Note: the exception catalog `domain/exceptions.py` is a single append-only file — a new exception appends one class, it is not created once as a bootstrap file.)
 
@@ -170,7 +226,7 @@ A process skill (brainstorm, retrospective) and a meta skill (this one) may prod
 
 ### Universal rules (every skill, regardless of prefix)
 
-- No custom frontmatter fields.
+- No custom frontmatter fields, and frontmatter in `SKILL.md` only — a bundled topic file has none.
 - No `## Revision` footer or author-side history block — that's author metadata that pollutes runtime context. Use git history.
 - No meta-notes addressed to skill authors inside the body ("Do not duplicate these rules here").
 - No orchestration sections (what the skill returns, who invokes it) and no spec-input tables — those layers live in the agents/commands and the spec format, not in the skill.
@@ -183,6 +239,8 @@ A process skill (brainstorm, retrospective) and a meta skill (this one) may prod
 - **Templates that document the rule instead of showing the file.** If the template has more comments than code, you're explaining the rule, not showing the output. Move the explanation to "Rules" and tighten the template.
 - **Hard stops that aren't actually stops.** "Hard stop: think carefully before X" isn't a hard stop. The format is "X → stop, use Y."
 - **A leaked orchestration or input-table section.** If you find yourself writing what the skill returns to a caller, or a table of fields a spec must supply, stop — that's a different layer (see rule 10).
+- **A soft pointer in a router.** "See also `endpoint.md`" or "more detail in `endpoint.md`" leaves the agent writing the artifact from the router's summary, because only `SKILL.md` is injected. Every pointer is imperative and names the file: "→ **read `endpoint.md` now**".
+- **A router that keeps summarising its topics.** If the router explains how the artifact is written, the rules now live in two places and will drift. The router routes; the topic file teaches.
 
 ## After writing the file
 
@@ -192,9 +250,14 @@ Update `CONVENTIONS.md`:
 2. Keep entries in the order they're conceptually used (`domain-entity` before `domain-value-object` before `domain-enum`, etc.).
 3. The entry follows the format: `- \`<skill-name>\` — <one-sentence summary that complements, not duplicates, the description>.`
 
+One entry per theme. A bundled topic file gets no index entry of its own — the router is the theme's only address.
+
 ## Hard stops
 
 - Spec asks for a skill that produces no file at all (pure documentation) → stop, that belongs in CONVENTIONS.md or a layer skill's body, not as its own skill.
 - Spec asks for a skill that requires custom frontmatter fields → stop, use the body for the information.
 - Spec proposes a skill whose description overlaps an existing one's by more than half its content → stop, this is an edit to the existing skill, not a new one.
 - Spec uses application-specific names (`Order`, `Material`, `Invoice`) in templates → stop, replace with `Foo`/`Bar`.
+- A bundled topic file is asked to carry its own `name:` / `description:` frontmatter → stop, that would mint a phantom skill; frontmatter lives in `SKILL.md` alone.
+- The theme's `SKILL.md` is heading past ~500 lines and another `## ` artifact section is being appended → stop, convert it to a router with one `<topic>.md` per artifact.
+- A second theme is being minted just to shrink a large one (`restapi-endpoint` beside `restapi`) → stop, that is a bundling job inside the existing theme, not a new auto-invocation entry.
