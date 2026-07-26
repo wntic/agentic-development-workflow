@@ -1007,6 +1007,78 @@ def test_escalate_state_fails_closed_on_an_unanswerable_git_call(repo: FixtureRe
     assert state.error and state.known == () and state.missing == ()
 
 
+# --- The other baseline helper: git could not answer ≠ the baseline carries no paths (T04f) ---
+#
+# `_baseline_paths()` used to return `[]` on a non-zero rc, so its callers could not tell an
+# unreadable baseline from a baseline that touched no files. They failed closed only by luck —
+# the per-file `_baseline_blob()` failed too and produced "created after the baseline commit",
+# blaming the work tree for a git failure. The messages below are the load-bearing assertions.
+
+
+def _unreadable_baseline_ctx(repo: FixtureRepo) -> gate.GateContext:
+    """A resolved context whose baseline ref git cannot answer for.
+
+    `resolve_context()` verifies an explicit `--baseline` up front, so a context can only reach
+    this state the way reality does: the ref resolved once and the object store cannot serve it
+    now. Overriding the field is the hermetic model of that; the end-to-end case below produces
+    it for real by deleting the baseline tree object.
+    """
+    ctx = gate.resolve_context(repo.root, "demo/001", None)
+    ctx.baseline = "refs/tags/no-such-baseline"
+    return ctx
+
+
+def test_baseline_paths_raises_instead_of_returning_an_empty_list(repo: FixtureRepo) -> None:
+    with pytest.raises(gate.GateError) as exc:
+        gate._baseline_paths(_unreadable_baseline_ctx(repo), "specs")
+    assert "ls-tree" in str(exc.value)
+
+
+def test_criteria_flips_fails_naming_git_when_the_baseline_is_unreadable(repo: FixtureRepo) -> None:
+    check = gate.check_criteria_flips(_unreadable_baseline_ctx(repo))
+    assert check.status == "FAIL"
+    assert "git ls-tree" in check.detail
+    assert "created after the baseline commit" not in check.detail  # the pre-fix misattribution
+
+
+def test_change_frozen_fails_naming_git_when_the_baseline_is_unreadable(repo: FixtureRepo) -> None:
+    check = gate.check_change_frozen(_unreadable_baseline_ctx(repo))
+    assert check.status == "FAIL"
+    assert "git ls-tree" in check.detail
+    assert "created after the baseline commit" not in check.detail  # the pre-fix misattribution
+
+
+def test_test_inventory_fails_naming_git_when_the_baseline_is_unreadable(repo: FixtureRepo) -> None:
+    # The third caller (the legal-removal allowance is read out of the baseline change.md). Its
+    # git-naming comes from `collect_baseline_inventory`'s own guard, which runs first; the point
+    # of the case is that the check never PASSes and never silently loses the allowance.
+    check, exempt = gate.check_test_inventory(
+        _unreadable_baseline_ctx(repo),
+        gate.Check("toolchain.pytest", "PASS", "fixture"),
+        docker_available=False,
+    )
+    assert check.status == "FAIL"
+    assert "git archive" in check.detail
+    assert exempt == []
+
+
+def test_unreadable_baseline_tree_is_red_and_blames_git(tmp_path: Path) -> None:
+    # End to end, with the corruption git itself would report: the baseline commit object is
+    # there (so the ref resolves and every integrity check runs) but its tree object is gone —
+    # a partial/damaged object store. Every affected check must FAIL naming git.
+    repo = make_repo(tmp_path / "app")
+    tree_oid = repo.git("rev-parse", "baseline/demo-001^{tree}").strip()
+    (repo.root / ".git/objects" / tree_oid[:2] / tree_oid[2:]).unlink()
+
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    statuses = repo.statuses()
+    for check_id in ("integrity.criteria-flips", "integrity.change-frozen", "integrity.test-inventory"):
+        assert statuses[check_id] == "FAIL", (check_id, statuses)
+    assert "git ls-tree baseline/demo-001" in proc.stdout
+    assert "created after the baseline commit" not in proc.stdout
+
+
 def test_human_removal_followed_by_a_rebaseline_is_not_punished(tmp_path: Path) -> None:
     # The legal path: the human clears the lock, the removal is committed, and the baseline
     # moves onto that commit (red_check.py --rebaseline). The new baseline carries no

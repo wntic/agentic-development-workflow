@@ -63,6 +63,7 @@ import tomllib
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 sys.dont_write_bytecode = True  # never litter bytecode into protected trees
 
@@ -100,7 +101,9 @@ plugins = pydantic.mypy
 ignore_missing_imports = True
 """
 
-# ruff: select includes B (hence B006 mutable-default and B904 raise-from — spec §5.1).
+# The ruff selection below includes B (hence B006 mutable-default and B904 raise-from — spec
+# §5.1). Do not open this comment with the literal `ruff:` prefix: ruff parses `# ruff: <word>` as
+# a file-level suppression directive and reports the prose as RUF103 (T04f).
 RUFF_SELECT = "E,W,F,I,N,UP,B,C4,SIM,RUF"
 RUFF_LINE_LENGTH = "120"
 RUFF_TARGET = "py312"
@@ -325,7 +328,8 @@ def _git(tree: Path, *args: str) -> tuple[int, str]:
     return _run(["git", "-C", str(tree), *args], timeout=120)
 
 
-def _criteria_lint():  # noqa: ANN202 — stdlib-only sibling import, one grammar one home (C7)
+def _criteria_lint() -> ModuleType:
+    """The `criteria_lint` sibling module — stdlib-only import, one grammar one home (C7)."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import criteria_lint
 
@@ -1043,13 +1047,43 @@ def check_invariant_tests(ctx: GateContext) -> Check:
 
 
 def _baseline_blob(ctx: GateContext, rel_path: str) -> bytes | None:
+    """The baseline content of `rel_path`, or None when git would not hand it over.
+
+    None conflates two facts — "the baseline tree has no such path" and "git could not read
+    it" — which is why every caller pairs it with `_baseline_paths()` and reports the second
+    case as a git failure (`_baseline_blob_problem`, T04f).
+    """
     rc, out = _run_bytes(["git", "-C", str(ctx.tree), "show", f"{ctx.baseline}:{rel_path}"])
     return out if rc == 0 else None
 
 
+def _baseline_blob_problem(ctx: GateContext, rel: str, *, in_baseline_tree: bool) -> str:
+    """Why `_baseline_blob(ctx, rel)` came back None, said truthfully.
+
+    A path the baseline tree LISTS cannot have been "created after the baseline commit"; if its
+    blob is unreadable, git failed. Naming the wrong cause is how the swallowed rc in
+    `_baseline_paths()` stayed invisible — the check failed closed, so only its message lied
+    (T04f, notes/19's fail-open class).
+    """
+    if in_baseline_tree:
+        return f"{rel}: listed in the baseline tree but `git show {ctx.baseline}:{rel}` failed — baseline unreadable"
+    return f"{rel}: created after the baseline commit"
+
+
 def _baseline_paths(ctx: GateContext, prefix: str) -> list[str]:
+    """The baseline tree's paths under `prefix` — raising when git could not answer.
+
+    "The baseline commit carries no such path" and "the baseline commit is unreadable" are
+    different facts, and only the first is a legitimate empty list: an empty list from an
+    unanswerable git call is read by every caller as "nothing to compare", i.e. it fails OPEN
+    by construction (notes/19's single root cause; T04f). Callers turn the GateError into a
+    FAIL naming the git failure — never an abort, because a broken baseline is a verdict about
+    the tree, not a reason to leave no verdict at all.
+    """
     rc, out = _git(ctx.tree, "ls-tree", "-r", "--name-only", str(ctx.baseline), "--", prefix)
-    return [line for line in out.splitlines() if line.strip()] if rc == 0 else []
+    if rc != 0:
+        raise GateError(f"git ls-tree {ctx.baseline} -- {prefix} failed (rc={rc}):\n{_tail(out)}")
+    return [line for line in out.splitlines() if line.strip()]
 
 
 def check_protected_trees(ctx: GateContext) -> Check:
@@ -1097,12 +1131,15 @@ def criteria_flip_violations(base_lines: list[str], work_lines: list[str]) -> li
 
 def check_criteria_flips(ctx: GateContext) -> Check:
     work_files = {str(p.relative_to(ctx.tree)) for p in ctx.tree.glob("specs/*/changes/*/criteria.md")}
-    base_files = {p for p in _baseline_paths(ctx, "specs") if p.endswith("/criteria.md") and "/changes/" in p}
+    try:
+        base_files = {p for p in _baseline_paths(ctx, "specs") if p.endswith("/criteria.md") and "/changes/" in p}
+    except GateError as exc:
+        return Check("integrity.criteria-flips", "FAIL", f"baseline criteria.md set unknown (E-03): {exc}")
     problems: list[str] = []
     for rel in sorted(work_files | base_files):
         blob = _baseline_blob(ctx, rel)
         if blob is None:
-            problems.append(f"{rel}: created after the baseline commit (E-03)")
+            problems.append(f"{_baseline_blob_problem(ctx, rel, in_baseline_tree=rel in base_files)} (E-03)")
             continue
         if rel not in work_files:
             problems.append(f"{rel}: existed at baseline but is gone from the work tree")
@@ -1119,12 +1156,15 @@ def check_change_frozen(ctx: GateContext) -> Check:
     # E-12: change.md hash is frozen at the red commit — the task text cannot be bent
     # to fit the implementation afterwards.
     work_files = {str(p.relative_to(ctx.tree)) for p in ctx.tree.glob("specs/*/changes/*/change.md")}
-    base_files = {p for p in _baseline_paths(ctx, "specs") if p.endswith("/change.md") and "/changes/" in p}
+    try:
+        base_files = {p for p in _baseline_paths(ctx, "specs") if p.endswith("/change.md") and "/changes/" in p}
+    except GateError as exc:
+        return Check("integrity.change-frozen", "FAIL", f"baseline change.md set unknown (E-12): {exc}")
     problems: list[str] = []
     for rel in sorted(work_files | base_files):
         blob = _baseline_blob(ctx, rel)
         if blob is None:
-            problems.append(f"{rel}: created after the baseline commit")
+            problems.append(_baseline_blob_problem(ctx, rel, in_baseline_tree=rel in base_files))
         elif rel not in work_files:
             problems.append(f"{rel}: existed at baseline but is gone from the work tree")
         elif (ctx.tree / rel).read_bytes() != blob:
@@ -1311,16 +1351,20 @@ def collect_baseline_inventory(ctx: GateContext) -> set[str]:
 
 
 def check_test_inventory(ctx: GateContext, pytest_check: Check, *, docker_available: bool) -> tuple[Check, list[str]]:
+    # The legal-removal allowance is READ OUT of the baseline change.md, so an unreadable
+    # baseline must not silently shrink it to "" — that would turn a legal removal into a
+    # violation, i.e. blame the tests for a git failure (T04f).
     try:
         baseline_ids = collect_baseline_inventory(ctx)
+        allowed = ""
+        for rel in _baseline_paths(ctx, "specs"):
+            if rel.endswith("/change.md") and "/changes/" in rel:
+                blob = _baseline_blob(ctx, rel)
+                if blob is None:
+                    raise GateError(_baseline_blob_problem(ctx, rel, in_baseline_tree=True))
+                allowed += blob.decode("utf-8", errors="replace")
     except GateError as exc:
         return Check("integrity.test-inventory", "FAIL", str(exc)), []
-    allowed = ""
-    for rel in _baseline_paths(ctx, "specs"):
-        if rel.endswith("/change.md") and "/changes/" in rel:
-            blob = _baseline_blob(ctx, rel)
-            if blob:
-                allowed += blob.decode("utf-8", errors="replace")
     inventory_path = ctx.gate_dir / INVENTORY_NAME
     if pytest_check.status == "SKIP" or not inventory_path.exists():
         if baseline_ids:
