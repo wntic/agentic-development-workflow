@@ -207,7 +207,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   but it covers only an ESCALATE that somehow reached the baseline commit, which the shipped flow
   cannot produce. Kept rather than reverted for that reason; its narrow reach is now stated in
   `CLAUDE.md` and in a dated CORRECTION block in `notes/19`.
-- [ ] T06h — Make the `ESCALATE` lock real: (1) the hook **commits** the file (scoped to that path),
+- [x] T06h — Make the `ESCALATE` lock real: (1) the hook **commits** the file (scoped to that path),
   (2) `gate.py`+`accept.py` ask a **branch-history** question ("committed since baseline, now gone?")
   instead of a baseline diff / a filesystem `exists()`, (3) a sanctioned way for the human to clear
   it — without which clearing a lock leaves the gate permanently RED, since `red_check --rebaseline`
