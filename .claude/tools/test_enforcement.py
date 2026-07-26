@@ -634,24 +634,6 @@ def test_bash_guard_segmenting_does_not_open_the_protected_tree(repo: FixtureRep
 @pytest.mark.parametrize(
     ("command", "role"),
     [
-        # Variant 7, verbatim: `$CD` is a scratchpad OUTSIDE the repo, but the guard cannot expand
-        # it, so the token was not absolute, got joined onto the repo root, and `specs/` matched.
-        ('rm -f "$CD/specs/demo/changes/001-x/ESCALATE"', "v3-builder"),
-        ("echo x > ${SCRATCH}/tests/x.py", "evaluator"),
-        ("cat > `pwd`/tests/x.py", "evaluator"),
-        # the same hole through a `~` the guard would have to expand itself
-        ("cat > ~/scratch/tests/x.py", "evaluator"),
-    ],
-)
-def test_bash_guard_unresolvable_target_location_does_not_fire(repo: FixtureRepo, command: str, role: str) -> None:
-    # An expansion in the target's FIRST component anchors the path nowhere: indeterminate, so
-    # dropped rather than resolved against the repo root (T06b/T06f precision bias, S8 backstop).
-    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) is None, command
-
-
-@pytest.mark.parametrize(
-    ("command", "role"),
-    [
         # the literal spelling of the same path is still protected for a non-owner
         ("rm -f specs/demo/changes/001-x/ESCALATE", "test-author"),
         # an expansion BELOW the anchoring components leaves the location known
@@ -665,20 +647,6 @@ def test_bash_guard_determinable_target_still_fires(repo: FixtureRepo, command: 
     assert decision(_run_anchored(command, agent_type=role, root=repo.root)) == "deny", command
 
 
-@pytest.mark.parametrize(
-    "command",
-    [
-        "grep '>' tests/x.py",  # the redirect character is the search PATTERN
-        "git commit -m 'body: ; rm tests/x.py'",  # ... and a whole command inside a message
-        'git commit -m "see > tests/x.py"',
-    ],
-)
-def test_bash_guard_quoted_operator_is_data(repo: FixtureRepo, command: str) -> None:
-    # Masking quoted spans before lexing is what makes this structural rather than one more
-    # special case: after it, every punctuation character left is unquoted, hence a real operator.
-    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) is None, command
-
-
 def test_bash_guard_bare_operator_beside_a_quoted_one_still_fires(repo: FixtureRepo) -> None:
     # The discriminating pair: the quoted `>` is data, the bare one is the redirect.
     cmd = "echo '>' > tests/x.py"
@@ -689,8 +657,6 @@ def test_bash_guard_bare_operator_beside_a_quoted_one_still_fires(repo: FixtureR
     ("command", "expected"),
     [
         ("grep -rn rm tests/", None),  # `rm` as a search pattern removes nothing
-        ("echo done # rm tests/x.py", None),  # ... nor inside a trailing comment
-        ("tee -a /tmp/log < tests/x.py", None),  # an INPUT redirect is a read
         ("sudo rm tests/x.py", "deny"),  # ... but a wrapped mutator is still the mutator
         ("VAR=1 rm tests/x.py", "deny"),
         ("if true; then rm tests/x.py; fi", "deny"),
@@ -698,6 +664,11 @@ def test_bash_guard_bare_operator_beside_a_quoted_one_still_fires(repo: FixtureR
     ],
 )
 def test_bash_guard_mutator_counts_in_command_position(repo: FixtureRepo, command: str, expected: str | None) -> None:
+    # The two ALLOW rows this table used to carry — a trailing `# rm …` comment and an INPUT
+    # redirect's operand — are recorded false positives (variants 11 and 12) and now live in
+    # RECORDED_FALSE_POSITIVES below, with the rest of the family. `grep -rn rm tests/` stays
+    # here: it is the command-position property, not a false positive — measured against the
+    # pre-T06i parser it never fired (its target is a bare directory, T06f's component rule).
     assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) == expected, command
 
 
@@ -715,26 +686,54 @@ def test_bash_guard_operator_inventory(repo: FixtureRepo, command: str) -> None:
     assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) == "deny", command
 
 
-# --- the family, replayed ----------------------------------------------------------------
+# --- the family, replayed: all TWELVE variants -------------------------------------------
 #
 # One list of every false positive the tokeniser family was paid for, so a future rewrite is
-# measured against all seven variants at once rather than against the one being fixed.
+# measured against the family rather than against the fix at hand. That is the list's stated
+# purpose (T06i) and its name promises it — but it shipped holding the SEVEN filed variants
+# only, while the five T06i *measured* (differential-testing the old parser against the new
+# over ~120 commands) sat in three separate tests. So "run the RECORDED_FALSE_POSITIVES pins"
+# checked 7 of 12, and a name that under-delivers is how the next rewrite misses variant 13.
+# Consolidated by T06l — the one place in this suite where editing existing lines is sanctioned.
+#
+# Numbering follows T06i's table (1-7 filed, 8-12 measured). Where a variant was observed in
+# more than one spelling all of them are kept: each was separately measured, and which spelling
+# a future parser breaks on is not predictable.
 
 RECORDED_FALSE_POSITIVES = [
-    # T06b — a protected fragment and a `>` inside a quoted commit message
+    # 1 · T06b — a protected fragment and a `>` inside a quoted commit message
     ('git commit -m "msg with <brackets> and .claude/hooks"', "test-author"),
-    # T06e — an absolute path outside the repo that merely contains `tests/`
+    # 2 · T06e — an absolute path outside the repo that merely contains `tests/`
     ("cat > /tmp/x/tests/conftest.py", "test-author"),
-    # T06f A — a relative target inside a scratch tree reached by `cd`
+    # 3 · T06f A — a relative target inside a scratch tree reached by `cd`
     ("cd /tmp/mut && cat > tests/integration/x_test.py", "evaluator"),
-    # T06f A — a filename that merely CONTAINS a protected filename
+    # 4 · T06f A — a filename that merely CONTAINS a protected filename
     ("echo x > notes/users-002-change.md", "test-author"),
-    # T06g — a heredoc BODY read as command
+    # 5 · T06g — a heredoc BODY read as command
     (COMMIT_HEREDOC, "evaluator"),
-    # T06i variant 6 — `;` glued to a quoted word; the reason blamed the `cp`'s source
+    # 6 · T06i variant 6 — `;` glued to a quoted word; the reason blamed the `cp`'s source
     ('rm -rf "$S"; cp .claude/tools/x.py "$S/x.py"', "v3-builder"),
-    # T06i variant 7 — an unexpanded variable resolved against the repo root
+    # 7 · T06i variant 7 — an unexpanded variable resolved against the repo root. An expansion
+    #     in the target's FIRST component anchors the path nowhere, so it is dropped rather than
+    #     joined onto the repo root (precision bias; the deny direction is pinned by
+    #     test_bash_guard_determinable_target_still_fires).
     ('rm -f "$CD/specs/demo/changes/001-x/ESCALATE"', "v3-builder"),
+    # 8 · T06i measured — a leading `~` the guard would have to expand itself
+    ("cat > ~/scratch/tests/x.py", "evaluator"),
+    # 9 · T06i measured — the `${VAR}` brace form of variant 7 ...
+    ("echo x > ${SCRATCH}/tests/x.py", "evaluator"),
+    #     ... and its command-substitution spelling
+    ("cat > `pwd`/tests/x.py", "evaluator"),
+    # 10 · T06i measured — a QUOTED operator read as an operator, which then blamed the file the
+    #      command only reads. Masking quoted spans before lexing is what makes this structural
+    #      rather than one more special case (the bare-beside-quoted pair is pinned separately).
+    ("grep '>' tests/x.py", "evaluator"),
+    ("git commit -m 'body: ; rm tests/x.py'", "evaluator"),  # a whole command inside a message
+    ('git commit -m "see > tests/x.py"', "evaluator"),
+    # 11 · T06i measured — a trailing `# comment` read as a command
+    ("echo done # rm tests/x.py", "evaluator"),
+    # 12 · T06i measured — an INPUT redirect's operand read as a write; an input file is a read
+    ("tee -a /tmp/log < tests/x.py", "evaluator"),
 ]
 
 
@@ -868,6 +867,90 @@ def test_bash_guard_new_ops_keep_the_tokeniser_properties(repo: FixtureRepo) -> 
     assert decision(_run_anchored("mkdir -p /tmp/x; cp /tmp/x tests/y.py", agent_type="evaluator", root=repo.root)) == (
         "deny"
     )
+
+
+# =======================================================================================
+# bash_guard — `git rm` is a write op, `--cached` included (T06l)
+# =======================================================================================
+#
+# The last inventory gap, and the one with evidence rather than speculation: `git rm` is a
+# DOCUMENTED instruction in this repo ("use `git rm` so the commit is reviewable"), so protected
+# files have actually been removed with it while the identical plain `rm` was denied. Measured
+# history, because it is not the "never covered" story the filing assumed: the pre-T06i parser
+# denied `git rm tests/x.py` incidentally — it read the mutator word at ANY token position — and
+# T06i's command-position anchoring (the fix that correctly stopped `grep -rn rm tests/` reading
+# as a removal) dropped it. Unlike `cp` there is no read direction to get wrong: both ends of a
+# `git rm` are removals, so the rule is plain `rm`'s. `--cached` is ruled a WRITE — it mutates
+# *tracked* state, which is exactly what integrity.protected-trees compares. Ergonomics, not
+# trust (the gate backstops either way, S8); what the miss cost is the early, legible denial.
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        ("git rm tests/x.py", "evaluator"),  # a non-owner removing a test
+        ("git rm -r tests/integration", "implementer"),
+        # `--cached` leaves the file on disk and still removes it from the index
+        ("git rm --cached .claude/tools/gate.py", "v3-builder"),
+        ("git rm -r --cached specs/demo", "test-author"),
+        # `--` respected: everything past it is a pathspec
+        ("git rm -- tests/x.py", "evaluator"),
+        ("git rm -f -- specs/demo/changes/001-thing/criteria.md", "test-author"),
+    ],
+)
+def test_bash_guard_git_rm_denies_the_write_direction(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) == "deny", command
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        # T06d survives the new operation: the owner still removes its own files through the shell
+        ("git rm tests/test_core.py", "test-author"),
+        ("git rm --cached tests/test_core.py", "test-author"),
+        ("git rm specs/demo/changes/001-thing/verdict.md", "evaluator"),
+        ("git rm src/app/core.py", "implementer"),
+        # a target that resolves OUTSIDE the repo never fires (T06e), the new op included
+        ("git rm /tmp/scratch/tests/x.py", "evaluator"),
+    ],
+)
+def test_bash_guard_git_rm_allows_owned_and_out_of_repo(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) is None, command
+
+
+def test_bash_guard_git_rm_keeps_the_tokeniser_properties(repo: FixtureRepo) -> None:
+    # The T06i properties must hold for the added operation too, or the inventory re-opens the
+    # family it took a rewrite to close.
+    # Masking: `git rm …` inside a quoted commit message is data, not a command.
+    quoted = 'git commit -m "then git rm tests/x.py"'
+    assert decision(_run_anchored(quoted, agent_type="evaluator", root=repo.root)) is None
+    # First-component expansion: an unexpandable prefix anchors the path nowhere.
+    assert decision(_run_anchored('git rm "$S/tests/x.py"', agent_type="evaluator", root=repo.root)) is None
+    # ... while a literal prefix still anchors it, expansion below and all.
+    assert decision(_run_anchored("git rm tests/$name.py", agent_type="evaluator", root=repo.root)) == "deny"
+    # Segmenting: the removal's own target is found beside another command.
+    assert decision(_run_anchored("mkdir -p /tmp/x; git rm tests/y.py", agent_type="evaluator", root=repo.root)) == (
+        "deny"
+    )
+    # Command position: `git` as a grep pattern removes nothing.
+    assert decision(_run_anchored('grep -rn "git rm" notes/', agent_type="evaluator", root=repo.root)) is None
+    # cd-awareness: a removal inside a scratch copy of the tree resolves outside the repo.
+    assert decision(_run_anchored("cd /tmp/mut && git rm tests/x.py", agent_type="evaluator", root=repo.root)) is None
+
+
+def test_bash_guard_git_rm_takes_every_operand() -> None:
+    # The rule at unit level, so a future edit cannot quietly narrow it to `cp`'s last-operand
+    # rule (there is no read direction here) nor re-classify `--cached` as a read.
+    mod = _load_hook("bash_guard")
+    assert mod._mutator_targets("git", ["rm", "a.py", "b.py"]) == ["a.py", "b.py"]
+    assert mod._mutator_targets("git", ["rm", "-r", "-f", "d"]) == ["d"]
+    assert mod._mutator_targets("git", ["rm", "--cached", "a.py"]) == ["a.py"]
+    assert mod._mutator_targets("git", ["rm", "--", "-weird.py"]) == ["-weird.py"]  # past `--`, a path
+    assert mod._mutator_targets("git", ["rm"]) == []  # nothing named
+    # ... and no other subcommand became a write by accident
+    assert mod._mutator_targets("git", ["status"]) == []
+    assert mod._mutator_targets("git", ["commit", "-m", "rm tests/x.py"]) == []
+    assert mod._mutator_targets("git", ["mv", "a.py", "b.py"]) == []  # deliberately NOT modelled (T06l)
 
 
 # =======================================================================================

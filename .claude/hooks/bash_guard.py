@@ -84,10 +84,17 @@ its `of=` operand (`if=` is a read), and `truncate` writes its file operands (`-
 does not model is a miss, and a miss is caught post-hoc by the gate (S8) — a false positive is
 not, it trains the bypass reflex instead.
 
+`git rm` is a write, `--cached` included (T06l). It was a *documented* instruction in this repo
+("use `git rm` so the commit is reviewable"), so protected files have actually been removed with
+it while plain `rm` on the same path was denied — an inventory gap, not a parser one: `git rm`'s
+argument rule is `rm`'s, both ends are removals, so unlike `cp` it has no read direction to get
+wrong. `--cached` is ruled a write because *tracked* state is what every integrity check compares
+(see `_git_rm_targets`).
+
 Write ops understood: output redirections `>` `>>` `>|` `&>` `&>>` (fd-prefixed forms too; fd
 duplication `>&` and every input redirect excluded — an input file is a read), `rm`, `mv`, `tee`,
-in-place `sed -i`, `git checkout -- <paths>`, `git restore <paths>`, `cp`, `install`, `dd of=`,
-`truncate`.
+in-place `sed -i`, `git checkout -- <paths>`, `git restore <paths>`, `git rm [--cached] <paths>`,
+`cp`, `install`, `dd of=`, `truncate`.
 Protected paths: tests/**, specs/<ctx>/*.md, changes/*/criteria.md|change.md|verdict.md,
 .claude/tools|hooks/**, .claude/settings.json, pyproject.toml.
 
@@ -509,6 +516,25 @@ def _dd_target(args: list[str]) -> list[str]:
     return [arg[len("of=") :] for arg in args if arg.startswith("of=") and arg[len("of=") :]]
 
 
+def _git_rm_targets(args: list[str]) -> list[str]:
+    """`git rm`'s pathspecs — every non-flag operand, with `--` respected (T06l).
+
+    `git rm`'s rule is plain `rm`'s (both ends are removals, so there is no read direction to
+    get wrong), which is why the miss was an inventory gap and not a parser question. Past a
+    `--` every operand is a pathspec even when it looks like a flag, so the filter stops there.
+
+    **`--cached` counts as a write.** It leaves the file on disk but removes it from the index,
+    and *tracked* state is exactly what every integrity check compares — `integrity.protected-
+    trees` diffs tracked paths, so untracking a protected file shows up there as a deletion.
+    There is no legitimate reason for a non-owning role to untrack a protected path, and the
+    operands are the same either way, so this is one rule rather than two to get wrong. Do not
+    "fix" it into a read.
+    """
+    if "--" in args:
+        return [a for a in args[args.index("--") + 1 :] if a]
+    return _paths(args)
+
+
 def _mutator_targets(cmd: str | None, args: list[str]) -> list[str]:
     """The paths `cmd` writes/removes, for the explicit mutators this guard understands."""
     if cmd in ("rm", "mv", "tee"):
@@ -527,6 +553,8 @@ def _mutator_targets(cmd: str | None, args: list[str]) -> list[str]:
             return _paths(args[args.index("--") + 1 :])
         if sub == "restore":
             return _paths(args[args.index(sub) + 1 :])
+        if sub == "rm":
+            return _git_rm_targets(args[args.index(sub) + 1 :])
     return []
 
 
