@@ -1244,7 +1244,15 @@ def _spec_lint(actx: AcceptContext, born: tuple[str, ...] = ()) -> Result:
     used to DISABLE the coverage check by its own `if overview_text` guard and report "clean";
     the duplicate check compared filesystem names, which are unique by construction, so it was
     dead code — the duplicate a human can actually create is a repeated entry in the
-    `## Capabilities` list; and findings were emitted once per occurrence, not per (file, ref)."""
+    `## Capabilities` list; and findings were emitted once per occurrence, not per (file, ref).
+
+    A comment is not content (T10i item 4, the same mistake T10j fixed in gate.py's L-06 check
+    one function over): both scans below read the file with its HTML comments blanked out, via
+    the single stripper `criteria_lint._strip_html_comments` (C7 — one grammar, one home). Every
+    born capability file ships the template's comment block, so an unstripped read counted ~20
+    lines of documentation toward the S7 cut threshold and would report a backticked `*.md` named
+    in a comment as a dangling reference."""
+    _, criteria_lint = _tools()
     ctx_dir = actx.tree / "specs" / actx.ctx
     findings: list[str] = []
     overview = ctx_dir / "overview.md"
@@ -1254,15 +1262,20 @@ def _spec_lint(actx: AcceptContext, born: tuple[str, ...] = ()) -> Result:
     for path in sorted(ctx_dir.rglob("*.md")):
         if "changes" in path.parts:
             continue
-        text = path.read_text(encoding="utf-8")
-        if len(text.splitlines()) > 300:
-            findings.append(f"{path.relative_to(actx.tree)} exceeds 300 lines — cut it (S7)")
-        seen_refs: set[str] = set()
-        for ref in re.findall(r"`([A-Za-z0-9_./-]+\.md)`", text):
+        raw_lines = path.read_text(encoding="utf-8").splitlines()
+        kept_lines = criteria_lint._strip_html_comments(raw_lines)
+        # the stripper preserves line count (it blanks spans), so the comment-only lines are the
+        # ones that carried text before and none after: subtracting them keeps the S7 threshold a
+        # count of the file's own lines, blank ones included, minus its documentation.
+        comment_only = sum(
+            1 for raw, kept in zip(raw_lines, kept_lines, strict=True) if raw.strip() and not kept.strip()
+        )
+        if len(raw_lines) - comment_only > 300:
+            findings.append(f"{path.relative_to(actx.tree)} exceeds 300 lines of content — cut it (S7)")
+        for ref in re.findall(r"`([A-Za-z0-9_./-]+\.md)`", "\n".join(kept_lines)):
             base = ref.split("/")[-1]
-            if base in known or (actx.tree / ref).exists() or ref in seen_refs:
+            if base in known or (actx.tree / ref).exists():
                 continue
-            seen_refs.add(ref)
             findings.append(f"{path.relative_to(actx.tree)} references missing spec file `{ref}`")
     if not overview.exists():
         findings.append(
@@ -1275,6 +1288,11 @@ def _spec_lint(actx: AcceptContext, born: tuple[str, ...] = ()) -> Result:
         for name in sorted(n for n in known if n != "overview.md"):
             if name not in listed:
                 findings.append(f"capability {name} is missing from overview.md's map")
+    # One line per distinct finding, in the order found (T10i item 3): a reference repeated in a
+    # file used to print twice, which is noise in the human's review output and reads as two
+    # problems. Deduping the LIST rather than each scan keeps one mechanism for every finding
+    # kind, including the ones added next.
+    findings = list(dict.fromkeys(findings))
     if findings:
         return Result("spec.lint", FLAG, "spec-lint findings for the review diff (L-07/O-13):\n" + "\n".join(findings))
     return Result(

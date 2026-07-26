@@ -1341,6 +1341,68 @@ def _spec_lint_result(root: Path):
 
 
 # ---------------------------------------------------------------------------------------
+# T10i items 3+4 — spec-lint reads content, once
+#
+# A comment is not content: the same mistake T10j fixed in gate.py's L-06 check was still live
+# in _spec_lint, which ran both its dangling-ref scan and its >300-line S7 count over the raw
+# text. Every born capability file ships the template's comment block, so every one of them
+# carried lines the S7 count should not see. And a finding must be printed once — a repeat is
+# noise in the human's review output that reads as two problems.
+# ---------------------------------------------------------------------------------------
+
+
+def test_a_comment_naming_a_missing_md_is_not_a_dangling_reference(tmp_path: Path) -> None:
+    """The false-positive half: a comment may legitimately mention a file that does not exist
+    (the capability template's own comment block is the live shape) — while a real reference in
+    the body must still FLAG, so the strip cannot be a blanket "stop checking"."""
+    commented = (
+        "# demo / core\n\n<!-- neighbours: `nonexistent-neighbour.md` documents the split -->\n\n## Invariants\n"
+    )
+    clean = _spec_lint_result(_mini_tree(tmp_path / "a", caps={"core.md": commented}))
+    assert clean.status == accept.PASS, clean.detail
+
+    in_body = commented.replace("## Invariants\n", "## Invariants\n- see `nonexistent-neighbour.md` (MANUAL)\n")
+    flagged = _spec_lint_result(_mini_tree(tmp_path / "b", caps={"core.md": in_body}))
+    assert flagged.status == accept.FLAG
+    assert "references missing spec file `nonexistent-neighbour.md`" in flagged.detail
+
+
+def test_the_born_capability_template_lints_clean(tmp_path: Path) -> None:
+    """The live shape, end to end: accept.py births capability files from this very template, so
+    the template's comment block must not produce a finding against the file the script wrote."""
+    born = CAPABILITY_TEMPLATE.replace("<context>", "demo").replace("<capability>", "core")
+    result = _spec_lint_result(_mini_tree(tmp_path, caps={"core.md": born}))
+    assert result.status == accept.PASS, result.detail
+
+
+def test_comment_lines_do_not_count_toward_the_s7_cut_threshold(tmp_path: Path) -> None:
+    """The S7 half: 300 lines of invariants plus a 20-line comment block is not a file S7 asks
+    the human to cut. Content past the threshold still is."""
+    comment = "<!--\n" + "     documentation line\n" * 18 + "-->\n"
+    body = "".join(f"- invariant {i} (MANUAL)\n" for i in range(295))
+    under = _spec_lint_result(_mini_tree(tmp_path / "a", caps={"core.md": f"# demo / core\n\n{comment}\n{body}"}))
+    assert under.status == accept.PASS, under.detail
+
+    over_body = "".join(f"- invariant {i} (MANUAL)\n" for i in range(320))
+    over = _spec_lint_result(_mini_tree(tmp_path / "b", caps={"core.md": f"# demo / core\n\n{comment}\n{over_body}"}))
+    assert over.status == accept.FLAG
+    assert "exceeds 300 lines" in over.detail
+
+
+def test_a_repeated_reference_is_one_finding(tmp_path: Path) -> None:
+    """Item 3 — a reference appearing twice in one file produced two identical lines.
+
+    Honest scope: T10f already deduped this one case per (file, ref) while fixing F-03, so this
+    test passes on its code too. It is here because the property was never pinned, and because
+    the dedupe now covers the whole findings list rather than that single scan."""
+    twice = "# demo / core\n\n## Behaviour\nSee `gone.md`.\n\n## Invariants\n- as `gone.md` says (MANUAL)\n"
+    result = _spec_lint_result(_mini_tree(tmp_path, caps={"core.md": twice}))
+    assert result.status == accept.FLAG
+    lines = [line for line in result.detail.splitlines() if "references missing spec file `gone.md`" in line]
+    assert lines == ["specs/demo/core.md references missing spec file `gone.md`"], result.detail
+
+
+# ---------------------------------------------------------------------------------------
 # T10g — the S9 base is DERIVED, never a hardcoded name
 #
 # `/accept-change` runs the script with no --base, and the old default `main` is wrong for
