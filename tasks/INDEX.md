@@ -163,7 +163,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   tokeniser-precision family (T06b → T06e → T06f → this); one function. The correctness boundary:
   a redirect on the heredoc's own command line (`cat > tests/x.py <<'EOF'`) must **still** fire.
   Depends: T06, T06b, T06f.
-- [ ] T10f — Adversarial pass over `accept.py`'s own gates. Three defects now found by *using* the
+- [x] T10f — Adversarial pass over `accept.py`'s own gates. Three defects now found by *using* the
   script (T10c, T10e, and the T05-era freshness hole), and the freshness one fails **open** — the
   worst possible direction for the backstop the whole S8 trust model rests on. All three share a
   defect class: degenerate/empty input, not wrong logic. **Concrete input from T06f finding 6:** Part
