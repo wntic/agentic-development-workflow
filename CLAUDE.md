@@ -45,7 +45,7 @@ fires every hook twice.
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Knowledge** | how to write an artifact (house style) | `.claude/skills/` (44 skills now → ~13 after T08) |
+| **Knowledge** | how to write an artifact (house style) | `.claude/skills/` (one directory per theme; a large theme is a router `SKILL.md` + one `<topic>.md` per artifact) |
 | **Specification** | what to do and how to verify it | `specs/` — sectioned free Markdown |
 | **Enforcement + orchestration** | who does what, what is forbidden, when it is "done" | `.claude/agents/`, `.claude/commands/`, `gate.py`/`accept.py` + hooks |
 
@@ -196,8 +196,9 @@ notes/21_plugin_packaging.md      # what ships, the release procedure, the measu
 .claude/                          # THE PLUGIN ROOT (`adw`) — everything here ships, nothing else does
   .claude-plugin/plugin.json      # the manifest
   bin/adw.py                      # the one invocation form: `${CLAUDE_PLUGIN_ROOT}/bin/adw.py <tool>`
-  skills/                         # knowledge layer — 44 skills now, merged to ~13 (T08) after the
-                                  #   paid-fixes inventory + test-principles rewrite (T07)
+  skills/                         # knowledge layer — one directory per theme (T08 merged 44 skills
+                                  #   into them); a theme past ~500 lines is a router SKILL.md plus
+                                  #   one <topic>.md per artifact, read on demand (T13/T14)
   tools/
     gate.py                       # "is it green" — the trust anchor            (planned, T04)
     accept.py                     # "may it merge" — acceptance preconditions   (planned, T05)
@@ -227,8 +228,14 @@ A skill is **knowledge injected into context, not an executor**. Skills auto-inv
 test-author/implementer read `Template(s)` + `Rules`, the `/spec` session reads `When to use` /
 `Hard stops` as classification rules. Same document, different sections, different consumers.
 
-Every skill follows the four-section body (see `.claude/skills/CONVENTIONS.md`): *When to use vs.
-neighbours · Template(s) · Rules · Hard stops*. Use `meta-skill-author` to add one. Purity rules
+Every artifact's knowledge is written as the same four-section body (see
+`.claude/skills/CONVENTIONS.md`): *When to use vs. neighbours · Template(s) · Rules · Hard stops*.
+Where that body lives depends on the theme's size: a small theme keeps it inside its `SKILL.md`; a
+theme past ~500 lines makes `SKILL.md` a thin **router** (frontmatter + an imperative pointer per
+topic + genuinely cross-topic material) beside one `<topic>.md` per artifact, each carrying the full
+four-section body. Only `SKILL.md` is injected on auto-invocation, so a topic file reaches the agent
+only when the agent opens it — the router's pointers are instructions, not cross-references. Use
+`meta-skill-author` to add one. Purity rules
 (a skill must not know what invokes it; every must-hold rule needs a gate, not prose) live in
 `PRINCIPLES.md` sections C and S4. Mechanical derivation (paths, naming, store profiles, substrate)
 has one home: the `conventions` skill — toolchain commands live in `gate.py`, which `conventions`

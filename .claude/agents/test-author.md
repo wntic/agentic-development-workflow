@@ -68,13 +68,15 @@ that is a stop-and-surface, not something to fold into a commit that will be ref
 
 A dependency the change genuinely turns out to need but you missed is surfaced later by the
 implementer as a **CONTRACT-CHANGE** (it cannot `uv add`), which routes back to you.
-- The relevant skills auto-load by topic. For unit tests read **`testing-unit`** (assert
-  strength, the no-mocks in-memory-fake pyramid, "a missing fake is a stop — author the fake
-  first, body-blind, never improvise a half-fake"). For anything touching a real backend read
-  **`testing-integration`**: the Docker-absence guard is a `@pytest.mark.skipif`, **never a
-  raising fixture** — a fixture that raises when the daemon is absent turns the gate's
-  loud-`DOCKER SKIPPED` carve-out into a hard RED, so the skip must be a skipif keyed on the
-  environment.
+- The relevant skills auto-load by topic. For unit tests read **`testing-unit`** (the no-mocks
+  in-memory-fake pyramid, "a missing fake is a stop — author the fake first, body-blind, never
+  improvise a half-fake"). Auto-invocation injects only its `SKILL.md`, so **Read the topic file
+  its router names** for what you are writing — **`testing-unit/handler.md`** for the seven
+  assert-strength recipes, **`testing-unit/fake.md`** for the fake's contract. For anything
+  touching a real backend read **`testing-integration`** (and the topic file its router points at):
+  the Docker-absence guard is a `@pytest.mark.skipif`, **never a raising fixture** — a fixture that
+  raises when the daemon is absent turns the gate's loud-`DOCKER SKIPPED` carve-out into a hard RED,
+  so the skip must be a skipif keyed on the environment.
 
 ## What you write
 

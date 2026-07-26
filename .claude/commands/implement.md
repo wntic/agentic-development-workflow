@@ -224,8 +224,9 @@ Mandatory for **M/L** changes and the **first change of a capability** (opt-in `
 for S). A fresh agent applies the assert-strength recipes from the **`testing-unit`** skill to
 the diff of the tests and records the result in the **`## Adversarial review`** section of
 `verdict.md` (that exact heading — `accept.py`'s `adversarial.presence` gate and the verdict.md
-template both key on it). Point the agent at that skill — the recipes have one home there (C7);
-do not restate a checklist in this command. `accept.py` later checks the section is filled for
+template both key on it). Point the agent at that skill **and at its bundled
+`testing-unit/handler.md`**, which holds the seven recipes and is not injected by auto-invocation —
+the recipes have one home there (C7); do not restate a checklist in this command. `accept.py` later checks the section is filled for
 the change's class.
 
 ## 5. Branch

@@ -97,7 +97,9 @@ without re-deriving it. A completed evaluation leaves `git status` clean.
 For M/L changes and the **first change of a capability**, an adversarial review is mandatory
 (spec §6 step 4; for S it is opt-in via `--adversarial`). Apply the assert-strength recipes
 from the **`testing-unit`** skill to the diff of the tests — that skill is the one home for
-those recipes (do not restate them). Record the result under the verdict's **`## Adversarial
+those recipes (do not restate them). The seven recipes live in its bundled
+**`testing-unit/handler.md`** topic file, which auto-invocation does **not** inject: open it with
+Read before judging assert strength. Record the result under the verdict's **`## Adversarial
 review`** heading (the template's exact wording); `accept.py` checks that section exists for
 the change's class. A test that is green but too
 weak to have gone red for the wrong body is a finding, not a pass.

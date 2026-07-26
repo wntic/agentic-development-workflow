@@ -42,7 +42,8 @@ routes yet, package name `<pkg>` = `pyproject.toml` `[project] name` normalized 
 
 Write them from the `architecture` / `restapi` / `domain-model` / `infra-integration` skills
 (they carry the house style and the exact re-export/`__all__` contract the gate's ruff select
-demands). Then add this change's route/handler/domain **on top** so the red tests go green. On a
+demands) — the app skeleton's own template is in **`restapi/bootstrap.md`**, a bundled topic file
+you must Read (a large skill's `SKILL.md` is a router; see step 2). Then add this change's route/handler/domain **on top** so the red tests go green. On a
 **brownfield** change the shell already exists — you add only behaviour, never re-create it.
 
 ## The loop
@@ -54,7 +55,10 @@ demands). Then add this change's route/handler/domain **on top** so the red test
 2. Fill code under `src/**` guided by the change's Task + **Interface sketch** (the binding
    names/ctor deps) and the skills, which auto-load by the layer you touch (`architecture`,
    `domain-model`, `domain-ports`, `application`, `restapi`, `infra-persistence`,
-   `infra-integration`, `python-style`). Judgment rules that live only in the skills, not the
+   `infra-integration`, `python-style`). A large skill's `SKILL.md` is a **router**: auto-loading
+   gives you the pointers, not the templates, so **Read the `<topic>.md` its router names** for the
+   artifact you are writing (`restapi/endpoint.md`, `application/command.md`,
+   `infra-persistence/repository.md`, …). Judgment rules that live only in the skills, not the
    gate — carry them:
    - **Don't duplicate a guarantee the callee already gives**: if `delete(id)` is typed to
      raise `NotFoundError`, call it directly — never precede it with a `get_by_id` that
