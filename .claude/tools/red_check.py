@@ -1163,7 +1163,7 @@ def rebaseline(
     change_id: str,
     ac_ids: list[str],
     *,
-    change_class: str = "behavioral",
+    change_class: str = "behavioral",  # the register's default (gate.DEFAULT_CHANGE_CLASS); main always passes it
     hardening_mutations: list[Mutation] | None = None,
 ) -> int:
     """Move `baseline/<ctx>-NNN` onto HEAD after a TESTS-HANDBACK. Return a process exit code.

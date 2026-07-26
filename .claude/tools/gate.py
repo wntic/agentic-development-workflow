@@ -975,8 +975,7 @@ def check_package_import(ctx: GateContext) -> Check:
 # comment declares the DEFAULT, not the last name the template happens to mention.
 
 DEFAULT_CHANGE_CLASS = "behavioral"  # spec §3.1: the register's default
-CLASS_HARDENING = "hardening"  # no red phase — proved by mutation (T09g)
-CLASS_INVISIBLE = "invisible"  # no red phase — proved by a green gate + an unchanged surface (T20)
+CLASS_INVISIBLE = "invisible"  # the one class THIS file behaves differently for (T20); §3.1 has the rest
 
 CLASS_LINE = re.compile(r"(?im)^Class:[ \t]*([A-Za-z][A-Za-z0-9_-]*)")
 
