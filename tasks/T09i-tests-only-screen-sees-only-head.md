@@ -25,9 +25,13 @@ lane *after* the baseline. So a `src/` file introduced in a pre-baseline commit 
 scripts, which is the shape D3 exists to prevent (test and code written from one understanding).
 
 ## Depends on
-T09b (the screen), T12 (which introduced the legitimate second commit), T09f, T09h (which found it —
-and if T09h lands first, its judged/ignored reporting is the model for how to report what this screen
-examines).
+T09b (the screen), T12 (which introduced the legitimate second commit), T09f.
+
+**Not** T09h — corrected 2026-07-27. The original line listed it, but T09h only *found* this and its
+judged/ignored reporting is a **model to imitate, not a precondition**; T09h is itself blocked on an
+author decision about `users/002`, and blocking this task behind that would be a dependency I invented.
+If T09h has landed by the time you run, read its reporting for the shape; if not, design the
+"what did this screen examine" output yourself and say so.
 
 ## Read first
 - `.claude/tools/red_check.py` — `baseline_commit_paths()`, `non_tests_paths()`, `tag_baseline()` /
