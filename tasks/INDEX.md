@@ -301,7 +301,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   sweep now keys on a `#+ Removed` heading nobody is instructed to emit. T10e's tolerant classifier
   and T06f Part B's FLAG are holding patterns, not the fix. Ship a `## Removed` skeleton, narrow the
   classifier, close T10f's F-05 (an empty heading still PASSes). Depends: T03, T10e, T06f, T10f.
-- [ ] T09g — **A test-strengthening change has no red phase, so it has no home.**
+- [x] T09g — **A test-strengthening change has no red phase, so it has no home.**
   `red_check.rebaseline` refuses unless the tests are still a valid RED baseline; strengthened tests
   over already-correct code are green on arrival. So `users/002`'s F1/F2 cannot be acted on, which
   makes the adversarial pass — the one step whose job is measuring test strength — advisory theatre
