@@ -56,6 +56,14 @@ T10j (the gate-side fix and the rule), T10i (the spec-lint side and the third ca
   a real listed capability still does; a capability listed twice in real content is still reported
   twice (the T10f contract); and the birth path is unaffected for a clean overview.
 
+**3. One-token latent crash in `accept.run()`** (T17 finding 2, reported not touched). The tail reads
+`report = execute(actx, plan) if plan is not None else drift_report(tree, base)` — the else-branch
+passes the **raw** `base` (possibly `None` → `TypeError` inside `subprocess`) and the raw `tree`,
+instead of `actx.base` / `actx.tree`. Unreachable today (`plan is None` implies a FAIL implies the
+earlier `return 1`), which is exactly why it should be fixed rather than relied on: the next
+refactor that makes it reachable turns a clean deny into a traceback. Fix: `drift_report(actx.tree,
+actx.base)`, plus a test that calls that branch directly so it stops being unreachable-by-luck.
+
 ## Verification
 - `uv run pytest .claude/tools` green.
 - The comment case demonstrably differs against pre-fix `accept.py` — today it returns the phantom

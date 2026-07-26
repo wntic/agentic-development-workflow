@@ -31,10 +31,20 @@ git worktree remove --force <scratch>/u002
 a task; it is the shared regression fixture. **T09h is blocked on it being accepted or abandoned** —
 that decision is the author's.
 
-**Commit your tool edits BEFORE running this regression.** Since T18 the gate anchors 12 enforcement
-files against git HEAD, so an uncommitted `.claude/tools/*.py` or `.claude/hooks/*` makes the run
-return `DENIED` on `[FAIL] integrity.self-hash` — a **spurious** red that has nothing to do with your
-change. It bit T10h's builder on its first attempt. This is T18's stated cost, not a defect.
+**Commit your tool edits BEFORE running this regression.** Since T18 the gate anchors the whole
+enforcement layer against git HEAD — every `tools/*.py`, `hooks/*.py`, `hooks/*.json`, `bin/*.py`,
+`.claude-plugin/*.json` and `settings.json`, **by glob, so a new tool is anchored the moment you add
+it**. An uncommitted edit to any of them makes the run return `DENIED` on
+`[FAIL] integrity.self-hash` — a **spurious** red that has nothing to do with your change. It bit
+T10h's builder on its first attempt, and T17's when it added `drift.py`. T18's stated cost, not a
+defect. (Do not write the anchor *count* anywhere: it is glob-derived and drifts. Two documents
+already said "12" one task after it became 13.)
+
+**`/adw:orient` in *this* repo ends on `verdict: DRIFT`, and that is a true positive.** T17's drift
+check reports 8 `src`-touching commits reachable from no `change/*` tag — all v2-era or the T02 purge,
+and this repo has no `change/*` tag at all. It is real §5.5 output about real unlegalised history, not
+a bug to chase; the venue reports `CLEAN`. Since T15 evicted trials from this repo, that `src/` history
+is archaeology, so expect the line permanently unless someone legalises it with `--retro`.
 
 ## Task file format (all tasks follow it)
 
@@ -431,9 +441,10 @@ What it surfaced is below. Every claim re-derived from source before filing.
   than the fix: what backstops each hook in a consumer, where the honest answer may be "nothing".
   Depends: T15, T04, T04e/T06h.
   **BUILT 2026-07-26.** (1) Anchors = plugin-root-relative **globs** (`tools/*.py`, `hooks/*.py`,
-  `hooks/*.json`, `bin/*.py`, `.claude-plugin/*.json`, `settings.json` — 12 files here), so a new tool
-  or hook is anchored by construction; `tools/test_*.py` and the knowledge layer stay out (no decision
-  reads them). Cost, as predicted: every edit to a tool/hook/manifest must be committed before a gate
+  `hooks/*.json`, `bin/*.py`, `.claude-plugin/*.json`, `settings.json` — deliberately **not** recording
+  the file count, which is glob-derived and drifted from 12 to 13 within one task when T17 added
+  `drift.py`), so a new tool or hook is anchored by construction; `tools/test_*.py` and the knowledge
+  layer stay out (no decision reads them). Cost, as predicted: every edit to a tool/hook/manifest must be committed before a gate
   run passes. (2) A non-git plugin keeps **FAIL**ing — message now names the directory and the remedy.
   (3) The walk is in `notes/20` F-02: `criteria_guard` → criteria-flips (real); `bash_guard` → partial
   (protected-trees vacuous in a consumer, but test-inventory + the tests-only baseline keep
