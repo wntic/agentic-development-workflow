@@ -38,7 +38,8 @@ the missing module is the project's OWN package and `src/<pkg>/` does not exist 
 brownfield test (a real import typo, package present) is never masked.
 
 Usage:
-    red_check.py [--change <context>/NNN] [--no-tag] [--force-tag] [--rebaseline] [tree]
+    red_check.py [--change <context>/NNN] [--no-tag] [--force-tag] [--rebaseline]
+                 [--clear-escalate] [tree]
 
   tree          root of the change work tree (default: cwd); must be a git work tree to tag.
   --change      change id <context>/NNN; else a single specs/*/changes/*/ dir is auto-detected.
@@ -48,6 +49,11 @@ Usage:
                 corrected tests in a throwaway worktree (redness, where src/ is absent) AND in
                 the live tree (mypy, where src/ is present), refusing any move that drops an
                 ac-marked test or writes outside tests/**. See the section note and notes/18.
+  --clear-escalate
+                the human's sanctioned way to clear a §5.3 `ESCALATE`: move the baseline tag over
+                the COMMITTED removal of the lock, and only over that. Without it, clearing a lock
+                would leave gate.py's `integrity.escalate-intact` RED forever, since --rebaseline
+                refuses a commit outside tests/**. See the section note (T06h).
 
 Exit code 0 only when coverage + redness both hold (and the tag step, if any, succeeded).
 """
@@ -720,6 +726,151 @@ def rebaseline(tree: Path, change_id: str, ac_ids: list[str]) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------------------
+# Clear an ESCALATE — move the baseline over a committed ESCALATE removal (§5.3/E-08, T06h)
+# ---------------------------------------------------------------------------------------
+#
+# The iteration-ceiling `ESCALATE` is a human-only lock, and since T06h the hook COMMITS it, so
+# `gate.py`'s `integrity.escalate-intact` sees its removal and goes RED. That is the point — but
+# it also means clearing a lock would leave the gate permanently RED, because the only way to
+# re-anchor an integrity check is to move the baseline tag, and `--rebaseline` refuses any commit
+# outside `tests/**`. Hence this second, strictly NARROWER baseline move, and hence its home here:
+# `red_check` already owns baseline-tag movement, and one home for that is C7.
+#
+# Three guards, all required:
+#   (i)   an ESCALATE was committed on this branch since the baseline and is now gone — this flag
+#         does nothing else, and refuses to be a general-purpose tag mover;
+#   (ii)  EVERY commit in `<old baseline>..HEAD` touches nothing but `specs/*/changes/*/ESCALATE`.
+#         This is what makes the move strictly narrower than `--rebaseline`: the old and the new
+#         baseline trees then differ ONLY by the lock, so no criteria flip, `change.md` edit or
+#         dropped test can be laundered through it. It requires the lock to be cleared BEFORE
+#         anything else is committed — which in a real escalation holds by construction, since the
+#         implementer commits `src/**` only on green (T09e) and an escalated change never reached
+#         green, so its `src/` is still uncommitted. The error message says so.
+#   (iii) no ac-marked test disappeared across the move — the same guard `--rebaseline` makes
+#         (a baseline move must never blind `gate.py`'s `integrity.test-inventory`).
+#
+# What this does NOT do (deliberately, S8): it cannot tell a human from an agent. An agent at its
+# ceiling can delete the file, commit, and run this flag itself. The deliverable is that the act is
+# RECORDED — a commit plus a tag move, both in git — not that it is prevented.
+
+
+def _git_checked(tree: Path, args: list[str], what: str) -> str:
+    """Run a git command whose answer this step depends on; a bad rc is a loud refusal."""
+    proc = subprocess.run(["git", "-C", str(tree), *args], capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RedCheckError(f"{what}: {(proc.stderr or proc.stdout).strip()}")
+    return proc.stdout
+
+
+def is_escalate_path(rel: str) -> bool:
+    """True for a change directory's ESCALATE — the only path this step may see moving."""
+    return rel.endswith("/ESCALATE") and "/changes/" in rel
+
+
+def non_escalate_commit_paths(tree: Path, anchor: str) -> list[str]:
+    """Guard (ii): what the commits in `anchor..HEAD` touch besides a change dir's ESCALATE.
+
+    Per commit, not as a net tree diff, so an intermediate commit that writes code cannot hide
+    behind a later revert. A MERGE commit is refused outright: `diff-tree` prints no names for
+    one, which would read as "touches nothing" and let an arbitrary tree in — the notes/19
+    fail-open class."""
+    violations: list[str] = []
+    revs = _git_checked(tree, ["rev-list", f"{anchor}..HEAD"], f"could not list the commits in {anchor}..HEAD").split()
+    for sha in revs:
+        line = _git_checked(tree, ["rev-list", "--parents", "-n", "1", sha], f"could not read the parents of {sha}")
+        if len(line.split()) > 2:  # <sha> <parent> [<parent> ...]
+            violations.append(f"{sha[:8]}: a merge commit — its tree cannot be judged path by path")
+            continue
+        touched = _git_checked(
+            tree,
+            ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha],
+            f"could not inspect commit {sha}",
+        )
+        violations.extend(
+            f"{sha[:8]}: {rel.strip()}"
+            for rel in touched.splitlines()
+            if rel.strip() and not is_escalate_path(rel.strip())
+        )
+    return violations
+
+
+def clear_escalate(tree: Path, change_id: str) -> int:
+    """Move `baseline/<ctx>-NNN` over a committed ESCALATE removal. Return a process exit code."""
+    gate = _gate()
+    tag = "baseline/" + change_id.replace("/", "-")
+    resolved = subprocess.run(["git", "-C", str(tree), "rev-parse", "--verify", tag], capture_output=True, text=True)
+    if resolved.returncode != 0:
+        raise RedCheckError(
+            f"no existing tag {tag} to move — an ESCALATE can only be cleared on a change that has a red baseline"
+        )
+    old_sha = resolved.stdout.strip()
+    head = _git_checked(tree, ["rev-parse", "HEAD"], "could not resolve HEAD").strip()
+
+    print(f"red_check --clear-escalate: {change_id}")
+    print(f"  {tag}: {old_sha[:8]} -> {head[:8]} (HEAD)")
+    print()
+
+    since = gate.escalate_state(tree, old_sha)
+    if since.error:  # "could not ask" must never read as "nothing to clear"
+        raise RedCheckError(since.error)
+    at_head = gate.escalate_state(tree, "HEAD")
+    if at_head.error:
+        raise RedCheckError(at_head.error)
+
+    failures: list[str] = []
+
+    # (i) an ESCALATE entered this branch's history since the baseline, and is now gone for good
+    if not since.known:
+        failures.append(
+            f"no ESCALATE was committed on this branch since {tag} ({old_sha[:8]}) — --clear-escalate moves the "
+            "baseline ONLY over the removal of a committed lock (§5.3/E-08), never as a general tag move"
+        )
+    else:
+        standing = [rel for rel in since.known if rel not in since.missing]
+        if standing:
+            failures.append(
+                "the ESCALATE is still in the work tree — delete it and commit THAT deletion, then re-run:\n"
+                + "\n".join(f"    {rel}" for rel in standing)
+            )
+        if at_head.known:
+            failures.append(
+                "the removal is not COMMITTED — these locks are still tracked at HEAD, so moving the tag would "
+                "carry them into the new baseline:\n" + "\n".join(f"    {rel}" for rel in at_head.known)
+            )
+
+    # (ii) the range carries nothing but the ESCALATE — what keeps this narrower than --rebaseline
+    offenders = non_escalate_commit_paths(tree, old_sha)
+    if offenders:
+        failures.append(
+            "commits since the baseline touch more than the ESCALATE, so the move would re-anchor other "
+            "content too (a criteria flip, a change.md edit, a dropped test):\n"
+            + "\n".join(f"    {item}" for item in offenders)
+            + "\n    Clear the lock FIRST, before committing anything else. In a real escalation that holds by"
+            "\n    construction: the implementer commits src/** only on green (T09e), and an escalated change"
+            "\n    never reached green — so its src/ is still uncommitted."
+        )
+
+    # (iii) no ac-marked test may vanish across the move (the --rebaseline guard, reused)
+    dropped = sorted(set(ac_inventory_at(tree, old_sha)) - set(ac_inventory_at(tree, head)))
+    if dropped:
+        failures.append(
+            "ac-marked tests present at the old baseline are gone — a baseline move must not drop a test "
+            "(it would blind gate.py's integrity.test-inventory):\n" + "\n".join(f"    {nodeid}" for nodeid in dropped)
+        )
+
+    if failures:
+        print("CLEAR-ESCALATE: REFUSED")
+        for item in failures:
+            print(f"  - {item}")
+        return 1
+
+    tag_baseline(tree, change_id, force=True)
+    print(f"cleared: {', '.join(since.missing)}")
+    print(f"CLEAR-ESCALATE: OK — moved {tag} -> {head[:8]}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Confirm the red baseline and tag it.")
     parser.add_argument("tree", nargs="?", default=".")
@@ -731,11 +882,24 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="move an existing baseline tag onto HEAD after a TESTS-HANDBACK (notes/18)",
     )
+    parser.add_argument(
+        "--clear-escalate",
+        dest="clear_escalate",
+        action="store_true",
+        help="move an existing baseline tag over a COMMITTED ESCALATE removal — the human's "
+        "sanctioned way to clear the §5.3 lock without leaving gate.py permanently RED (T06h)",
+    )
     args = parser.parse_args(argv)
+    if args.rebaseline and args.clear_escalate:
+        parser.error("--rebaseline and --clear-escalate are different baseline moves; run one at a time")
 
     tree = Path(args.tree).resolve()
     try:
         change_id, change_dir = resolve_change(tree, args.change)
+        if args.clear_escalate:
+            # This step runs no tests and invokes no tool, so neither the criteria parse nor the
+            # toolchain preflight applies: it only moves a tag over a committed ESCALATE removal.
+            return clear_escalate(tree, change_id)
         criteria_path = change_dir / "criteria.md"
         if not criteria_path.is_file():
             raise RedCheckError(f"no criteria.md at {criteria_path}")

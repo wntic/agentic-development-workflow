@@ -654,3 +654,150 @@ def test_e2e_missing_toolchain_is_a_sentence_not_a_traceback(tmp_path: Path) -> 
     assert "[dependency-groups]" in output and "uv sync" in output
     assert "Traceback" not in output
     assert "baseline/demo-001" not in repo.tags()  # nothing tagged off an unrunnable check
+
+
+# --- --clear-escalate: the sanctioned way to clear a §5.3 lock (T06h) ------------------
+#
+# Since T06h the SubagentStop hook COMMITS the ESCALATE, so gate.py sees its removal and goes
+# RED — which means clearing a lock needs a baseline move, and --rebaseline cannot serve: it
+# refuses any commit outside tests/**. --clear-escalate is that move, and only that move: three
+# guards keep it strictly narrower than --rebaseline, so the old and new baseline trees differ
+# by nothing but the lock.
+
+ESCALATE_REL = "specs/demo/changes/001-health/ESCALATE"
+
+
+def _escalated_repo(tmp_path: Path) -> FixtureRepo:
+    """A repo at the escalation moment: red baseline tagged, the lock committed on top of it."""
+    repo = _base_repo(tmp_path)
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+    assert _run(repo) == 0  # tags baseline/demo-001 on the red-tests commit
+    repo.write(ESCALATE_REL, "# ESCALATE (hook-authored)\n\ngate.py stayed RED after 3 passes.\n")
+    repo.git("add", "--", ESCALATE_REL)
+    repo.git("commit", "-qm", "hook: escalate", "--", ESCALATE_REL)
+    return repo
+
+
+def _remove_escalate(repo: FixtureRepo) -> None:
+    repo.git("rm", "-q", "--", ESCALATE_REL)
+    repo.git("commit", "-qm", "human clears the ESCALATE", "--", ESCALATE_REL)
+
+
+def test_clear_escalate_moves_the_baseline_over_the_removal(tmp_path: Path, capsys) -> None:
+    repo = _escalated_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    _remove_escalate(repo)
+
+    assert _run(repo, "--clear-escalate") == 0
+    head = repo.git("rev-parse", "HEAD").strip()
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == head
+    assert head != old
+    out = "".join(capsys.readouterr())
+    assert "CLEAR-ESCALATE: OK" in out
+    assert ESCALATE_REL in out  # the report names what was cleared
+
+
+def test_clear_escalate_refuses_when_nothing_was_escalated(tmp_path: Path, capsys) -> None:
+    # Guard (i): this flag is not a general-purpose tag mover.
+    repo = _base_repo(tmp_path)
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+    assert _run(repo) == 0
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+
+    assert _run(repo, "--clear-escalate") == 1
+    assert "no ESCALATE was committed on this branch" in "".join(capsys.readouterr())
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old
+
+
+def test_clear_escalate_refuses_while_the_lock_still_stands(tmp_path: Path, capsys) -> None:
+    # Guard (i): the tag may only move over a lock that is actually GONE.
+    repo = _escalated_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+
+    assert _run(repo, "--clear-escalate") == 1
+    assert "still in the work tree" in "".join(capsys.readouterr())
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old
+
+
+def test_clear_escalate_refuses_an_uncommitted_removal(tmp_path: Path, capsys) -> None:
+    # Guard (i): a work-tree deletion is not a record. Moving the tag onto HEAD would carry the
+    # lock into the new baseline, leaving the gate RED for a reason nobody could see.
+    repo = _escalated_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    (repo.root / ESCALATE_REL).unlink()
+
+    assert _run(repo, "--clear-escalate") == 1
+    assert "not COMMITTED" in "".join(capsys.readouterr())
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old
+
+
+def test_clear_escalate_refuses_a_range_that_carries_anything_else(tmp_path: Path, capsys) -> None:
+    # Guard (ii) — the guard that makes this narrower than --rebaseline: a criteria flip riding
+    # along in the range would be re-anchored by the move, laundering it past every integrity
+    # check gate.py makes against the baseline.
+    repo = _escalated_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    _remove_escalate(repo)
+    repo.write("specs/demo/changes/001-health/criteria.md", CRITERIA_MD.replace("- [ ] AC-1", "- [x] AC-1"))
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "flip AC-1 while nobody is looking")
+
+    assert _run(repo, "--clear-escalate") == 1
+    out = "".join(capsys.readouterr())
+    assert "specs/demo/changes/001-health/criteria.md" in out
+    assert "Clear the lock FIRST" in out  # the ordering rule is stated, not left to be guessed
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old
+
+
+def test_clear_escalate_refuses_a_dropped_ac_marked_test(tmp_path: Path, capsys) -> None:
+    # Guard (iii), the --rebaseline guard reused: a baseline move must never drop a test. Guard
+    # (ii) fires on the same commit (tests/** is not an ESCALATE), and BOTH reasons are reported —
+    # the move is refused for the narrow reason and for the inventory reason.
+    repo = _escalated_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    _remove_escalate(repo)
+    repo.write("tests/test_health.py", RED_TESTS.split('@pytest.mark.ac("AC-2")')[0].rstrip() + "\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "drop the AC-2 test")
+
+    assert _run(repo, "--clear-escalate") == 1
+    out = "".join(capsys.readouterr())
+    assert "tests/test_health.py::test_health_status_ok" in out  # guard (iii): the lost node-id
+    assert "must not drop a test" in out  # guard (iii)'s reason
+    assert "Clear the lock FIRST" in out  # guard (ii) fires on the same commit
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old
+
+
+def test_clear_escalate_refuses_a_merge_commit_in_the_range(tmp_path: Path, capsys) -> None:
+    # `diff-tree` prints no names for a merge, which would read as "this commit touches nothing"
+    # and let an arbitrary tree into the new baseline — notes/19's fail-open class.
+    repo = _escalated_repo(tmp_path)
+    old = repo.git("rev-parse", "baseline/demo-001").strip()
+    _remove_escalate(repo)
+    repo.git("checkout", "-q", "-b", "side", old)
+    repo.write("tests/test_side.py", "def test_side() -> None:\n    assert True\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "side work")
+    repo.git("checkout", "-q", "-")
+    repo.git("merge", "-q", "--no-ff", "-m", "merge side", "side")
+
+    assert _run(repo, "--clear-escalate") == 1
+    assert "a merge commit" in "".join(capsys.readouterr())
+    assert repo.git("rev-parse", "baseline/demo-001").strip() == old
+
+
+def test_clear_escalate_without_an_existing_tag_is_an_error(tmp_path: Path) -> None:
+    repo = _base_repo(tmp_path)
+    assert _run(repo, "--clear-escalate") == 2
+
+
+def test_clear_escalate_and_rebaseline_are_not_combinable(tmp_path: Path) -> None:
+    # Two different baseline moves with two different guard sets: running both at once would make
+    # it unclear which one licensed the move.
+    with pytest.raises(SystemExit) as exc:
+        red_check.main([str(tmp_path), "--change", "demo/001", "--rebaseline", "--clear-escalate"])
+    assert exc.value.code == 2
