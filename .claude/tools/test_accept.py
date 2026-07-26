@@ -725,6 +725,67 @@ def test_escalate_file_denies(repo: FixtureRepo) -> None:
     assert "verdict: DENIED" in proc.stdout
 
 
+def _commit_escalate(repo: FixtureRepo) -> str:
+    """The hook's move since T06h: write the lock and commit it, path-scoped (E-08)."""
+    rel = f"{CHANGE_DIR}/ESCALATE"
+    repo.write(rel, "3-pass ceiling reached\n")
+    repo.git("add", "--", rel)
+    repo.git("commit", "-q", "-m", "hook: escalate", "--", rel)
+    return rel
+
+
+def test_committed_escalate_denies_through_a_detached_worktree(repo: FixtureRepo, tmp_path: Path) -> None:
+    # THE case that would have caught this: every acceptance run of the 2026-07-25/26 session, and
+    # notes/19's own users/002 baseline, was produced in a fresh `git worktree` — which never
+    # carries untracked files. So the `escalate.exists()` gate had never once been exercised
+    # against a real lock. With the hook committing the file (T06h part 1) the worktree carries it
+    # and the denial is real.
+    _commit_escalate(repo)
+    wt = tmp_path / "wt"
+    repo.git("worktree", "add", "--detach", "--quiet", str(wt), "HEAD")
+    proc = subprocess.run(
+        [sys.executable, str(wt / ".claude/tools/accept.py"), "demo/001", "--base", "main", "--tree", str(wt)],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "GATE_DOCKER": "0"},
+        cwd=wt,
+    )
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "[FAIL] escalate" in proc.stdout
+    assert "verdict: DENIED" in proc.stdout
+
+
+def test_committed_then_deleted_escalate_denies_with_the_lock_named(repo: FixtureRepo) -> None:
+    # The bypass: the agent at its ceiling deletes the lock and commits over it. accept.py asks the
+    # same branch-history question gate.py asks, so the denial NAMES the lock and the sanctioned
+    # way out instead of arriving as an opaque RED-gate line (the gate would deny too).
+    rel = _commit_escalate(repo)
+    repo.git("rm", "-q", "--", rel)
+    repo.git("commit", "-q", "-m", "unlock myself", "--", rel)
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "[FAIL] escalate" in proc.stdout
+    assert rel in proc.stdout
+    assert "--clear-escalate" in proc.stdout
+
+
+def test_escalate_cleared_by_a_baseline_move_stops_denying(repo: FixtureRepo) -> None:
+    # The sanctioned clearing path must actually UNBLOCK acceptance, or the lock is a deadlock. The
+    # anchor is the baseline TAG for exactly this reason: `red_check --clear-escalate` re-anchors it
+    # onto the removal commit, so the history question then asks about an empty range. (The clearing
+    # step itself, with its three guards, is driven end to end in test_red_check.py and
+    # test_gate.py; here the tag move is applied directly, because this fixture's flip/verdict
+    # commits sit between the baseline and the lock — an ordering guard (ii) refuses, and one a real
+    # escalation cannot produce: the implementer commits src/** only on green, so nothing else is
+    # committed while the lock stands.)
+    rel = _commit_escalate(repo)
+    repo.git("rm", "-q", "--", rel)
+    repo.git("commit", "-q", "-m", "human clears the ESCALATE", "--", rel)
+    repo.git("tag", "-f", "baseline/demo-001")  # what --clear-escalate does, and only it may
+    proc = repo.accept("demo/001", "--base", "main")
+    assert "[PASS] escalate" in proc.stdout, proc.stdout
+
+
 def test_open_criteria_denies(repo: FixtureRepo) -> None:
     repo.write(f"{CHANGE_DIR}/criteria.md", CRITERIA_OPEN)  # revert one flip to [ ]
     proc = repo.accept("demo/001", "--base", "main")

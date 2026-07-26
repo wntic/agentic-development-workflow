@@ -276,6 +276,11 @@ def make_repo(
     for name in TOOL_FILES:
         repo.write(f".claude/tools/{name}", (TOOLS_DIR / name).read_text(encoding="utf-8"))
     repo.git("init", "-q")
+    # A real repo has an identity; the fixture needs a LOCAL one because tooling that commits by
+    # itself (subagent_stop's ESCALATE commit, T06h) runs git without the `-c user.*` this helper
+    # passes — and must not depend on the machine's global config.
+    repo.git("config", "user.name", "gate")
+    repo.git("config", "user.email", "gate@test")
     repo.git("add", "-A")
     repo.git("commit", "-q", "-m", "red tests baseline (fixture)")
     if tag:
@@ -923,6 +928,82 @@ def test_change_without_an_escalate_is_unaffected(repo: FixtureRepo) -> None:
     statuses = repo.statuses()
     assert statuses["integrity.escalate-intact"] == "PASS"
     assert "no ESCALATE file at the baseline commit" in proc.stdout
+
+
+ESCALATE_REL = "specs/demo/changes/001-thing/ESCALATE"
+
+
+def _commit_escalate(repo: FixtureRepo) -> None:
+    """The shipped sequence T06h makes real: the hook writes AND commits the lock, path-scoped,
+    on top of the already-tagged red baseline (its ceiling fires after baselining, so an ESCALATE
+    can never sit in the baseline tree — the reason a baseline-vs-HEAD diff could not see it)."""
+    repo.write(ESCALATE_REL, ESCALATE_FILE)
+    repo.git("add", "--", ESCALATE_REL)
+    repo.git("commit", "-q", "-m", "hook: escalate", "--", ESCALATE_REL)
+
+
+def test_escalate_committed_after_the_baseline_then_deleted_is_red(tmp_path: Path) -> None:
+    # THE bypass, in the shape the shipped flow actually produces: the hook commits the lock after
+    # the baseline is tagged, then the agent at its ceiling deletes it and commits over it. Before
+    # T06h this passed silently — the baseline tree had no ESCALATE, so there was nothing to miss.
+    repo = make_repo(tmp_path / "app")
+    _commit_escalate(repo)
+    repo.git("rm", "-q", "--", ESCALATE_REL)
+    repo.git("commit", "-q", "-m", "unlock myself", "--", ESCALATE_REL)
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert repo.statuses()["integrity.escalate-intact"] == "FAIL"
+    assert ESCALATE_REL in proc.stdout
+    assert "only a human may clear it" in proc.stdout
+    assert "--clear-escalate" in proc.stdout  # the denial names the sanctioned way out
+
+
+def test_escalate_committed_then_deleted_in_the_work_tree_is_red(tmp_path: Path) -> None:
+    # The same bypass without the cover-up commit: git knows the file, the work tree does not.
+    repo = make_repo(tmp_path / "app")
+    _commit_escalate(repo)
+    (repo.root / ESCALATE_REL).unlink()
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert repo.statuses()["integrity.escalate-intact"] == "FAIL"
+
+
+def test_escalate_committed_and_standing_is_not_a_gate_failure(tmp_path: Path) -> None:
+    # The asymmetry §5.3 requires: a live lock is accept.py's business, not the gate's. Making it
+    # RED would leave every escalated change un-gateable — the human could not even see whether
+    # the tree is otherwise green.
+    repo = make_repo(tmp_path / "app")
+    _commit_escalate(repo)
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert repo.statuses()["integrity.escalate-intact"] == "PASS"
+
+
+def test_escalate_cleared_through_red_check_passes(tmp_path: Path) -> None:
+    # The sanctioned clearing path end to end (T06h part 3): the human removes the lock, commits
+    # that removal ALONE, and `red_check --clear-escalate` moves the baseline over it. Without this
+    # step the gate would stay RED forever, since --rebaseline refuses a non-tests/ commit.
+    repo = make_repo(tmp_path / "app")
+    _commit_escalate(repo)
+    repo.git("rm", "-q", "--", ESCALATE_REL)
+    repo.git("commit", "-q", "-m", "human clears the ESCALATE", "--", ESCALATE_REL)
+    clear = subprocess.run(
+        [sys.executable, str(TOOLS_DIR / "red_check.py"), str(repo.root), "--change", "demo/001", "--clear-escalate"],
+        capture_output=True,
+        text=True,
+    )
+    assert clear.returncode == 0, clear.stdout + clear.stderr
+    assert "CLEAR-ESCALATE: OK" in clear.stdout
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert repo.statuses()["integrity.escalate-intact"] == "PASS"
+
+
+def test_escalate_state_fails_closed_on_an_unanswerable_git_call(repo: FixtureRepo) -> None:
+    # T04e's rc-guard, kept and extended to the log call: a git result that could not be obtained
+    # must never read as "no ESCALATE" (notes/19's fail-open class).
+    state = gate.escalate_state(repo.root, "refs/tags/no-such-baseline")
+    assert state.error and state.known == () and state.missing == ()
 
 
 def test_human_removal_followed_by_a_rebaseline_is_not_punished(tmp_path: Path) -> None:

@@ -1102,6 +1102,46 @@ def check_change_frozen(ctx: GateContext) -> Check:
     return Check("integrity.change-frozen", "PASS", "change.md identical to baseline (E-12)")
 
 
+@dataclass(frozen=True)
+class EscalateState:
+    """What git knows about a branch's `ESCALATE` locks, relative to an anchor commit."""
+
+    known: tuple[str, ...]  # ESCALATE paths carried by the anchor tree OR committed since it
+    missing: tuple[str, ...]  # of `known`, those the work tree no longer has
+    error: str | None  # a git call that could not be answered — never read as "no ESCALATE"
+
+
+def _escalate_lines(text: str) -> set[str]:
+    return {ln.strip() for ln in text.splitlines() if ln.strip().endswith("/ESCALATE") and "/changes/" in ln}
+
+
+def escalate_state(tree: Path, anchor: str) -> EscalateState:
+    """Every `specs/*/changes/*/ESCALATE` git knows for this branch since `anchor`, and which of
+    them the work tree no longer has. One implementation, shared with accept.py (C7).
+
+    Two git questions, because a lock enters history two ways: the anchor commit may carry it
+    (`ls-tree`), or — the shipped flow — some commit in `anchor..HEAD` may have added it
+    (`log`). The hook fires at the *implementer's* ceiling, i.e. AFTER the red baseline is
+    committed and tagged, so a real ESCALATE is never in the baseline tree; a baseline-vs-HEAD
+    tree comparison therefore sees "absent" at both ends and passes. That is exactly why T04e's
+    baseline-only check could not fire in the shipped flow (notes/19, the corrected Question-3
+    row) — the question has to be about the branch's HISTORY, not about two trees.
+
+    Both calls are guarded: an unanswerable git result becomes `error`, never an empty list a
+    caller would read as "no ESCALATE" (notes/19's fail-open class).
+    """
+    rc, out = _git(tree, "ls-tree", "-r", "--name-only", anchor, "--", "specs")
+    if rc != 0:
+        return EscalateState((), (), f"git ls-tree against {anchor} failed:\n{_tail(out)}")
+    known = _escalate_lines(out)
+    rc, out = _git(tree, "log", "--pretty=format:", "--name-only", f"{anchor}..HEAD", "--", "specs")
+    if rc != 0:
+        return EscalateState((), (), f"git log {anchor}..HEAD failed:\n{_tail(out)}")
+    known |= _escalate_lines(out)
+    ordered = tuple(sorted(known))
+    return EscalateState(ordered, tuple(rel for rel in ordered if not (tree / rel).exists()), None)
+
+
 def check_escalate_intact(ctx: GateContext) -> Check:
     # §5.3 / E-08: the iteration-ceiling `ESCALATE` file is a human-only lock — accept.py
     # denies while it exists and "снять файл может только человек". That was prose: the
@@ -1109,37 +1149,42 @@ def check_escalate_intact(ctx: GateContext) -> Check:
     # verdict.md writes are legal cycle traffic, so a blanket freeze would deadlock the very
     # cycle the lock guards), so an agent that hit its ceiling could delete the file and be
     # invisible to both scripts. The disappearance is therefore checked on its own: an
-    # ESCALATE carried by the baseline commit must still be in the work tree.
+    # ESCALATE git knows about — carried by the baseline commit or COMMITTED by the hook since
+    # it (T06h) — must still be in the work tree.
+    #
+    # The asymmetry is deliberate: a lock that still STANDS is not a gate failure (its presence
+    # is accept.py's business, §5.3/§5.4) — the gate judges only its removal. Making a live lock
+    # RED would leave an escalated change un-gateable, i.e. unable to show the human whether the
+    # tree is otherwise green.
     #
     # The legal human path is unchanged in kind from every other baseline-anchored fact
-    # (S4/S8): clear the file, then move the baseline (`red_check.py --rebaseline`) — the new
-    # baseline no longer carries it, so the check goes quiet. The gate cannot tell a human
-    # from an agent at the filesystem (neither can criteria_guard); it only makes the removal
-    # visible, which is what turns it into a deliberate, recorded act.
-    #
-    # The ls-tree is guarded explicitly rather than routed through _baseline_paths(): a git
-    # call that could not be answered must not read as "no ESCALATE at the baseline"
-    # (notes/19, the fail-open class).
-    rc, out = _git(ctx.tree, "ls-tree", "-r", "--name-only", str(ctx.baseline), "--", "specs")
-    if rc != 0:
-        return Check("integrity.escalate-intact", "FAIL", f"git ls-tree against baseline failed:\n{_tail(out)}")
-    baseline_escalates = [
-        line.strip() for line in out.splitlines() if line.strip().endswith("/ESCALATE") and "/changes/" in line
-    ]
-    if not baseline_escalates:
-        return Check("integrity.escalate-intact", "PASS", "no ESCALATE file at the baseline commit (§5.3/E-08)")
-    gone = [rel for rel in baseline_escalates if not (ctx.tree / rel).exists()]
-    if gone:
+    # (S4/S8): clear the file, commit that deletion alone, then move the baseline over it
+    # (`red_check.py --change <ctx>/NNN --clear-escalate`) — the new baseline is the removal
+    # commit, so the range is empty and the check goes quiet. The gate cannot tell a human from
+    # an agent at the filesystem (neither can criteria_guard); it only makes the removal
+    # visible, which is what turns clearing a lock into a deliberate, recorded act.
+    state = escalate_state(ctx.tree, str(ctx.baseline))
+    if state.error:
+        return Check("integrity.escalate-intact", "FAIL", state.error)
+    if not state.known:
+        return Check(
+            "integrity.escalate-intact",
+            "PASS",
+            "no ESCALATE file at the baseline commit or committed since it (§5.3/E-08)",
+        )
+    if state.missing:
         return Check(
             "integrity.escalate-intact",
             "FAIL",
-            "ESCALATE removed since the baseline — only a human may clear it, and clearing it "
-            "means re-baselining the change (§5.3/E-08):\n" + "\n".join(gone),
+            "ESCALATE removed since the baseline — only a human may clear it, and clearing it means "
+            "re-baselining the change over the removal commit "
+            f"(`red_check.py --change {ctx.change_id or '<ctx>/NNN'} --clear-escalate`, §5.3/E-08):\n"
+            + "\n".join(state.missing),
         )
     return Check(
         "integrity.escalate-intact",
         "PASS",
-        f"{len(baseline_escalates)} ESCALATE file(s) from the baseline still present (§5.3/E-08)",
+        f"{len(state.known)} ESCALATE file(s) known to git on this branch are still present (§5.3/E-08)",
     )
 
 

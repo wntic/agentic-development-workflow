@@ -31,7 +31,9 @@ Gates, in the §5.4 order:
      verdict-SHA..HEAD diff intersects the change's files (L-04).
   2. gate.py GREEN on the branch; a DOCKER SKIPPED / docker-exempt integration run is
      surfaced as an EXPLICIT flag (T04b — accepting a skipped Docker tier is a conscious
-     human decision, never a silent default); no ESCALATE file; Companion accepted.
+     human decision, never a silent default); no ESCALATE lock — neither standing in the tree
+     nor committed-then-deleted on this branch (T06h: the file is committed by the hook, so the
+     question is a history question and a detached worktree sees it too); Companion accepted.
   3. Affects-intersection vs in-flight changes → flag list (L-03).
   4. merge-fidelity pre-check: every acceptance criterion of the delta is findable in the
      prepared capability-file merge diff (L-11) — the human's stamp lands on a verified diff.
@@ -856,13 +858,35 @@ def run_gate(actx: AcceptContext) -> dict:
 # ---------------------------------------------------------------------------------------
 
 
+def _escalate_anchor(actx: AcceptContext) -> str:
+    """Where the ESCALATE history question starts: the change's baseline tag, else the base.
+
+    The baseline tag is the right anchor because it is what the sanctioned clearing step MOVES —
+    `red_check --clear-escalate` re-anchors the baseline onto the commit that removes the lock, so
+    a legally cleared change asks about an EMPTY range and the gate goes quiet. Anchoring on the
+    base branch instead would deny such a change forever, since the adding commit never leaves
+    `base..HEAD`. With no baseline tag there is nothing a clearing could have re-anchored, so the
+    base branch is the honest fallback: a committed-then-deleted lock in the branch's own history
+    still denies.
+    """
+    tag = "baseline/" + actx.change_id.replace("/", "-")
+    if _git(actx.tree, "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}")[0] == 0:
+        return tag
+    return actx.base
+
+
 def prechecks(actx: AcceptContext) -> list[Result]:
     """Cheap structural gates that need no gate.py run — a FAIL here short-circuits the
     expensive gate run (there is no point gating an already-denied change)."""
     _, criteria_lint = _tools()
     results: list[Result] = []
 
-    # gate 2: ESCALATE file (hook-written at the iteration ceiling; human removes it — E-08).
+    # gate 2: ESCALATE (hook-COMMITTED at the iteration ceiling; a human clears it — E-08).
+    # Two questions, one gate: does a lock STAND right now, and was one committed on this branch
+    # and then made to disappear? The second is gate.py's `integrity.escalate-intact` question,
+    # asked through gate.py's own helper (C7, one implementation) so the denial NAMES the lock
+    # here instead of reaching the human as an opaque RED-gate line further down. The gate run
+    # would deny either way — this precheck is about the reason being legible (notes/19).
     escalate = actx.change_dir / "ESCALATE"
     if escalate.exists():
         results.append(
@@ -873,7 +897,26 @@ def prechecks(actx: AcceptContext) -> list[Result]:
             )
         )
     else:
-        results.append(Result("escalate", PASS, "no ESCALATE file"))
+        gate, _ = _tools()
+        anchor = _escalate_anchor(actx)
+        state = gate.escalate_state(actx.tree, anchor)
+        mine = str(actx.change_dir.relative_to(actx.tree)) + "/ESCALATE"
+        if state.error:
+            # TRUST class: an unanswerable git call means the lock's fate is UNKNOWN, which must
+            # never read as "no lock" (the undetermined-input rule, module docstring).
+            results.append(Result("escalate", FAIL, f"the ESCALATE history could not be read:\n{state.error}"))
+        elif mine in state.missing:
+            results.append(
+                Result(
+                    "escalate",
+                    FAIL,
+                    f"{mine} was committed on this branch since {anchor} and has since been REMOVED — only a "
+                    "human clears a lock, and clearing it re-baselines the change over the removal commit "
+                    f"(`red_check.py --change {actx.change_id} --clear-escalate`, §5.3/E-08)",
+                )
+            )
+        else:
+            results.append(Result("escalate", PASS, f"no ESCALATE file, and none committed since {anchor}"))
 
     # gate 1a: no open [ ] criteria.
     lines = criteria_lint._strip_html_comments(actx.criteria_text.splitlines())

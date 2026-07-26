@@ -12,7 +12,11 @@ hit, THE HOOK ITSELF writes `changes/NNN-slug/ESCALATE` (E-08: escalation is a m
 file, not a line in an ephemeral report) and then allows the stop so the session can surface
 it to the human. Respects `stop_hook_active` and a configurable ceiling (F-4/5: the
 documented anti-loop field is `stop_hook_active`; the numeric ceiling is tracked in a
-git-ignored `.gate/` counter — see the report's finding on this drift).
+git-ignored `.gate/` counter — see the report's finding on this drift). That write is followed
+by a PATH-SCOPED commit of the file alone (T06h): an untracked ESCALATE is invisible to
+`gate.py` and to any acceptance run in a fresh worktree, so committing it is what makes §5.3's
+human-only lock checkable at all. A commit that fails never costs the escalation — the file
+stays on disk and the failure is surfaced verbatim.
 
 A gate that CANNOT RUN is not a RED (T06j). gate.py exits 2 with a sentence and writes no
 verdict.json when a precondition it cannot judge fails (the project's environment is missing
@@ -190,6 +194,46 @@ def run_gate(root: Path) -> GateRun:
     )
 
 
+def commit_escalate(root: Path, rel: str) -> str | None:
+    """Commit the ESCALATE at `rel`, scoped to that one path. None on success, else the reason.
+
+    E-08 says the escalation is MATERIAL, not a line in an ephemeral report — and an untracked
+    file is not material enough: git retains nothing about it, so its later deletion is invisible
+    to `gate.py`, and a fresh `git worktree` (how acceptance is often run) never carries it at all.
+    Committing it is what turns §5.3's "only a human removes it" from prose into a rule the gate
+    can check (T06h).
+
+    Two properties matter and both are in the command shape:
+      * `git add -- <path>` first, because `git commit -- <path>` alone refuses a path git does
+        not yet know ("did not match any file known to git");
+      * the commit is PATH-SCOPED, never `-A`: partial-commit mode ignores the rest of the index
+        and the work tree, so the implementer's uncommitted `src/**` — which at an escalation is
+        exactly what is lying around unfinished — is not swept into a commit it does not own (D4).
+
+    Nothing here may cost the escalation: a repo with no `user.email`, no git at all, or a commit
+    hook of its own returns a sentence the caller surfaces, and the ESCALATE file stays written.
+    """
+    message = (
+        f"chore(escalate): iteration ceiling reached — {rel}\n\n"
+        "Hook-authored (SubagentStop, spec §5.3/E-08). Only a human clears this lock; clearing it "
+        "means committing the removal and re-baselining over it (red_check.py --clear-escalate)."
+    )
+    for args in (["add", "--", rel], ["commit", "-q", "-m", message, "--", rel]):
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(root), *args],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return f"git {args[0]} failed: {exc}"
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+            return f"git {args[0]} failed: {detail[-1] if detail else f'exit {proc.returncode}'}"
+    return None
+
+
 def block(reason: str) -> None:
     print(json.dumps({"decision": "block", "reason": reason}))
     sys.exit(0)
@@ -273,29 +317,38 @@ def main() -> int:
             "Keep working src/** to green — SubagentStop holds you while the gate is red (§5.3)."
         )
 
-    # ceiling reached — the hook writes the ESCALATE file (E-08) and lets the stop through
+    # ceiling reached — the hook writes AND COMMITS the ESCALATE file (E-08, T06h) and lets the
+    # stop through
     change_dir = find_change_dir(root)
+    commit_failure: str | None = None
     if change_dir is not None:
         escalate = change_dir / "ESCALATE"
         escalate.write_text(
             "# ESCALATE (hook-authored, spec §5.3 / E-08)\n\n"
             f"gate.py stayed RED after {ceiling} implementer passes.\n"
             f"Failed checks: {', '.join(failed) or 'see .gate/verdict.json'}\n\n"
-            "accept.py denies while this file exists; only a human removes it.\n",
+            "accept.py denies while this file exists; only a human removes it.\n"
+            "Clearing it is a recorded act: commit the removal, then move the baseline over it\n"
+            "(`red_check.py --change <context>/NNN --clear-escalate`).\n",
             encoding="utf-8",
         )
+        # The file first, the commit second, and a failing commit never unwrites the file: the
+        # escalation must reach the human even in a tree git cannot commit in (finding T06j's
+        # rule — a precondition failure must be legible to whoever can act on it).
+        commit_failure = commit_escalate(root, str(escalate.relative_to(root)))
     write_count(root, 0)
     # allow the stop; surface the escalation (not a block — the human takes over)
-    print(
-        json.dumps(
-            {
-                "systemMessage": (
-                    f"iteration ceiling ({ceiling}) reached; gate still RED "
-                    f"({', '.join(failed) or 'see .gate/verdict.json'}). ESCALATE written — a human must intervene."
-                )
-            }
-        )
+    message = (
+        f"iteration ceiling ({ceiling}) reached; gate still RED "
+        f"({', '.join(failed) or 'see .gate/verdict.json'}). ESCALATE written — a human must intervene."
     )
+    if commit_failure:
+        message += (
+            f"\n\nWARNING: the ESCALATE file could not be COMMITTED ({commit_failure}). It is on disk, but "
+            "until it is committed the lock is invisible to gate.py and to a worktree-based acceptance "
+            "(§5.3/E-08) — commit it by hand: git add -- <path> && git commit -- <path>."
+        )
+    print(json.dumps({"systemMessage": message}))
     return 0
 
 

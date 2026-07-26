@@ -184,6 +184,24 @@ the change's class.
   `ESCALATE` file and hand off to the human — the loop does not silently churn.
 - The main-session Stop hook (T06) will not let this turn end while `criteria.md` has any `[ ]`,
   `verdict.md` is missing, or an `ESCALATE` file exists — the last resolves only by a human turn.
+- **The `ESCALATE` is a commit, and clearing it is a commit too (§5.3/E-08).** The hook writes the
+  file **and commits it**, scoped to that one path — an untracked lock is invisible to `gate.py`
+  and to any acceptance run in a fresh worktree, so committing it is what makes "only a human
+  removes it" a rule instead of a sentence. Consequences for this loop: `gate.py` goes **RED**
+  (`integrity.escalate-intact`) if that committed file later disappears, and `accept.py` denies
+  both while it stands and after it was deleted. So the human clears a lock in two steps —
+  remove the file, commit **that deletion alone**, then move the baseline over it:
+
+  ```bash
+  uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" red-check --change <context>/NNN --clear-escalate
+  ```
+
+  It is deliberately narrower than `--rebaseline` (§2): it refuses unless a committed `ESCALATE`
+  is now gone, **every** commit since the baseline touches nothing but that path, and no ac-marked
+  test disappeared — so no criteria flip, `change.md` edit or dropped test can ride along. Hence
+  "the deletion alone": clear the lock **before** committing anything else. In a real escalation
+  that holds by construction, since the implementer commits `src/**` only on green and an escalated
+  change never got there. Never `git tag -f` by hand.
 
 Everything for this change — red tests, code, verdict — lives on the change branch; `main`
 receives it only later, green, through `accept.py` (S9).

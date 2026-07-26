@@ -13,6 +13,7 @@ gate.py + criteria_lint.py committed and a `baseline/demo-001` tag."""
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -889,6 +890,55 @@ def test_subagent_stop_writes_escalate_at_ceiling(repo: FixtureRepo) -> None:
     escalate = repo.root / "specs/demo/changes/001-thing/ESCALATE"
     assert escalate.exists(), "hook must author the ESCALATE file (E-08)"
     assert "gate.py stayed RED" in escalate.read_text(encoding="utf-8")
+
+
+# T06h — the ESCALATE must be a COMMIT. An untracked file is invisible to gate.py (git retains
+# nothing about it) and to any acceptance run in a fresh worktree, so §5.3's human-only lock was
+# unenforceable no matter what the gate checked.
+
+ESCALATE_REL = "specs/demo/changes/001-thing/ESCALATE"
+
+
+def _escalate_at_ceiling(repo: FixtureRepo) -> subprocess.CompletedProcess[str]:
+    repo.write("src/app/main.py", SRC_MAIN_BROKEN)  # gate RED, and an uncommitted src/ edit
+    return run_hook(
+        "subagent_stop.py",
+        _implementer({"cwd": str(repo.root), "stop_hook_active": True}),
+        cwd=repo.root,
+        env={"WORKFLOW_STOP_CEILING": "0"},  # escalate immediately
+    )
+
+
+def test_subagent_stop_commits_the_escalate(repo: FixtureRepo) -> None:
+    proc = _escalate_at_ceiling(repo)
+    assert proc.returncode == 0, proc.stderr
+    assert (repo.root / ESCALATE_REL).exists()
+    # tracked at HEAD — the only state in which gate.py can ever see the file disappear
+    assert repo.git("ls-tree", "--name-only", "HEAD", "--", ESCALATE_REL).strip() == ESCALATE_REL
+
+
+def test_subagent_stop_escalate_commit_is_scoped_to_that_one_path(repo: FixtureRepo) -> None:
+    # `-A` would sweep the implementer's unfinished src/** into a commit the hook does not own
+    # (D4) — and at an escalation an unfinished src/ is exactly what is lying around.
+    proc = _escalate_at_ceiling(repo)
+    assert proc.returncode == 0, proc.stderr
+    touched = [ln for ln in repo.git("show", "--name-only", "--format=", "HEAD").splitlines() if ln.strip()]
+    assert touched == [ESCALATE_REL], touched
+    assert "src/app/main.py" in repo.git("status", "--porcelain")  # still uncommitted
+
+
+def test_subagent_stop_never_loses_the_escalation_when_the_commit_fails(repo: FixtureRepo) -> None:
+    # A tree git cannot commit in (here: no repository at all — a project not yet under git, or a
+    # missing identity in a consumer). The escalation must still reach the human, with the reason
+    # the lock is not yet enforceable stated instead of swallowed (the T06j rule).
+    shutil.rmtree(repo.root / ".git")
+    proc = _escalate_at_ceiling(repo)
+    assert proc.returncode == 0, proc.stderr
+    assert (repo.root / ESCALATE_REL).exists(), "the file must survive a failed commit"
+    message = json.loads(proc.stdout)["systemMessage"]
+    assert "iteration ceiling" in message
+    assert "could not be COMMITTED" in message
+    assert "git commit --" in message  # what to do about it
 
 
 def test_subagent_stop_gate_path_prefers_the_plugin_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
