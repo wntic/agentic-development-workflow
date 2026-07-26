@@ -159,7 +159,7 @@ gate is red for a reason that has nothing to do with the consumer's code.
    (the framework substrate of `conventions` block D covers this in a real app).
 3. `CLAUDE_PLUGIN_ROOT=<split repo> uv run "<split repo>/bin/adw.py" gate` → **GATE: GREEN**, with
    `[PASS] integrity.self-hash` from the *installed* location (since T18 the line reads
-   `all 12 enforcement anchor(s) match git HEAD (E-02)`).
+   `all <n> enforcement anchor(s) match git HEAD (E-02)`).
 4. A live `claude -p --plugin-dir <split repo>` session in that consumer: all 7 commands and 4
    agents resolve under the `adw:` namespace, `/adw:orient` runs, and `echo probe > tests/probe.py`
    is **denied** by `bash_guard` — fired through `hooks/hooks.json` from the installed location —

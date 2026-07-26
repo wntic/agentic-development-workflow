@@ -40,6 +40,27 @@ T10h's builder on its first attempt, and T17's when it added `drift.py`. T18's s
 defect. (Do not write the anchor *count* anywhere: it is glob-derived and drifts. Two documents
 already said "12" one task after it became 13.)
 
+**T15's distribution rule is confirmed against a real install — measured 2026-07-26, after T19's
+builder reported the opposite.** T19 finding 5 claimed *every* installed plugin is a content copy with
+no `.git`, which would have made `check_self_hash` FAIL permanently in every consumer and evaporated
+T18's whole protection. It does not hold. All four plugins installed on this machine are registered
+under one marketplace, but they split by **what the marketplace entry points at**:
+
+| plugin | `.git` | `gitCommitSha` |
+|---|---|---|
+| `superpowers` | **yes** (shallow clone, `origin = github.com/obra/superpowers.git`) | its own |
+| `frontend-design`, `code-review` | no | `6cf7e633` — **the marketplace repo's own commit** |
+
+The three without `.git` share the *marketplace's* sha because they **are** its subdirectories, exported
+as content. `superpowers` points at a **separate whole repo** and is therefore **cloned**, so `.git`
+survives. That is exactly the split T15 measured and mandated: release adw by `git subtree split` into
+its own repo and register a **whole-repo** source, never `git-subdir`. `notes/21` §5 is correct.
+
+Still owed, and only the operator can do it: a real `claude plugin marketplace add <adw repo>` +
+`claude plugin install adw`, then `gate.py` in that consumer. The evidence above is a genuine installed
+whole-repo-source plugin keeping `.git`, which is strong — but it is not adw. Note the clone is
+**shallow** and carries **no tags**, which is independently why T19 rejected its release-tag option.
+
 **`/adw:orient` in *this* repo ends on `verdict: DRIFT`, and that is a true positive.** T17's drift
 check reports 8 `src`-touching commits reachable from no `change/*` tag — all v2-era or the T02 purge,
 and this repo has no `change/*` tag at all. It is real §5.5 output about real unlegalised history, not
