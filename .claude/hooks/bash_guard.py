@@ -56,8 +56,27 @@ otherwise the guard dictates filenames, and its explanation misnames the real re
 denial (that misnaming is what sent a builder renaming a fixture that was in fact denied for
 living under `.claude/tools`).
 
-Write ops understood: `>`/`>>` redirections (fd-prefixed forms too; fd duplication excluded),
-`rm`, `mv`, `tee`, in-place `sed -i`, `git checkout -- <paths>`, `git restore <paths>`.
+A real tokeniser, not a slice-and-regex scan (T06i). Six point fixes into the old hand-rolled
+tokeniser each closed one variant and left the next to be discovered by the agent it blocked, so
+the shape changed rather than growing a seventh patch: the command is now (1) stripped of heredoc
+bodies, (2) masked — every quoted span and backslash-escape becomes an opaque word placeholder, so
+a `;` or `>` inside a quoted argument can never read as an operator, (3) lexed with
+`shlex(punctuation_chars=…)`, which yields the shell operators as tokens of their own even when
+glued to a quoted word (`rm -rf "$S"; cp a b` — the defect that made `rm`'s argument slice swallow
+the following `cp`'s SOURCE path and then blame it), and (4) split into simple commands at the
+control operators, each parsed for its redirects and — in COMMAND POSITION only, past any
+assignments and wrapper words — its mutator arguments. Command-position anchoring is why
+`grep -rn rm tests/` no longer reads as a removal. Two indeterminacy rules keep the precision bias
+(T06b): an unterminated quote drops the whole command, and an expansion the guard cannot evaluate
+(`$VAR`, `` `cmd` ``, a leading `~`) in a target's FIRST component drops that target — that is the
+variant which read every out-of-repo `"$SCRATCH/specs/…"` as an in-repo write. An expansion further
+down leaves the location anchored by the literal components before it, so `rm tests/$name.py`
+still fires. The 130 cases of `.claude/tools/test_enforcement.py` are the specification of what
+the guard means and all of them survived the rewrite unchanged.
+
+Write ops understood: output redirections `>` `>>` `>|` `&>` `&>>` (fd-prefixed forms too; fd
+duplication `>&` and every input redirect excluded — an input file is a read), `rm`, `mv`, `tee`,
+in-place `sed -i`, `git checkout -- <paths>`, `git restore <paths>`.
 Protected paths: tests/**, specs/<ctx>/*.md, changes/*/criteria.md|change.md|verdict.md,
 .claude/tools|hooks/**, .claude/settings.json, pyproject.toml.
 
@@ -133,13 +152,43 @@ ROLE_OWNED = {
 SRC_CLOSED_TO = ("test-author", "evaluator")
 SRC_FRAGMENT = "src/"
 
-# A redirection token: optional fd digits, `>` or `>>`, then an optional glued target.
-# Anchored at ^ so a stray `>` inside a word (e.g. a `<brackets>` in a commit message that
-# shlex merged into one token) does NOT read as a redirect.
-REDIRECT = re.compile(r"^(\d*)(>>?)(.*)$")
+# --- the tokeniser (T06i) ---------------------------------------------------------------
+#
+# Punctuation characters shlex splits off as tokens of their own (`punctuation_chars`), plus the
+# newline. With these, `;` / `&&` / `|` are operators even when glued to a quoted word, and each
+# line of a multi-line command is its own simple command.
+PUNCTUATION = "();<>|&\n"
 
-# Shell control operators — a write op's argument list stops here.
-CONTROL = frozenset({"|", "||", "&&", ";", "&", "|&"})
+# One shell operator inside a run of punctuation characters, longest form first: shlex hands a
+# whole run back as a single token (`&&\n`, `>&`), so the run is re-split here instead of guessed.
+OPERATOR = re.compile(r"\n+|;;|&&|\|\||\|&|&>>|&>|>>|>&|>\||<<<|<<|<&|[;&|<>()]")
+
+# Operators that redirect output INTO a file: the operand is a write target.
+WRITE_OPS = frozenset({">", ">>", ">|", "&>", "&>>"})
+
+# Operators whose operand is not a file this command writes — an fd duplication (`2>&1`), an
+# input redirect, a heredoc/herestring delimiter. The operand is consumed, never read as an
+# argument (so a heredoc tag is not mistaken for a path).
+READ_OPS = frozenset({">&", "<&", "<", "<<", "<<<"})
+
+# Every other operator (`;` `;;` `&&` `||` `|` `|&` `&` `(` `)` newline) ends a simple command.
+
+# Item kinds in the lexed stream.
+WORD, OP = "word", "op"
+
+# A leading `VAR=value` assignment and the wrapper words that precede the real command — both
+# are skipped when looking for the command in command position, so `sudo rm …` and a `then rm …`
+# are still seen as `rm`.
+ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
+WRAPPERS = frozenset({"sudo", "env", "time", "nohup", "command", "exec", "builtin", "xargs", "then", "else", "do", "!"})
+
+# An unexpanded parameter/command expansion inside a write target, and the neutral component it
+# is replaced by (a character no path fragment can contain, so it matches nothing).
+EXPANSION = re.compile(r"\$\{[^}]*\}|\$[\w@*#?!$-]+|\$|`[^`]*`|`")
+PLACEHOLDER = "\x01"
+
+# The placeholder a masked quoted span leaves in the text (see `_mask_quoted`).
+MASK = re.compile("\x00(\\d+)\x00")
 
 # `cd`-awareness (T06f). Builtins that move the cwd (`cd <dir>`, `pushd <dir>`) and the one that
 # pops a stack this guard does not model (`popd` → cwd indeterminate).
@@ -231,13 +280,161 @@ def _strip_heredoc_bodies(command: str) -> str:
     return "\n".join(kept)
 
 
-def _slice_until_control(tokens: list[str], start: int) -> list[str]:
+def _mask_quoted(command: str) -> tuple[str, dict[str, str]] | None:
+    """`command` with every quoted span and backslash-escape replaced by a word placeholder.
+
+    Quoting is what separates command from data, and the guard's whole false-positive family is
+    data read as command. shlex is quote-aware for *word splitting* but cannot say whether the
+    token it produced was quoted — so a `-m ";"` or a `grep ">" tests/x.py` would still reach the
+    operator classifier as a bare `;` / `>`. Masking first makes the answer structural: after it,
+    every punctuation character left in the text is unquoted, hence a real operator.
+
+    The placeholder is `\\x00<n>\\x00` — no whitespace, no punctuation character — so it glues to
+    its neighbours exactly as the quoted span did (`"$S"/x` stays one word) and is restored to the
+    span's *content* once the words are split. None on an unterminated quote (precision bias, S8).
+    """
+    spans: dict[str, str] = {}
     out: list[str] = []
-    for tok in tokens[start:]:
-        if tok in CONTROL:
-            break
-        out.append(tok)
+    i, n = 0, len(command)
+    while i < n:
+        ch = command[i]
+        if ch == "$" and i + 1 < n and command[i + 1] in "'\"":
+            i += 1  # `$'…'` / `$"…"` still quote their content; the `$` is not an expansion
+            continue
+        if ch in "'\"":
+            j = i + 1
+            buf: list[str] = []
+            while j < n and command[j] != ch:
+                if ch == '"' and command[j] == "\\" and j + 1 < n:
+                    buf.append(command[j + 1])
+                    j += 2
+                    continue
+                buf.append(command[j])
+                j += 1
+            if j >= n:
+                return None  # unterminated quote — do not fire
+            key = f"\x00{len(spans)}\x00"
+            spans[key] = "".join(buf)
+            out.append(key)
+            i = j + 1
+        elif ch == "\\" and i + 1 < n:
+            key = f"\x00{len(spans)}\x00"
+            spans[key] = command[i + 1]
+            out.append(key)
+            i += 2
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out), spans
+
+
+def _unmask(word: str, spans: dict[str, str]) -> str:
+    """`word` with every placeholder restored to the span's content."""
+    return MASK.sub(lambda m: spans.get(m.group(0), ""), word)
+
+
+def _lex(command: str) -> list[tuple[str, str]] | None:
+    """`command` as a stream of (WORD | OP, text) items, or None if it cannot be lexed.
+
+    Two passes: quoted spans are masked out (so no quoted `;` / `>` can pass for an operator),
+    then shlex splits words and hands back runs of punctuation, which `OPERATOR` re-splits into
+    the individual shell operators. This is what makes `rm -rf "$S"; cp a b` two commands — the
+    defect that let `rm`'s argument list swallow the following `cp`'s SOURCE path and blame it.
+    """
+    masked = _mask_quoted(command)
+    if masked is None:
+        return None
+    text, spans = masked
+    lexer = shlex.shlex(text, punctuation_chars=PUNCTUATION, posix=True)
+    lexer.whitespace_split = True
+    lexer.whitespace = " \t\r"  # the newline is an operator here, not whitespace
+    lexer.commenters = ""  # `#` introduces no comment for this guard (shlex.split's behaviour)
+    try:
+        raw = list(lexer)
+    except ValueError:
+        return None
+    stream: list[tuple[str, str]] = []
+    for tok in raw:
+        if tok and set(tok) <= set(PUNCTUATION):
+            stream.extend((OP, op) for op in OPERATOR.findall(tok))
+        else:
+            stream.append((WORD, _unmask(tok, spans)))
+    return stream
+
+
+def _simple_commands(stream: list[tuple[str, str]]) -> list[list[tuple[str, str]]]:
+    """`stream` split into simple commands at every separator operator, in execution order."""
+    out: list[list[tuple[str, str]]] = []
+    current: list[tuple[str, str]] = []
+    for kind, val in stream:
+        if kind == OP and val not in WRITE_OPS and val not in READ_OPS:
+            if current:
+                out.append(current)
+            current = []
+        else:
+            current.append((kind, val))
+    if current:
+        out.append(current)
     return out
+
+
+def _split_redirects(segment: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
+    """One simple command's (words, redirect write targets).
+
+    Redirections are lifted out wherever they sit, so the redirect's operand never lands in the
+    command's argument list (`rm -f /tmp/a > log` writes `log`, it does not remove it) and an fd
+    prefix (`2` in `2>&1`) is dropped from the words instead of reading as an argument.
+    """
+    words: list[str] = []
+    targets: list[str] = []
+    i, n = 0, len(segment)
+    while i < n:
+        kind, val = segment[i]
+        if kind == WORD:
+            words.append(val)
+            i += 1
+            continue
+        if words and words[-1].isdigit():
+            words.pop()  # the fd prefix of this redirection, not an argument
+        operand = segment[i + 1][1] if i + 1 < n and segment[i + 1][0] == WORD else None
+        if val in WRITE_OPS and operand is not None:
+            targets.append(operand)
+        i += 2 if operand is not None else 1
+    return words, targets
+
+
+def _command_and_args(words: list[str]) -> tuple[str | None, list[str]]:
+    """The command in command position and its arguments (leading assignments/wrappers skipped).
+
+    A mutator is only a mutator in command position: `grep -rn rm tests/` searches, it does not
+    remove, and reading the mere presence of the word `rm` anywhere in the command is how a
+    read-only argument came to be reported as a write target.
+    """
+    i = 0
+    while i < len(words) and (ASSIGNMENT.match(words[i]) or words[i] in WRAPPERS):
+        i += 1
+    if i >= len(words):
+        return None, []
+    return words[i], words[i + 1 :]
+
+
+def _paths(args: list[str]) -> list[str]:
+    return [a for a in args if a and not a.startswith("-")]
+
+
+def _mutator_targets(cmd: str | None, args: list[str]) -> list[str]:
+    """The paths `cmd` writes/removes, for the explicit mutators this guard understands."""
+    if cmd in ("rm", "mv", "tee"):
+        return _paths(args)
+    if cmd == "sed" and any(a == "-i" or a.startswith("-i") or a.startswith("--in-place") for a in args):
+        return _paths(args)
+    if cmd == "git":
+        sub = next((a for a in args if not a.startswith("-")), None)
+        if sub == "checkout" and "--" in args:  # a plain branch switch writes no listed path
+            return _paths(args[args.index("--") + 1 :])
+        if sub == "restore":
+            return _paths(args[args.index(sub) + 1 :])
+    return []
 
 
 def _cd_target(cwd: str | None, args: list[str]) -> str | None:
@@ -255,67 +452,36 @@ def _cd_target(cwd: str | None, args: list[str]) -> str | None:
 def _write_targets(command: str, cwd: str) -> list[WriteTarget]:
     """Best-effort list of write targets for the command, each with its effective cwd.
 
-    Empty when nothing writes, or when the command cannot be tokenised with confidence
-    (unbalanced quotes) — precision bias: do not fire, the gate catches a miss (S8).
+    One pass per simple command (T06i): heredoc bodies out, quoted spans masked, the stream split
+    at the real control operators, then each simple command's redirects and — in command position
+    only — its mutator arguments. Empty when nothing writes, or when the command cannot be lexed
+    with confidence (unterminated quote) — precision bias: do not fire, the gate catches a miss (S8).
     """
     command = _strip_heredoc_bodies(command)  # a heredoc body is data, not command (T06g)
-    try:
-        tokens = shlex.split(command, posix=True)
-    except ValueError:
+    command = command.replace("\\\n", " ")  # a line continuation is one command, not two
+    stream = _lex(command)
+    if stream is None:
         return []
 
     # A `cd` inside a subshell / command substitution is scoped in ways this guard does not
     # model, so its effect on the cwd is unknowable from the token stream: give up on relative
     # resolution for the whole command rather than resolve against the wrong directory.
     eff: str | None = cwd
-    if GROUPING.search(command) and any(tok.strip("(){}") in CD_BUILTINS | CD_OPAQUE for tok in tokens):
+    if GROUPING.search(command) and any(val in CD_BUILTINS | CD_OPAQUE for kind, val in stream if kind == WORD):
         eff = None
 
     targets: list[WriteTarget] = []
-    i, n = 0, len(tokens)
-    while i < n:
-        tok = tokens[i]
-
-        # Directory changes: the effective cwd for every relative target that follows.
-        if tok in CD_BUILTINS:
-            eff = _cd_target(eff, _slice_until_control(tokens, i + 1))
-            i += 1
-            continue
-        if tok in CD_OPAQUE:
+    for segment in _simple_commands(stream):
+        words, redirects = _split_redirects(segment)
+        targets.extend(WriteTarget(t, eff) for t in redirects)
+        cmd, args = _command_and_args(words)
+        # A directory change sets the effective cwd for every relative target that follows it.
+        if cmd in CD_BUILTINS:
+            eff = _cd_target(eff, args)
+        elif cmd in CD_OPAQUE:
             eff = None
-            i += 1
-            continue
-
-        # Redirections: `>` `>>` `1>` `2>>` ... with the target glued or in the next token.
-        m = REDIRECT.match(tok)
-        if m and (m.group(1) or tok.startswith(">")):
-            rest = m.group(3)
-            if rest.startswith("&"):
-                pass  # fd duplication (`2>&1`, `>&2`) — not a file write
-            elif rest:
-                targets.append(WriteTarget(rest, eff))
-            elif i + 1 < n and tokens[i + 1] not in CONTROL:
-                targets.append(WriteTarget(tokens[i + 1], eff))
-                i += 1
-            i += 1
-            continue
-
-        # Explicit mutators — the target is an argument, not the mere presence of the word.
-        if tok in ("rm", "mv", "tee"):
-            targets.extend(WriteTarget(a, eff) for a in _slice_until_control(tokens, i + 1) if not a.startswith("-"))
-        elif tok == "sed":
-            args = _slice_until_control(tokens, i + 1)
-            if any(a == "-i" or a.startswith("-i") or a.startswith("--in-place") for a in args):
-                targets.extend(WriteTarget(a, eff) for a in args if not a.startswith("-"))
-        elif tok == "git" and i + 1 < n and tokens[i + 1] == "checkout":
-            args = _slice_until_control(tokens, i + 2)
-            if "--" in args:  # `git checkout -- <paths>` restores files; a plain branch switch does not
-                targets.extend(WriteTarget(a, eff) for a in args[args.index("--") + 1 :] if not a.startswith("-"))
-        elif tok == "git" and i + 1 < n and tokens[i + 1] == "restore":
-            targets.extend(WriteTarget(a, eff) for a in _slice_until_control(tokens, i + 2) if not a.startswith("-"))
-
-        i += 1
-
+        else:
+            targets.extend(WriteTarget(t, eff) for t in _mutator_targets(cmd, args))
     return targets
 
 
@@ -342,8 +508,26 @@ def _repo_root(cwd: str) -> str | None:
     return proc.stdout.strip() or None
 
 
-def _repo_relative(target: WriteTarget, repo_root: str) -> str | None:
-    """`target` as a POSIX path relative to `repo_root`, or None if it falls outside the repo.
+def _anchorable(token: str) -> str | None:
+    """`token` with its expansions neutralised, or None when its LOCATION is unknowable (T06i).
+
+    The guard cannot expand `$VAR` or `~`, and joining an unexpanded token onto the repo root is
+    how every out-of-repo `"$SCRATCH/specs/…/ESCALATE"` was read as an in-repo write (and blamed a
+    path the command never touched). So: an expansion (or a `~`) in the token's FIRST component
+    makes the whole path indeterminate — dropped, exactly like T06f's unknown cwd. An expansion
+    further down leaves the location anchored by the literal components before it, so
+    `rm tests/$name.py` still fires on `tests/`; the expansion itself becomes a component that
+    matches no fragment.
+    """
+    if token.startswith("~"):
+        return None
+    if EXPANSION.search(token.split("/", 1)[0]):
+        return None
+    return EXPANSION.sub(PLACEHOLDER, token)
+
+
+def _repo_relative(token: str, cwd: str | None, repo_root: str) -> str | None:
+    """`token` as a POSIX path relative to `repo_root`, or None if it falls outside the repo.
 
     A relative target is resolved against the command's effective cwd (shell semantics, T06f);
     when that cwd is indeterminate the target is dropped — the same "do not fire" answer as a
@@ -351,11 +535,11 @@ def _repo_relative(target: WriteTarget, repo_root: str) -> str | None:
     scratch dir is correctly seen as outside the repo tree.
     """
     try:
-        abs_target = Path(target.token)
+        abs_target = Path(token)
         if not abs_target.is_absolute():
-            if target.cwd is None:
+            if cwd is None:
                 return None  # effective cwd unknown — never guess (T06f)
-            abs_target = Path(target.cwd) / abs_target
+            abs_target = Path(cwd) / abs_target
         rel = abs_target.resolve().relative_to(Path(repo_root).resolve())
     except (ValueError, OSError):
         return None  # ValueError: not under the repo root — do not fire
@@ -424,10 +608,13 @@ def offending(
     protected = _protected_for(role)
     cwd = cwd or os.getcwd()
     for target in _write_targets(command, cwd):
+        token = _anchorable(target.token)
+        if token is None:
+            continue  # an unexpanded expansion anchors the path nowhere (T06i)
         if repo_root is None:
-            candidate = target.token  # fallback: the raw token, root-insensitive
+            candidate = token  # fallback: the raw token, root-insensitive
         else:
-            rel = _repo_relative(target, repo_root)
+            rel = _repo_relative(token, target.cwd, repo_root)
             if rel is None:
                 continue  # outside the repo tree, or unresolvable — never fires (T06e/T06f)
             candidate = rel

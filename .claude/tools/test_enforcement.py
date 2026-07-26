@@ -595,6 +595,172 @@ def test_bash_guard_heredoc_preserves_the_owned_tree_allowance(repo: FixtureRepo
 
 
 # =======================================================================================
+# bash_guard — the real tokeniser (T06i)
+# =======================================================================================
+#
+# The six point fixes above each closed one variant and left the next to be discovered by the
+# agent it blocked. The seventh arrived while the decision task was open, so the shape changed
+# instead of growing a seventh patch: quoted spans are masked (a quoted operator is data),
+# `shlex(punctuation_chars=…)` yields the shell operators as their own tokens, the stream is split
+# into simple commands, and a mutator counts only in COMMAND POSITION. Every case above passed the
+# rewrite unchanged — that suite is the specification of what the guard means. What follows pins
+# the two variants that motivated it plus the classes the new shape closes as a side effect.
+
+
+def test_bash_guard_control_operator_glued_to_a_quoted_word(repo: FixtureRepo) -> None:
+    # Variant 6, verbatim (cost a builder two denied commands): the `;` glued to `"$S"` was no
+    # CONTROL token, so `rm`'s target slice ran to the end of the line and swallowed the later
+    # `cp`'s SOURCE — a path the command only READS — which is then what the denial blamed.
+    swallow = 'rm -rf "$S"; cp .claude/tools/x.py "$S/x.py"'
+    assert decision(_run_anchored(swallow, agent_type="v3-builder", root=repo.root)) is None
+    # ... and a single space before the `;` used to flip the verdict. Now both read the same.
+    spaced = 'rm -rf "$S" ; cp .claude/tools/x.py "$S/x.py"'
+    assert decision(_run_anchored(spaced, agent_type="v3-builder", root=repo.root)) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -rf tests/x.py; cp /tmp/a /tmp/b",  # the rm's OWN target is protected
+        "mkdir -p /tmp/x; echo x > tests/y.py",  # ... and so is the second command's redirect
+    ],
+)
+def test_bash_guard_segmenting_does_not_open_the_protected_tree(repo: FixtureRepo, command: str) -> None:
+    # Bounding the argument slice at `;` must not lose the write that really is in the tree.
+    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) == "deny", command
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        # Variant 7, verbatim: `$CD` is a scratchpad OUTSIDE the repo, but the guard cannot expand
+        # it, so the token was not absolute, got joined onto the repo root, and `specs/` matched.
+        ('rm -f "$CD/specs/demo/changes/001-x/ESCALATE"', "v3-builder"),
+        ("echo x > ${SCRATCH}/tests/x.py", "evaluator"),
+        ("cat > `pwd`/tests/x.py", "evaluator"),
+        # the same hole through a `~` the guard would have to expand itself
+        ("cat > ~/scratch/tests/x.py", "evaluator"),
+    ],
+)
+def test_bash_guard_unresolvable_target_location_does_not_fire(repo: FixtureRepo, command: str, role: str) -> None:
+    # An expansion in the target's FIRST component anchors the path nowhere: indeterminate, so
+    # dropped rather than resolved against the repo root (T06b/T06f precision bias, S8 backstop).
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) is None, command
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        # the literal spelling of the same path is still protected for a non-owner
+        ("rm -f specs/demo/changes/001-x/ESCALATE", "test-author"),
+        # an expansion BELOW the anchoring components leaves the location known
+        ("rm -f tests/$name.py", "evaluator"),
+        ('rm -f "tests/$name.py"', "evaluator"),
+        # `$'…'` is quoting, not an expansion — the target is fully determined
+        ("echo x > $'tests/x.py'", "evaluator"),
+    ],
+)
+def test_bash_guard_determinable_target_still_fires(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) == "deny", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep '>' tests/x.py",  # the redirect character is the search PATTERN
+        "git commit -m 'body: ; rm tests/x.py'",  # ... and a whole command inside a message
+        'git commit -m "see > tests/x.py"',
+    ],
+)
+def test_bash_guard_quoted_operator_is_data(repo: FixtureRepo, command: str) -> None:
+    # Masking quoted spans before lexing is what makes this structural rather than one more
+    # special case: after it, every punctuation character left is unquoted, hence a real operator.
+    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) is None, command
+
+
+def test_bash_guard_bare_operator_beside_a_quoted_one_still_fires(repo: FixtureRepo) -> None:
+    # The discriminating pair: the quoted `>` is data, the bare one is the redirect.
+    cmd = "echo '>' > tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("grep -rn rm tests/", None),  # `rm` as a search pattern removes nothing
+        ("echo done # rm tests/x.py", None),  # ... nor inside a trailing comment
+        ("tee -a /tmp/log < tests/x.py", None),  # an INPUT redirect is a read
+        ("sudo rm tests/x.py", "deny"),  # ... but a wrapped mutator is still the mutator
+        ("VAR=1 rm tests/x.py", "deny"),
+        ("if true; then rm tests/x.py; fi", "deny"),
+        ("tee -a tests/x.py < /tmp/log", "deny"),
+    ],
+)
+def test_bash_guard_mutator_counts_in_command_position(repo: FixtureRepo, command: str, expected: str | None) -> None:
+    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) == expected, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo a\nrm tests/x.py",  # a newline ends a command: `rm` is in command position
+        "rm \\\n tests/x.py",  # ... but a line continuation does not: one command, one target
+        "echo x >| tests/x.py",  # noclobber-override redirect
+        "echo x &> tests/x.py",  # stdout+stderr redirect
+        "echo x &>> tests/x.py",
+    ],
+)
+def test_bash_guard_operator_inventory(repo: FixtureRepo, command: str) -> None:
+    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) == "deny", command
+
+
+# --- the family, replayed ----------------------------------------------------------------
+#
+# One list of every false positive the tokeniser family was paid for, so a future rewrite is
+# measured against all seven variants at once rather than against the one being fixed.
+
+RECORDED_FALSE_POSITIVES = [
+    # T06b — a protected fragment and a `>` inside a quoted commit message
+    ('git commit -m "msg with <brackets> and .claude/hooks"', "test-author"),
+    # T06e — an absolute path outside the repo that merely contains `tests/`
+    ("cat > /tmp/x/tests/conftest.py", "test-author"),
+    # T06f A — a relative target inside a scratch tree reached by `cd`
+    ("cd /tmp/mut && cat > tests/integration/x_test.py", "evaluator"),
+    # T06f A — a filename that merely CONTAINS a protected filename
+    ("echo x > notes/users-002-change.md", "test-author"),
+    # T06g — a heredoc BODY read as command
+    (COMMIT_HEREDOC, "evaluator"),
+    # T06i variant 6 — `;` glued to a quoted word; the reason blamed the `cp`'s source
+    ('rm -rf "$S"; cp .claude/tools/x.py "$S/x.py"', "v3-builder"),
+    # T06i variant 7 — an unexpanded variable resolved against the repo root
+    ('rm -f "$CD/specs/demo/changes/001-x/ESCALATE"', "v3-builder"),
+]
+
+
+@pytest.mark.parametrize(("command", "role"), RECORDED_FALSE_POSITIVES)
+def test_bash_guard_no_recorded_false_positive_fires(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) is None, command
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        ("cat > tests/x.py", "evaluator"),  # a non-owner writing tests/ in the repo
+        ("echo x > specs/demo/changes/001-thing/change.md", "test-author"),  # spec prose is /spec's
+        ("rm -rf .claude/tools/gate.py", "implementer"),  # the enforcement tree
+    ],
+)
+def test_bash_guard_in_repo_denials_survive_the_rewrite(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) == "deny", command
+
+
+def test_bash_guard_cd_out_and_back_in_survives_the_rewrite(repo: FixtureRepo) -> None:
+    # The escalate-if case of the whole family: narrowing resolution must never open the tree.
+    cmd = f"cd .. && cat > {repo.root.name}/tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+# =======================================================================================
 # session_stop — ergonomics
 # =======================================================================================
 
