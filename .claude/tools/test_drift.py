@@ -272,6 +272,23 @@ def test_the_hotfix_half_is_not_reimplemented_here() -> None:
     assert "merge-base" not in source
 
 
+def test_the_route_inventory_is_the_gates_one_implementation() -> None:
+    """The surface half is not reimplemented either — `gate.route_inventory` is called (C7, T20).
+
+    The gate needs the very same inventory for the `invisible` class's before/after diff, and two
+    copies would let the reporter and the decider disagree about what the app serves. The direction
+    is fixed by `test_no_decider_runs_this_script`: the gate cannot import this script, so the
+    extraction lives in the gate and this script borrows it.
+    """
+    source = DRIFT.read_text(encoding="utf-8")
+    assert "_gate_module().route_inventory" in source, "drift.py must invoke gate.py's implementation"
+    assert "importlib.import_module" not in source, "app construction has one home: gate.py (C7)"
+    assert "app.openapi()" not in source.replace("`app.openapi()`", ""), "the schema read has one home"
+    gate_source = (TOOLS_DIR / "gate.py").read_text(encoding="utf-8")
+    assert "def route_inventory(" in gate_source
+    assert "def check_invisible_surface(" in gate_source  # the second reader of the same inventory
+
+
 # --- the undetermined-input rule (T10f) --------------------------------------------------
 
 

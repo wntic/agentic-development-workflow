@@ -25,13 +25,23 @@ conftest/pyproject does not work, E-05 class), then asserts:
      baseline time, so the test-author fixes it at author time (S4). NOT mypy — a greenfield
      first change imports a not-yet-written package, which is the intended redness.
 
-One change class has no red phase at all: **`hardening`** (spec §3.1) — a change whose tests get
-STRONGER while behaviour stays identical, lifted from a prior change's adversarial pass. Its tests
-are green on arrival, so redness cannot be its baseline property. For that class the script runs a
-strictly stronger pair instead (`run_hardening_checks`): GREEN-on-clean (every ac-marked test
-passes at the candidate commit) AND RED-on-mutation (with each mutation from change.md's
-`## Mutations` applied in a throwaway worktree, the AC ids that mutation names go RED). Then it
-tags exactly as the red path does. See the section note below for what that buys and what it costs.
+Two change classes have no red phase at all, and the script therefore reads the `Class:` line and
+asks each one its own question (spec §3.1):
+
+  * **`hardening`** — the tests get STRONGER while behaviour stays identical, lifted from a prior
+    change's adversarial pass. Its tests are green on arrival, so redness cannot be its baseline
+    property; `run_hardening_checks` asks a strictly stronger pair instead: GREEN-on-clean (every
+    ac-marked test passes at the candidate commit) AND RED-on-mutation (with each mutation from
+    change.md's `## Mutations` applied in a throwaway worktree, the AC ids that mutation names go
+    RED).
+  * **`invisible`** — a refactor / dependency upgrade / performance change: behaviour does not
+    change, so its ACs describe behaviour that already holds and its tests also pass on arrival.
+    `run_invisible_checks` asks for GREEN-AT-BASELINE (this change's ac-marked tests pass against
+    the code as it stands) plus a CONSTRUCTIBLE before-surface, which is what makes the gate's
+    `invisible.openapi-diff` — this class's declared proof — answerable at all.
+
+Both then tag exactly as the red path does. See each section note below for what the substitution
+buys, what it costs, and what it honestly cannot cover.
 
 Before any of that it runs a toolchain preflight (pytest + ruff; mypy too under `--rebaseline`,
 where it is invoked): on a project's first change this is the very first script the workflow
@@ -54,10 +64,10 @@ Usage:
   --no-tag      run the checks only, do not create the baseline tag (used by callers/tests).
   --force-tag   move an existing baseline tag (legal only during the red phase, before code).
   --rebaseline  move an existing baseline tag onto HEAD after a TESTS-HANDBACK: verifies the
-                corrected tests in a throwaway worktree (redness — or, for a `hardening` change,
-                the green/mutation pair — where src/ is absent) AND in the live tree (mypy, where
-                src/ is present), refusing any move that drops an ac-marked test or writes outside
-                tests/**. See the section note and notes/18.
+                corrected tests in a throwaway worktree (redness — or, for a `hardening` /
+                `invisible` change, that class's question — where src/ is absent) AND in the live
+                tree (mypy, where src/ is present), refusing any move that drops an ac-marked test
+                or writes outside tests/**. See the section note and notes/18.
   --clear-escalate
                 the human's sanctioned way to clear a §5.3 `ESCALATE`: move the baseline tag over
                 the COMMITTED removal of the lock, and only over that. Without it, clearing a lock
@@ -202,14 +212,17 @@ def parse_ac_ids(criteria_text: str) -> list[str]:
 # integrity check at the baseline commit (E-12), so a mutation cannot be rewritten after the
 # fact without the gate seeing it — the attestation comes for free.
 #
+# The `Class:` PARSE itself lives in gate.py and is called, never restated (C7): the gate reads
+# the same line for the `invisible` class's before/after surface diff, and the two tools must
+# never disagree about what a change declared. The class NAMES are spec §3.1 vocabulary.
+#
 # HTML comments are stripped first, everywhere: the templates carry their own instructions
 # (including an EXAMPLE mutation diff) inside comments, and a change that keeps the comment
 # must not read as a declaration. Same discipline as accept.classify_removal.
 
-DEFAULT_CLASS = "behavioral"  # spec §3.1: the class register's default
 HARDENING_CLASS = "hardening"  # spec §3.1: no red phase — proved by mutation instead
+INVISIBLE_CLASS = "invisible"  # spec §3.1: no red phase — the tests pin behaviour that ALREADY holds
 
-_CLASS_LINE = re.compile(r"(?im)^Class:[ \t]*([A-Za-z][A-Za-z0-9_-]*)")
 _AC_TOKEN = re.compile(r"\bAC-\d+\b")
 _MUTATION_TOKEN = re.compile(r"\bM-\d+\b")
 _FENCE = re.compile(r"(?ms)^```[ \t]*[A-Za-z0-9_+-]*[ \t]*\n(.*?)^```[ \t]*$")
@@ -221,9 +234,8 @@ def _strip_html_comments(text: str) -> str:
 
 
 def parse_change_class(change_md: str) -> str:
-    """The change's declared `Class:` (lowercased); `behavioral` when the line is absent."""
-    match = _CLASS_LINE.search(_strip_html_comments(change_md))
-    return match.group(1).lower() if match else DEFAULT_CLASS
+    """The change's declared `Class:` — gate.py's derivation, cited not restated (C7)."""
+    return str(_gate().parse_change_class(change_md))
 
 
 @dataclass(frozen=True)
@@ -1016,14 +1028,149 @@ def format_hardening_report(change_id: str, result: HardeningResult) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------------------
+# The `invisible` class — a baseline whose property is GREEN-AT-BASELINE, not redness (T20)
+# ---------------------------------------------------------------------------------------
+#
+# `invisible` (refactor / dependency upgrade / performance — spec §3.1) is the second class with
+# no red phase, and for the opposite reason to `hardening`: its ACs describe behaviour that
+# ALREADY holds, because the whole claim is that behaviour does not change. A test written for
+# such an AC passes the moment it is written, so redness cannot be its baseline property either —
+# and before T20 nothing here read the `Class:` line at all, so an invisible change ran into
+# GREEN-BEFORE-IMPLEMENTATION, got no tag, and could not enter /implement. The class existed in
+# canon and was unreachable in the tools.
+#
+# WHAT REPLACES REDNESS (the anti-collusion question, and "nothing" is not an answer). Three
+# legs, none of which the implementer can touch:
+#
+#   1. GREEN-AT-BASELINE — every ac-marked test of THIS change's ACs passes at the candidate
+#      commit, i.e. against the code as it stands BEFORE the refactor. That is the sharpest thing
+#      an invisible change's own tests can prove: they describe existing behaviour rather than the
+#      refactor's, so they cannot be tests OF the new code (the collusion this class could invite).
+#   2. THE INHERITED SUITE — the baseline test inventory is frozen here and enforced by the gate
+#      (E-05: every baseline test must still be collected and pass; a deleted, deselected, skipped
+#      or xfailed one is RED), and the implementer cannot write `tests/**` at all (D4). So the
+#      whole existing suite, not just this change's ACs, has to stay green over the refactor.
+#   3. THE SURFACE DIFF — `gate.py`'s `invisible.openapi-diff` compares the constructed app's
+#      OpenAPI operation set against the baseline commit's and FAILs on any difference. This is
+#      the leg that catches what a green suite cannot: an endpoint ADDED or REMOVED, which breaks
+#      no existing test.
+#
+# Legs 2 and 3 are exactly §3.1's declared proof ("полный gate зелёный + diff OpenAPI-схемы
+# до/после пуст"); leg 1 is what this script can add at baseline time.
+#
+# Which is also why the before-surface is screened HERE, before the tag: the gate's diff needs a
+# constructible app at the BASELINE commit, and the baseline tree is frozen the moment it is
+# tagged. If it cannot be constructed, no `src/**` edit could ever clear that RED — the implementer
+# would burn its whole ceiling on something outside its lane (T09f's deadlock, third variant). So
+# an unreadable before-surface refuses the baseline, with the reason, at author time.
+#
+# The honest coverage limit, stated rather than skipped: a tree with no HTTP surface on either
+# side (a domain-only refactor, a library) has nothing to diff — that is reported out loud and the
+# change rests on legs 1 and 2. And a BREAKING dependency upgrade whose baseline source cannot
+# import under the new package versions makes the before-surface UNDETERMINED, so this class
+# cannot prove it; that is a refusal with a named cause, never a silent pass.
+
+
+@dataclass
+class InvisibleResult:
+    ac_ids: list[str]
+    clean: GreenResult | None = None  # GREEN-AT-BASELINE
+    lint_failures: list[str] | None = None
+    surface: object | None = None  # gate.Surface of the candidate commit — the diff's BEFORE side
+
+    @property
+    def surface_ok(self) -> bool:
+        return self.surface is not None and not getattr(self.surface, "undetermined", "")
+
+    @property
+    def ok(self) -> bool:
+        return (
+            self.clean is not None
+            and self.clean.ok
+            and not self.lint_failures
+            and self.surface is not None
+            and self.surface_ok
+        )
+
+
+def run_invisible_checks(tree: Path, ac_ids: list[str], ref: str = "HEAD") -> InvisibleResult:
+    """The `invisible` baseline: GREEN-AT-BASELINE, the lint screen, then a readable before-surface.
+
+    Everything is judged in a throwaway worktree of `ref` (the candidate commit) — the live work
+    tree is never touched, and the surface read is of the tree the tag will actually pin.
+    """
+    result = InvisibleResult(ac_ids=ac_ids)
+    with worktree_at(tree, ref) as wt:
+        result.clean = analyze_green(ac_ids, run_tests(wt))
+        if not result.clean.ok:
+            return result  # tests that do not pass on the unchanged code cannot claim "unchanged"
+        result.lint_failures = lint_tests(wt)
+        if result.lint_failures:
+            return result
+        result.surface = _gate().route_inventory(wt)
+    return result
+
+
+def format_invisible_report(change_id: str, result: InvisibleResult) -> str:
+    lines = [f"red_check (Class: {INVISIBLE_CLASS}): {change_id}", ""]
+    lines.append(f"criteria: {len(result.ac_ids)} AC ({', '.join(result.ac_ids) or 'none'})")
+    for ac in result.ac_ids:
+        tests = (result.clean.ac_to_tests.get(ac) or []) if result.clean else []
+        mark = "OK  " if tests else "MISS"
+        lines.append(f"  [{mark}] {ac}: {len(tests)} marked test(s)")
+    if result.clean is not None:
+        if result.clean.missing_acs:
+            lines.append(f"MISSING MARKER: {', '.join(result.clean.missing_acs)} — every AC needs an ac-marked test")
+        if result.clean.not_green:
+            lines.append("NOT GREEN AT BASELINE (an invisible change alters no behaviour, so the tests that pin")
+            lines.append("that behaviour must already PASS against the code as it stands — a failure here is a")
+            lines.append("real defect or a behavioural AC in the wrong class, never a red baseline):")
+            lines.extend(f"    {nodeid} [{outcome}]" for nodeid, outcome in result.clean.not_green)
+        else:
+            lines.append(
+                f"GREEN AT BASELINE: {len(result.clean.passed_tests)} ac-marked test(s) pass at the candidate commit"
+            )
+    surface = result.surface
+    if surface is not None:
+        if getattr(surface, "undetermined", ""):
+            lines.append("BEFORE-SURFACE: UNDETERMINED — the app does not construct at the candidate commit, so")
+            lines.append("gate.py could never compute this class's before/after OpenAPI diff (§3.1); the RED it")
+            lines.append("would report is outside the implementer's lane, so the baseline is refused here:")
+            lines.extend(f"    {ln}" for ln in str(surface.undetermined).splitlines())
+        elif getattr(surface, "absent", ""):
+            lines.append(f"BEFORE-SURFACE: none to compare — {surface.absent};")
+            lines.append("the proof rests on the tests passing before AND after (gate: E-05 test inventory)")
+        else:
+            operations = list(surface.operations)
+            lines.append(f"BEFORE-SURFACE: {len(operations)} OpenAPI operation(s) at the candidate commit")
+            lines.extend(f"    {op}" for op in operations)
+    lines.append("")
+    lines.append(f"INVISIBLE-CHECK: {'BASELINE-CONFIRMED' if result.ok else 'FAILED'}")
+    if result.lint_failures is not None:
+        if result.lint_failures:
+            lines.append("")
+            lines.append("BASELINE LINT: FAILED — tests/** must be lint-clean before tagging (T09f):")
+            for block in result.lint_failures:
+                lines.extend(f"    {ln}" for ln in block.splitlines())
+        else:
+            lines.append("BASELINE LINT: clean (ruff-check + ruff-format over tests/)")
+    return "\n".join(lines)
+
+
 def rebaseline(
-    tree: Path, change_id: str, ac_ids: list[str], *, hardening_mutations: list[Mutation] | None = None
+    tree: Path,
+    change_id: str,
+    ac_ids: list[str],
+    *,
+    change_class: str = "behavioral",
+    hardening_mutations: list[Mutation] | None = None,
 ) -> int:
     """Move `baseline/<ctx>-NNN` onto HEAD after a TESTS-HANDBACK. Return a process exit code.
 
-    `hardening_mutations` is not None for a `Class: hardening` change: step (c) then asks that
-    class's question (GREEN-on-clean + RED-on-mutation) instead of redness — the same route the
-    first baseline takes, so a handback on a hardening change needs no hand `git tag -f` either.
+    `change_class` picks the baseline property step (c) asks for — redness, the `hardening` pair
+    (GREEN-on-clean + RED-on-mutation, using `hardening_mutations`), or the `invisible` triple —
+    the same route the first baseline takes, so a handback needs no hand `git tag -f` in any class.
     """
     tag = "baseline/" + change_id.replace("/", "-")
     resolved = subprocess.run(["git", "-C", str(tree), "rev-parse", "--verify", tag], capture_output=True, text=True)
@@ -1059,16 +1206,23 @@ def rebaseline(
         )
 
     # (c) the class's baseline property + AC coverage + lint, judged in a worktree of HEAD:
-    #     redness needs `src/` ABSENT there; the hardening pair needs the committed `src/` and
-    #     nothing else — either way the live tree (with the implementer's uncommitted src/) is
-    #     the wrong world to judge in, and both are judged in the same one.
-    if hardening_mutations is not None:
-        hardening = run_hardening_checks(tree, ac_ids, hardening_mutations, ref=head)
+    #     redness needs `src/` ABSENT there; the hardening pair and the invisible triple need the
+    #     committed `src/` and nothing else — either way the live tree (with the implementer's
+    #     uncommitted src/) is the wrong world to judge in, and all of them are judged in one.
+    if change_class == HARDENING_CLASS:
+        hardening = run_hardening_checks(tree, ac_ids, hardening_mutations or [], ref=head)
         print(format_hardening_report(change_id, hardening))
         print()
         lint_failures = hardening.lint_failures
         if not hardening.ok:
             failures.append("the corrected tests are not a valid mutation-proved baseline (see above)")
+    elif change_class == INVISIBLE_CLASS:
+        invisible = run_invisible_checks(tree, ac_ids, ref=head)
+        print(format_invisible_report(change_id, invisible))
+        print()
+        lint_failures = invisible.lint_failures
+        if not invisible.ok:
+            failures.append("the corrected tests are not a valid green-at-baseline invisible baseline (see above)")
     else:
         with worktree_at(tree, head) as wt:
             inventory = apply_greenfield_fallback(wt, run_tests(wt), project_package(wt))
@@ -1314,7 +1468,7 @@ def main(argv: list[str] | None = None) -> int:
         # file gate.py freezes at the baseline, so the declaration is attested (E-12).
         change_md_path = change_dir / "change.md"
         change_md = change_md_path.read_text(encoding="utf-8") if change_md_path.is_file() else ""
-        hardening = parse_change_class(change_md) == HARDENING_CLASS
+        change_class = parse_change_class(change_md)
 
         preflight_toolchain(tree, rebaseline=args.rebaseline)
         if args.rebaseline:
@@ -1322,14 +1476,23 @@ def main(argv: list[str] | None = None) -> int:
                 tree,
                 change_id,
                 ac_ids,
-                hardening_mutations=parse_mutations(change_md) if hardening else None,
+                change_class=change_class,
+                hardening_mutations=parse_mutations(change_md) if change_class == HARDENING_CLASS else None,
             )
-        if hardening:
+        if change_class == HARDENING_CLASS:
             # No red phase: GREEN-on-clean + RED-on-mutation, judged in throwaway worktrees of
             # HEAD (the candidate commit), then the same tests-only screen and tag as the red path.
             result = run_hardening_checks(tree, ac_ids, parse_mutations(change_md))
             print(format_hardening_report(change_id, result))
             if not result.ok:
+                return 1
+            return finish_tagging(tree, change_id, no_tag=args.no_tag, force=args.force_tag)
+        if change_class == INVISIBLE_CLASS:
+            # No red phase either, for the opposite reason: the behaviour these tests pin already
+            # holds. GREEN-AT-BASELINE + a readable before-surface, then the same screen and tag.
+            invisible = run_invisible_checks(tree, ac_ids)
+            print(format_invisible_report(change_id, invisible))
+            if not invisible.ok:
                 return 1
             return finish_tagging(tree, change_id, no_tag=args.no_tag, force=args.force_tag)
 

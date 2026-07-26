@@ -43,6 +43,10 @@ Environment contract:
 The toolchain config (mypy strictness, ruff select incl. B006/B904, pinned pytest flags)
 lives HERE as constants — the `conventions` skill cites gate.py, never the other way
 around (spec §5, V-04).
+
+One check is keyed on the change's declared CLASS: `invisible.openapi-diff` compares the
+constructed app's OpenAPI operation set against the baseline commit's, because §3.1 makes that
+diff the `invisible` class's whole proof (T20). Every other check is class-independent.
 """
 
 from __future__ import annotations
@@ -61,7 +65,7 @@ import tempfile
 import time
 import tomllib
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
 
@@ -784,6 +788,99 @@ def check_table_smoke(ctx: GateContext) -> Check:
 
 
 # ---------------------------------------------------------------------------------------
+# 3a. The OBSERVABLE SURFACE of a tree: which operations the constructed app serves
+# ---------------------------------------------------------------------------------------
+#
+# The same machinery as the construct smoke above (same factory discovery, same import
+# environment) with the schema kept instead of discarded. It lives HERE, in the gate, because
+# gate.py is the one tool that already builds the app and owns the import conditions
+# (`app_import_env`) — and because two readers need exactly one answer to "what does this tree's
+# app serve" (C7):
+#
+#   * `check_invisible_surface` below — the `invisible` class's before/after diff (spec §3.1);
+#   * `drift.py` — the §5.5 route⊆described-operation comparison (T17), which CALLS this.
+#
+# The direction is deliberate and pinned by a test: `drift.py` imports the gate, never the other
+# way round (test_drift.test_no_decider_runs_this_script — a script that only SURFACES drift must
+# not be reachable from anything that can deny). So the extraction lives in the decider and the
+# reporter borrows it.
+
+HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE")
+
+ROUTE_MARKER = "__ADW_ROUTES__"
+
+
+@dataclass
+class Route:
+    method: str
+    path: str
+    module: str
+
+    @property
+    def operation(self) -> str:
+        """`METHOD /path` — the identity a surface comparison uses."""
+        return f"{self.method} {self.path}"
+
+
+@dataclass
+class Surface:
+    routes: list[Route] = field(default_factory=list)
+    modules: list[str] = field(default_factory=list)
+    undetermined: str = ""  # a surface that EXISTS and could not be read (T10f)
+    absent: str = ""  # there is no HTTP surface in this tree at all (the loud-SKIP case)
+
+    @property
+    def operations(self) -> list[str]:
+        return sorted({route.operation for route in self.routes})
+
+
+def route_inventory(tree: Path) -> Surface:
+    """Construct every `create_app()` factory under `src/**` and read `app.openapi()`.
+
+    Two negatives, kept apart on purpose (the same distinction this file draws everywhere between
+    a loud SKIP and a FAIL):
+      * ABSENT — no `src/`, or no `create_app()` in it: the tree has no HTTP surface to describe.
+      * UNDETERMINED — a factory exists and will not construct, or yields no route list. The
+        surface is then UNKNOWN, never empty: reading a broken import as "no routes" would let a
+        caller conclude "nothing changed" from "nothing known" (notes/19's fail-open class).
+    """
+    files = _src_files(tree)
+    if not files:
+        return Surface(absent=f"no src/ under {tree} — this tree serves no HTTP surface")
+    src_root = tree / "src"
+    factories = [f for f in files if CREATE_APP_DEF.search(f.read_text(encoding="utf-8", errors="replace"))]
+    if not factories:
+        return Surface(absent="no create_app() found under src/ — this tree serves no constructible HTTP surface")
+    env = app_import_env(tree)
+    surface = Surface()
+    for factory in sorted(factories):
+        module = _module_name(factory, src_root)
+        code = (
+            "import importlib, json, sys\n"
+            f"methods = {list(HTTP_METHODS)!r}\n"
+            f"m = importlib.import_module({module!r})\n"
+            "app = m.create_app()\n"
+            "schema = app.openapi()\n"
+            "paths = schema.get('paths') if isinstance(schema, dict) else None\n"
+            "if not isinstance(paths, dict):\n"
+            "    sys.exit('app.openapi() returned no `paths` mapping')\n"
+            "out = []\n"
+            "for path, ops in paths.items():\n"
+            "    if isinstance(ops, dict):\n"
+            "        out += [[str(k).upper(), str(path)] for k in ops if str(k).upper() in methods]\n"
+            f"print({ROUTE_MARKER!r} + json.dumps(sorted(out)))\n"
+        )
+        rc, out = _run([sys.executable, "-c", code], cwd=tree, env=env, timeout=300)
+        payload = [line for line in out.splitlines() if line.startswith(ROUTE_MARKER)]
+        if rc != 0 or not payload:
+            return Surface(undetermined=f"{module}.create_app()/openapi() did not yield a route list:\n{_tail(out)}")
+        surface.modules.append(module)
+        for method, path in json.loads(payload[-1][len(ROUTE_MARKER) :]):
+            surface.routes.append(Route(method, path, module))
+    return surface
+
+
+# ---------------------------------------------------------------------------------------
 # 3b. Package-import smoke (A4, T12b): the app must import with the gate's injection stripped
 # ---------------------------------------------------------------------------------------
 
@@ -864,6 +961,155 @@ def check_package_import(ctx: GateContext) -> Check:
         f"PYTHONPATH=src injection — the app is unstartable outside gate.py (A4). Install the project into "
         f"its environment (`uv sync`) and check that src/{plan.package}/ is the package the build backend "
         f"builds:\n{_tail(out)}",
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# 3c. The change-class register, as the tools read it (spec §3.1)
+# ---------------------------------------------------------------------------------------
+#
+# One home for "which class did this change declare" (C7): the gate needs it for the `invisible`
+# proof below, `red_check.py` needs it to pick the baseline property (redness / mutation /
+# green-at-baseline), and both must never disagree. HTML comments are stripped first, because the
+# change.md template enumerates every class name inside its own comment — a change that keeps the
+# comment declares the DEFAULT, not the last name the template happens to mention.
+
+DEFAULT_CHANGE_CLASS = "behavioral"  # spec §3.1: the register's default
+CLASS_HARDENING = "hardening"  # no red phase — proved by mutation (T09g)
+CLASS_INVISIBLE = "invisible"  # no red phase — proved by a green gate + an unchanged surface (T20)
+
+CLASS_LINE = re.compile(r"(?im)^Class:[ \t]*([A-Za-z][A-Za-z0-9_-]*)")
+
+
+def parse_change_class(change_md: str) -> str:
+    """The change's declared `Class:` (lowercased); `behavioral` when the line is absent."""
+    stripped = "\n".join(_criteria_lint().strip_html_comments(change_md.splitlines()))
+    match = CLASS_LINE.search(stripped)
+    return match.group(1).lower() if match else DEFAULT_CHANGE_CLASS
+
+
+# ---------------------------------------------------------------------------------------
+# 3d. `Class: invisible` — the before/after OpenAPI diff that IS this class's proof (§3.1, T20)
+# ---------------------------------------------------------------------------------------
+#
+# Spec §3.1 gives the `invisible` class (refactor / dependency upgrade / performance) a
+# deterministic proof instead of new observable behaviour: «полный gate зелёный + diff
+# OpenAPI-схемы до/после пуст». Until T20 the second half existed in no script at all — the
+# promise was prose, which under S4 means the class had no proof and, since `red_check` had no
+# `Class:` parse either, could not even obtain a baseline tag. This check is that half, and
+# putting it INSIDE the gate collapses the two halves into one sentence: for an invisible change,
+# "the gate is green" now includes "the app serves exactly the operations it served at baseline".
+#
+# What it compares, and why not more: the METHOD+path operation set, sorted, from
+# `app.openapi()`. That is the whole observable HTTP surface a client can discover, and it is
+# deterministic (route order and dict order cannot affect a sorted set). A full schema diff would
+# additionally fire on an internal Pydantic model rename — устройство, not behaviour (S1) — and
+# would train the route-around reflex a gate must never train. The narrower half is not left
+# unguarded: every baseline test must still be collected AND pass (E-05 + the pytest check), so a
+# changed response body is caught by the tests, while an ADDED or REMOVED endpoint — the one
+# surface change no existing test can notice — is caught here.
+#
+# Reading the class from the WORK TREE copy of change.md is safe and attested: `change.md` is
+# frozen against the baseline commit (E-12), so re-declaring `invisible` as `behavioral` to dodge
+# this check makes `integrity.change-frozen` FAIL instead.
+#
+# The before side comes from `git archive <baseline>` extracted to a temp dir — never a
+# `git worktree`, so this works in the detached worktrees acceptance runs use — and is
+# constructed with the CURRENT environment's packages. That is a real limit worth naming: a
+# breaking dependency upgrade whose baseline source cannot import under the new package versions
+# reports UNDETERMINED, i.e. FAIL. Such a change cannot be proved by this comparison at all, and
+# saying so out loud is the honest answer; silently passing it would be notes/19's fail-open class
+# in the one place where the class has no other proof.
+
+
+def _surface_of_baseline(ctx: GateContext, into: Path) -> Surface:
+    """The baseline commit's own surface: its tracked tree extracted to `into`, then constructed.
+
+    Pristine on purpose — unlike `collect_baseline_inventory`, which hybridises the baseline tree
+    with the CURRENT `src/` so red-committed tests can import today's modules. Here the baseline's
+    own `src/` IS the question: it is the "before" of the diff.
+    """
+    rc, tar_bytes = _run_bytes(["git", "-C", str(ctx.tree), "archive", "--format=tar", str(ctx.baseline)], timeout=300)
+    if rc != 0:
+        return Surface(undetermined=f"git archive {ctx.baseline} failed — the baseline surface cannot be read")
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes)) as tar:
+        tar.extractall(into, filter="data")
+    return route_inventory(into)
+
+
+def check_invisible_surface(ctx: GateContext) -> Check:
+    check_id = "invisible.openapi-diff"
+    if ctx.change_dir is None:
+        return Check(check_id, "SKIP", "no change directory resolved — the class register applies to a change (§3.1)")
+    change_md = ctx.change_dir / "change.md"
+    if not change_md.is_file():
+        return Check(
+            check_id,
+            "SKIP",
+            f"no {change_md.relative_to(ctx.tree)} — the declared class is unreadable (a change.md missing "
+            "against a baseline is RED at integrity.change-frozen, E-12)",
+        )
+    declared = parse_change_class(change_md.read_text(encoding="utf-8", errors="replace"))
+    if declared != CLASS_INVISIBLE:
+        return Check(
+            check_id,
+            "SKIP",
+            f"Class: {declared} — the before/after OpenAPI diff is the `invisible` class's proof (§3.1)",
+        )
+    if ctx.baseline is None:
+        return Check(
+            check_id,
+            "FAIL",
+            f"Class: invisible, but there is no baseline to compare against ({ctx.baseline_reason}) — this "
+            "class's whole proof is that the surface did not change, so without a BEFORE side it has no "
+            "proof at all (§3.1). Tag the baseline (red_check) or re-classify the change.",
+        )
+    with tempfile.TemporaryDirectory(prefix="gate-invisible-") as tmp:
+        before = _surface_of_baseline(ctx, Path(tmp).resolve())
+        after = route_inventory(ctx.tree)
+    for side, surface in (("baseline", before), ("work tree", after)):
+        if surface.undetermined:
+            return Check(
+                check_id,
+                "FAIL",
+                f"the {side}'s OpenAPI surface could not be determined, so the before/after diff did not "
+                f"run — undetermined is not 'unchanged' (§3.1):\n{surface.undetermined}",
+            )
+    if before.absent and after.absent:
+        return Check(
+            check_id,
+            "SKIP",
+            f"Class: invisible with no constructible HTTP surface on either side ({after.absent}) — the diff "
+            "has nothing to compare, so this change's proof rests on the green gate plus the baseline test "
+            "inventory alone (§3.1)",
+        )
+    if bool(before.absent) != bool(after.absent):
+        gone, gained = (before, after) if after.absent else (after, before)
+        return Check(
+            check_id,
+            "FAIL",
+            f"Class: invisible, but the app's HTTP surface itself appeared or disappeared since the baseline "
+            f"— one side serves {len(gained.routes)} operation(s) and the other serves none "
+            f"({gone.absent}). That is a behavioural change (§3.1).",
+        )
+    added = [op for op in after.operations if op not in set(before.operations)]
+    removed = [op for op in before.operations if op not in set(after.operations)]
+    if added or removed:
+        return Check(
+            check_id,
+            "FAIL",
+            "Class: invisible, but the OpenAPI operation set changed since the baseline "
+            f"{ctx.baseline} — an invisible change must serve exactly the same surface (§3.1):\n"
+            + "\n".join([f"+ {op} (served now, absent at baseline)" for op in added])
+            + ("\n" if added and removed else "")
+            + "\n".join([f"- {op} (served at baseline, gone now)" for op in removed])
+            + "\nA surface change is behaviour: re-spec it as a behavioral change, or revert it.",
+        )
+    return Check(
+        check_id,
+        "PASS",
+        f"Class: invisible — all {len(after.operations)} OpenAPI operation(s) identical to the baseline "
+        f"{ctx.baseline} (§3.1)",
     )
 
 
@@ -1587,6 +1833,9 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
     checks.append(check_construct_smoke(ctx))
     checks.append(check_table_smoke(ctx))
     checks.append(check_package_import(ctx))
+    # Class-keyed, and present in EVERY run's list so the class register is legible from the
+    # report: a non-invisible change gets a loud SKIP naming its class, never silence (§3.1/T20).
+    checks.append(check_invisible_surface(ctx))
     checks.append(check_docker_tier(ctx, docker_probe))
     if criteria:
         checks.extend(check_criteria(ctx))

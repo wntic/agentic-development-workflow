@@ -1253,3 +1253,226 @@ def test_a_behavioral_change_keeps_the_red_requirement_even_with_a_mutations_sec
     assert "GREEN BEFORE IMPLEMENTATION" in out
     assert "HARDENING-CHECK" not in out
     assert "baseline/demo-001" not in repo.tags()
+
+
+# =======================================================================================
+# `Class: invisible` — the baseline whose property is GREEN-AT-BASELINE, not redness (T20)
+# =======================================================================================
+#
+# The second class with no red phase, and the one canon declared while no script could run it:
+# `red_check` had no `Class:` parse at all, so a refactor whose tests pin behaviour that ALREADY
+# holds hit GREEN-BEFORE-IMPLEMENTATION, got no baseline tag, and could not enter /implement — the
+# class was unreachable. Redness is replaced by three legs (see the section note in red_check.py);
+# the two this script can ask for are GREEN-AT-BASELINE and a CONSTRUCTIBLE before-surface, the
+# latter because gate.py's `invisible.openapi-diff` reads the frozen baseline tree and no `src/**`
+# edit could ever fix a baseline that will not construct.
+
+NORMALIZE_SRC = '''\
+def normalize(name: str) -> str:
+    """Return `name` trimmed and lower-cased."""
+    return name.strip().lower()
+'''
+
+ROUTES_SRC = '''\
+"""Fixture app factory: the openapi() surface, with no web framework involved."""
+
+PATHS = {"/health": {"get": {}}, "/users": {"get": {}, "post": {}}}
+
+
+class App:
+    """Stand-in for the constructed application."""
+
+    def openapi(self) -> dict:
+        return {"openapi": "3.1.0", "paths": PATHS}
+
+
+def create_app() -> App:
+    return App()
+'''
+
+BROKEN_ROUTES_SRC = '''\
+"""Fixture app factory that raises at construction time."""
+
+
+def create_app() -> object:
+    raise RuntimeError("missing framework dependency at construct time")
+'''
+
+# The tests an invisible change's test-author writes: they pin behaviour that already holds, so
+# they are GREEN on arrival — and that is the point, not a defect.
+INVISIBLE_TESTS = """\
+import pytest
+
+from app.store import normalize
+
+
+@pytest.mark.ac("AC-1")
+def test_normalize_trims_and_lowercases() -> None:
+    assert normalize("  Ada  ") == "ada"
+
+
+@pytest.mark.ac("AC-2")
+def test_normalize_is_idempotent() -> None:
+    assert normalize(normalize("  Ada ")) == "ada"
+"""
+
+INVISIBLE_CRITERIA = """\
+# Criteria — demo/004-extract-normalizer
+
+- [ ] AC-1: a name with surrounding blanks and mixed case normalizes to the trimmed lower-case form
+- [ ] AC-2: normalizing an already-normalized name returns it unchanged
+"""
+
+INVISIBLE_CHANGE_MD = """\
+# demo/004 — extract the normalizer
+
+Class: invisible
+
+## Task
+Move the trimming and lower-casing behind one helper. No behaviour changes.
+
+## Acceptance criteria
+- AC-1: a blank-padded mixed-case name normalizes to the trimmed lower-case form
+- AC-2: normalizing an already-normalized name returns it unchanged
+"""
+
+INVISIBLE_CHANGE_DIR = "specs/demo/changes/004-extract-normalizer"
+
+
+def _invisible_repo(
+    tmp_path: Path,
+    *,
+    tests: str = INVISIBLE_TESTS,
+    routes: str | None = ROUTES_SRC,
+    also_in_baseline: dict[str, str] | None = None,
+) -> FixtureRepo:
+    """A brownfield repo with committed src/, the /spec commit, then the tests-only commit.
+
+    `routes=None` leaves the tree without any `create_app()` — the domain-only refactor, which has
+    no surface to diff at all.
+    """
+    repo = FixtureRepo(tmp_path)
+    repo.write(".gitignore", ".gate/\n__pycache__/\n.pytest_cache/\n")
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.write("src/app/__init__.py", "")
+    repo.write("src/app/store.py", NORMALIZE_SRC)
+    if routes is not None:
+        repo.write("src/app/main.py", routes)
+    repo.git("init", "-q")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "the shipped app")
+
+    repo.write(f"{INVISIBLE_CHANGE_DIR}/criteria.md", INVISIBLE_CRITERIA)
+    repo.write(f"{INVISIBLE_CHANGE_DIR}/change.md", INVISIBLE_CHANGE_MD)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "spec: demo/004 (invisible)")
+
+    repo.write("tests/test_store.py", tests)
+    for rel, content in (also_in_baseline or {}).items():
+        repo.write(rel, content)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: pin the normalizer behaviour")
+    return repo
+
+
+def _run_invisible(repo: FixtureRepo, *extra: str) -> int:
+    return red_check.main([str(repo.root), "--change", "demo/004", *extra])
+
+
+def test_e2e_invisible_baseline_is_confirmed_green_and_tagged(tmp_path: Path, capsys) -> None:
+    # The money test: the class that could not obtain a baseline tag at all now earns one, without
+    # redness and without weakening a single test to fake it.
+    repo = _invisible_repo(tmp_path)
+
+    assert _run_invisible(repo) == 0
+    out = "".join(capsys.readouterr())
+    assert "red_check (Class: invisible)" in out
+    assert "GREEN AT BASELINE: 2 ac-marked test(s) pass at the candidate commit" in out
+    assert "BEFORE-SURFACE: 3 OpenAPI operation(s)" in out
+    assert "GET /health" in out and "POST /users" in out
+    assert "INVISIBLE-CHECK: BASELINE-CONFIRMED" in out
+    assert "RED-CHECK" not in out  # the class's question was asked, not redness
+    assert "baseline/demo-004" in repo.tags()
+
+
+def test_e2e_invisible_refuses_a_test_that_fails_on_the_shipped_code(tmp_path: Path, capsys) -> None:
+    # "Behaviour does not change" means the tests must pass BEFORE the refactor. A failing one is a
+    # real defect, or a behavioural AC filed under the wrong class — never a red baseline.
+    broken = INVISIBLE_TESTS.replace('== "ada"', '== "Ada"', 1)
+    repo = _invisible_repo(tmp_path, tests=broken)
+
+    assert _run_invisible(repo) == 1
+    out = "".join(capsys.readouterr())
+    assert "NOT GREEN AT BASELINE" in out
+    assert "tests/test_store.py::test_normalize_trims_and_lowercases [failed]" in out
+    assert "baseline/demo-004" not in repo.tags()
+
+
+def test_e2e_invisible_refuses_an_ac_with_no_marked_test(tmp_path: Path, capsys) -> None:
+    # Coverage is class-independent: every AC still needs an ac-marked test, or criteria.md's
+    # inventory would carry a scenario nothing pins.
+    only_one = INVISIBLE_TESTS.replace('@pytest.mark.ac("AC-2")', "")
+    repo = _invisible_repo(tmp_path, tests=only_one)
+
+    assert _run_invisible(repo) == 1
+    assert "MISSING MARKER: AC-2" in "".join(capsys.readouterr())
+    assert "baseline/demo-004" not in repo.tags()
+
+
+def test_e2e_invisible_refuses_a_baseline_whose_app_does_not_construct(tmp_path: Path, capsys) -> None:
+    # The whole point of screening the surface HERE: the baseline tree is frozen the moment it is
+    # tagged, so an unconstructible before-side would make gate.py's invisible.openapi-diff RED
+    # forever, outside the implementer's lane (T09f's deadlock shape).
+    repo = _invisible_repo(tmp_path, routes=BROKEN_ROUTES_SRC)
+
+    assert _run_invisible(repo) == 1
+    out = "".join(capsys.readouterr())
+    assert "BEFORE-SURFACE: UNDETERMINED" in out
+    assert "GREEN AT BASELINE" in out  # the tests were fine; the refusal names the real cause
+    assert "INVISIBLE-CHECK: FAILED" in out
+    assert "baseline/demo-004" not in repo.tags()
+
+
+def test_e2e_invisible_domain_only_refactor_is_confirmed_and_says_the_diff_is_empty_handed(
+    tmp_path: Path, capsys
+) -> None:
+    # A refactor with no HTTP surface on either side: the diff has nothing to compare, which is
+    # applicability, not cleanliness — stated out loud, and the baseline is still earned.
+    repo = _invisible_repo(tmp_path, routes=None)
+
+    assert _run_invisible(repo) == 0
+    out = "".join(capsys.readouterr())
+    assert "BEFORE-SURFACE: none to compare" in out
+    assert "INVISIBLE-CHECK: BASELINE-CONFIRMED" in out
+    assert "baseline/demo-004" in repo.tags()
+
+
+def test_e2e_invisible_baseline_commit_must_still_be_tests_only(tmp_path: Path, capsys) -> None:
+    # Anti-collusion is class-independent: whatever proved the baseline, the tagged commit touches
+    # tests/** only. An invisible change that ships its refactor in the baseline commit is not one.
+    repo = _invisible_repo(tmp_path, also_in_baseline={"src/app/store.py": NORMALIZE_SRC + "\n\nEXTRA = 1\n"})
+
+    assert _run_invisible(repo) == 1
+    combined = capsys.readouterr()
+    assert "src/app/store.py" in (combined.out + combined.err)
+    assert "baseline/demo-004" not in repo.tags()
+
+
+def test_rebaseline_routes_an_invisible_change_through_the_green_path(tmp_path: Path, capsys) -> None:
+    # A TESTS-HANDBACK can happen here too (a lint or type defect in the new tests). The tag must
+    # move over the corrected tests asking THIS class's question, not for redness.
+    broken = INVISIBLE_TESTS.replace('== "ada"', '== "Ada"', 1)
+    repo = _invisible_repo(tmp_path, tests=broken)
+    repo.git("tag", "baseline/demo-004")  # the baseline as it stood when the handback happened
+    old = repo.git("rev-parse", "baseline/demo-004").strip()
+
+    repo.write("tests/test_store.py", INVISIBLE_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: fix the assertion after the handback")
+
+    assert _run_invisible(repo, "--rebaseline") == 0
+    out = "".join(capsys.readouterr())
+    assert "INVISIBLE-CHECK: BASELINE-CONFIRMED" in out
+    assert "RED-CHECK" not in out
+    head = repo.git("rev-parse", "HEAD").strip()
+    assert repo.git("rev-parse", "baseline/demo-004").strip() == head != old

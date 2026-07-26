@@ -614,6 +614,175 @@ def test_construct_smoke_red_when_create_app_raises(repo: FixtureRepo) -> None:
     assert statuses["toolchain.mypy"] == "PASS"
 
 
+# ---------------------------------------------------------------------------------------
+# `Class: invisible` — the before/after OpenAPI operation diff (spec §3.1, T20)
+# ---------------------------------------------------------------------------------------
+#
+# The class declares a deterministic proof — a green gate plus an empty before/after OpenAPI diff —
+# and until T20 the second half existed in no script. These cases hold both directions: a genuine
+# refactor (identical operation set) is GREEN, and the same refactor plus/minus one operation is RED
+# naming it. A check that cannot fail is the defect class notes/19 is about.
+
+CHANGE_MD_INVISIBLE = """\
+# demo/001 — extract the summing helper
+
+Class: invisible
+
+## Task
+Move the addition behind a private helper. No behaviour changes, no surface changes.
+
+## Acceptance criteria
+- AC-1: `app.core.add` returns `3` for input `1, 2`.
+- AC-2: `create_app()` exposes a non-empty OpenAPI schema.
+"""
+
+# The fixture factory WITH an OpenAPI `paths` mapping — the surface the diff reads. No web
+# framework: the route inventory is a property of `app.openapi()`, not of FastAPI.
+SRC_MAIN_ROUTES = '''\
+"""Fixture app factory exposing an OpenAPI `paths` mapping (the surface diff's input)."""
+
+PATHS: dict[str, dict[str, dict[str, str]]] = {
+    "/health": {"get": {}},
+    "/users": {"get": {}, "post": {}},
+}
+
+
+class App:
+    """Minimal stand-in exposing the openapi() surface the smoke and the surface diff call."""
+
+    def openapi(self) -> dict[str, object]:
+        return {"openapi": "3.1.0", "paths": PATHS}
+
+
+def create_app() -> App:
+    return App()
+'''
+
+# The implementer's refactor: identical behaviour, identical surface — an honest invisible change.
+SRC_CORE_REFACTORED = '''\
+"""Fixture domain module, refactored behind a private helper."""
+
+
+def _sum(a: int, b: int) -> int:
+    return a + b
+
+
+def add(a: int, b: int) -> int:
+    return _sum(a, b)
+'''
+
+
+def _invisible_repo(root: Path, *, tag: bool = True, baseline_main: str = SRC_MAIN_ROUTES) -> FixtureRepo:
+    """A `Class: invisible` change whose baseline commit carries a route-serving app."""
+    repo = make_repo(root, change_md=CHANGE_MD_INVISIBLE, tag=False)
+    repo.write("src/app/main.py", baseline_main)
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "--amend", "--no-edit")  # keep the baseline a single commit
+    if tag:
+        repo.git("tag", "baseline/demo-001")
+    return repo
+
+
+def test_an_invisible_change_with_an_unchanged_surface_is_green(tmp_path: Path) -> None:
+    repo = _invisible_repo(tmp_path / "app")
+    repo.write("src/app/core.py", SRC_CORE_REFACTORED)  # the refactor, behaviour untouched
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert repo.statuses()["invisible.openapi-diff"] == "PASS"
+    assert "all 3 OpenAPI operation(s) identical to the baseline" in proc.stdout
+
+
+def test_an_invisible_change_that_adds_an_operation_is_red_naming_it(tmp_path: Path) -> None:
+    # The route nothing else can catch: an ADDED endpoint breaks no existing test, so the suite
+    # stays green and only the surface diff sees it.
+    repo = _invisible_repo(tmp_path / "app")
+    repo.write("src/app/core.py", SRC_CORE_REFACTORED)
+    repo.write("src/app/main.py", SRC_MAIN_ROUTES.replace('    "/users"', '    "/metrics": {"get": {}},\n    "/users"'))
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 1
+    assert repo.statuses()["invisible.openapi-diff"] == "FAIL"
+    assert "+ GET /metrics (served now, absent at baseline)" in proc.stdout
+    assert repo.statuses()["toolchain.pytest"] == "PASS"  # the suite is green: only the diff fails
+
+
+def test_an_invisible_change_that_removes_an_operation_is_red_naming_it(tmp_path: Path) -> None:
+    repo = _invisible_repo(tmp_path / "app")
+    repo.write("src/app/main.py", SRC_MAIN_ROUTES.replace('{"get": {}, "post": {}}', '{"get": {}}'))
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 1
+    assert repo.statuses()["invisible.openapi-diff"] == "FAIL"
+    assert "- POST /users (served at baseline, gone now)" in proc.stdout
+
+
+def test_a_behavioral_change_skips_the_surface_diff_loudly(tmp_path: Path) -> None:
+    # Class-keyed, and never silent: the report names the class it read, so a reader can tell the
+    # difference between "this check does not apply" and "this check was forgotten".
+    repo = make_repo(tmp_path / "app")
+    proc = repo.gate("--change", "demo/001")
+    assert repo.statuses()["invisible.openapi-diff"] == "SKIP"
+    assert "Class: behavioral — the before/after OpenAPI diff is the `invisible` class's proof" in proc.stdout
+
+
+def test_an_invisible_change_without_a_baseline_is_red(tmp_path: Path) -> None:
+    # Every other integrity check SKIPs loudly without a baseline; this one cannot, because the
+    # baseline IS the before side of the only proof this class has.
+    repo = _invisible_repo(tmp_path / "app", tag=False)
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 1
+    assert repo.statuses()["invisible.openapi-diff"] == "FAIL"
+    assert "without a BEFORE side it has no proof at all" in proc.stdout
+
+
+def test_an_invisible_change_whose_baseline_does_not_construct_is_red(tmp_path: Path) -> None:
+    # Undetermined is not "unchanged" (notes/19): with the baseline app unconstructible the diff
+    # cannot run, and passing it would hand the class a proof nobody computed.
+    repo = _invisible_repo(tmp_path / "app", baseline_main=SRC_MAIN_BROKEN)
+    repo.write("src/app/main.py", SRC_MAIN_ROUTES)  # HEAD constructs; the baseline does not
+    proc = repo.gate("--change", "demo/001")
+    assert proc.returncode == 1
+    assert repo.statuses()["invisible.openapi-diff"] == "FAIL"
+    assert "the baseline's OpenAPI surface could not be determined" in proc.stdout
+    assert "undetermined is not 'unchanged'" in proc.stdout
+
+
+def test_an_invisible_change_with_no_http_surface_skips_loudly(tmp_path: Path) -> None:
+    # A domain-only refactor (or a library) has no surface to diff. Reported as applicability, not
+    # as cleanliness — and the class still has the green gate + the baseline test inventory.
+    repo = make_repo(tmp_path / "app", change_md=CHANGE_MD_INVISIBLE, tag=False)
+    (repo.root / "src/app/main.py").unlink()
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "--amend", "--no-edit")
+    repo.git("tag", "baseline/demo-001")
+    repo.write("src/app/core.py", SRC_CORE_REFACTORED)
+    proc = repo.gate("--change", "demo/001")
+    assert repo.statuses()["invisible.openapi-diff"] == "SKIP", proc.stdout
+    assert "no constructible HTTP surface on either side" in proc.stdout
+    assert "rests on the green gate plus the baseline test inventory alone" in proc.stdout
+
+
+def test_the_class_parse_ignores_the_template_comment(tmp_path: Path) -> None:
+    # The change.md template enumerates every class name inside its own comment; a change that
+    # keeps the comment declares the DEFAULT. One parse, shared with red_check (C7).
+    template = (TOOLS_DIR.parent / "templates" / "change.md").read_text(encoding="utf-8")
+    assert "invisible" in template  # the trap is really in the template
+    assert gate.parse_change_class(template) == "behavioral"
+    assert gate.parse_change_class("Class: Invisible   <!-- x -->\n") == "invisible"
+    assert gate.parse_change_class("# demo/001\n\n## Task\nx\n") == "behavioral"
+
+
+def test_route_inventory_reports_absent_and_undetermined_apart(tmp_path: Path) -> None:
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert gate.route_inventory(empty).absent
+    repo = _invisible_repo(tmp_path / "app")
+    surface = gate.route_inventory(repo.root)
+    assert surface.operations == ["GET /health", "GET /users", "POST /users"]
+    assert not surface.undetermined and not surface.absent
+    repo.write("src/app/main.py", SRC_MAIN_BROKEN)
+    broken = gate.route_inventory(repo.root)
+    assert broken.undetermined and not broken.routes  # never an empty surface read as "no routes"
+
+
 def test_table_smoke_red_when_table_module_import_fails(repo: FixtureRepo) -> None:
     repo.write(
         "src/app/tables.py",

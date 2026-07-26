@@ -52,126 +52,84 @@ THE UNDETERMINED-INPUT RULE (T10f, notes/19_accept_gate_audit.md)
     not its FAIL case. Collapsing the two would make every run in such a tree report drift, which
     is how a report earns the ignore-reflex the check exists to defeat.
 
-Stdlib-only. `gate.py` and `accept.py` are imported from this directory: the app-construction
-environment, the capability corpus rule, the HTML-comment strip and the hotfix comparison each
-have exactly one home (C7).
+Stdlib-only. `gate.py` and `accept.py` are imported from this directory: the ROUTE INVENTORY
+itself (`gate.route_inventory` — the gate needs the same one for the `invisible` class's
+before/after diff, T20), the capability corpus rule, the HTML-comment strip and the hotfix
+comparison each have exactly one home (C7). The imports run reporter → decider only; nothing that
+can deny is allowed to reach this script, which is pinned by a test.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # the surface types live in gate.py (C7) — imported for annotations only
+    from gate import Route, Surface
 
 sys.dont_write_bytecode = True
 
 TOOLS_DIR = Path(__file__).resolve().parent
 
-CLEAN, DRIFT, UNDETERMINED = "CLEAN", "DRIFT", "UNDETERMINED"
+_MODULES: dict[str, object] = {}
 
-HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE")
+
+def _gate_module():  # noqa: ANN202 — stdlib-only sibling import
+    """`gate.py` from this directory: app construction, the route inventory, the corpus rule (C7).
+
+    Split from the accept import on purpose: the surface half needs only the gate, and a caller
+    that wants a route inventory must not drag the acceptance script in with it.
+    """
+    if "gate" not in _MODULES:
+        sys.path.insert(0, str(TOOLS_DIR))
+        import gate  # noqa: PLC0415 — stdlib-sibling import, path just set
+
+        _MODULES["gate"] = gate
+    return _MODULES["gate"]
+
+
+def _accept_module():  # noqa: ANN202 — stdlib-only sibling import
+    """`accept.py` from this directory: the hotfix half of §5.5 is ITS implementation (C7)."""
+    if "accept" not in _MODULES:
+        sys.path.insert(0, str(TOOLS_DIR))
+        import accept  # noqa: PLC0415 — stdlib-sibling import, path just set
+
+        _MODULES["accept"] = accept
+    return _MODULES["accept"]
+
+
+CLEAN, DRIFT, UNDETERMINED = "CLEAN", "DRIFT", "UNDETERMINED"
 
 # An operation as a spec author writes it: a method token then a path, `GET /users/{id}` — the one
 # form that is unambiguous enough to check in the spec→app direction. A path mentioned with no
 # method is not read as an operation (it is a reference), and prose with neither is the semantic
-# residue the reader keeps.
-SPEC_OPERATION = re.compile(r"\b(" + "|".join(HTTP_METHODS) + r")\b[ \t`]*(/[^\s`,;)\]]*)")
+# residue the reader keeps. The method vocabulary is the gate's (C7), so the app side and the spec
+# side can never recognise different sets of methods.
+SPEC_OPERATION = re.compile(r"\b(" + "|".join(_gate_module().HTTP_METHODS) + r")\b[ \t`]*(/[^\s`,;)\]]*)")
 
 # `{id}` in a route template. FastAPI's schema uses this form; a spec may write `:id` or `<id>`.
 PARAM_SEGMENT = re.compile(r"\{[^/}]*\}")
 PARAM_ANY = r"(?:\{[^/}]*\}|:[A-Za-z_][A-Za-z0-9_]*|<[^/>]*>)"
 
-ROUTE_MARKER = "__ADW_ROUTES__"
-
-_MODULES: dict[str, object] = {}
-
-
-def _tools() -> tuple[object, object]:
-    """Import gate.py + accept.py from this directory (one home per rule, C7)."""
-    if not _MODULES:
-        sys.path.insert(0, str(TOOLS_DIR))
-        import accept  # noqa: PLC0415 — stdlib-sibling import, path just set
-        import gate  # noqa: PLC0415
-
-        _MODULES["gate"] = gate
-        _MODULES["accept"] = accept
-    return _MODULES["gate"], _MODULES["accept"]
-
 
 # ---------------------------------------------------------------------------------------
 # the observable surface: what the constructed app serves
 # ---------------------------------------------------------------------------------------
-
-
-@dataclass
-class Route:
-    method: str
-    path: str
-    module: str
-
-
-@dataclass
-class Surface:
-    routes: list[Route] = field(default_factory=list)
-    modules: list[str] = field(default_factory=list)
-    undetermined: str = ""  # a surface that EXISTS and could not be read (T10f)
-    absent: str = ""  # there is no HTTP surface in this tree at all (gate.py's loud-SKIP case)
+#
+# NOT implemented here. Constructing the app and reading `app.openapi()` lives in `gate.py`
+# (`route_inventory`, section 3a) — the gate already builds the app on every run, owns the import
+# environment, and needs the very same inventory for the `invisible` class's before/after diff
+# (§3.1, T20). One implementation, two readers (C7); and the dependency runs reporter → decider,
+# never the reverse, because nothing that can DENY may reach this script (§5.5 surfaces only).
 
 
 def route_inventory(tree: Path) -> Surface:
-    """Construct every `create_app()` factory under `src/**` and read `app.openapi()`.
-
-    Deliberately the same machinery as `gate.py`'s construct-smoke (same factory discovery, same
-    import environment) — the gate already builds the app on every run, so the route list is cheap
-    and the two never disagree about what "the app" is.
-
-    Two negatives, kept apart on purpose (the distinction gate.py already draws between a loud SKIP
-    and a FAIL):
-      * ABSENT — no `src/`, or no `create_app()` in it: the tree has no HTTP surface to describe.
-      * UNDETERMINED — a factory exists and will not construct, or yields no route list. The surface
-        is then UNKNOWN, never empty: a partial surface would report every spec operation as unserved
-        and every route as undescribed, i.e. invent drift out of a broken import (T10f).
-    """
-    gate, _ = _tools()
-    files = gate._src_files(tree)
-    if not files:
-        return Surface(absent=f"no src/ under {tree} — this tree serves no HTTP surface")
-    src_root = tree / "src"
-    factories = [f for f in files if gate.CREATE_APP_DEF.search(f.read_text(encoding="utf-8", errors="replace"))]
-    if not factories:
-        return Surface(absent="no create_app() found under src/ — this tree serves no constructible HTTP surface")
-    env = gate.app_import_env(tree)
-    surface = Surface()
-    for factory in sorted(factories):
-        module = gate._module_name(factory, src_root)
-        code = (
-            "import importlib, json, sys\n"
-            f"methods = {list(HTTP_METHODS)!r}\n"
-            f"m = importlib.import_module({module!r})\n"
-            "app = m.create_app()\n"
-            "schema = app.openapi()\n"
-            "paths = schema.get('paths') if isinstance(schema, dict) else None\n"
-            "if not isinstance(paths, dict):\n"
-            "    sys.exit('app.openapi() returned no `paths` mapping')\n"
-            "out = []\n"
-            "for path, ops in paths.items():\n"
-            "    if isinstance(ops, dict):\n"
-            "        out += [[str(k).upper(), str(path)] for k in ops if str(k).upper() in methods]\n"
-            f"print({ROUTE_MARKER!r} + json.dumps(sorted(out)))\n"
-        )
-        rc, out = gate._run([sys.executable, "-c", code], cwd=tree, env=env, timeout=300)
-        payload = [line for line in out.splitlines() if line.startswith(ROUTE_MARKER)]
-        if rc != 0 or not payload:
-            return Surface(
-                undetermined=f"{module}.create_app()/openapi() did not yield a route list:\n{gate._tail(out)}"
-            )
-        surface.modules.append(module)
-        for method, path in json.loads(payload[-1][len(ROUTE_MARKER) :]):
-            surface.routes.append(Route(method, path, module))
-    return surface
+    """The tree's OpenAPI operation surface — `gate.route_inventory`, cited not restated (C7)."""
+    return _gate_module().route_inventory(tree)
 
 
 # ---------------------------------------------------------------------------------------
@@ -194,7 +152,7 @@ def capability_corpus(tree: Path) -> Corpus:
     form with a `<test-id>` placeholder, and a route named inside a comment describes nothing. Both
     the corpus rule and the strip come from the tools that already own them.
     """
-    gate, _ = _tools()
+    gate = _gate_module()
     lint = gate._criteria_lint()
     files = gate.capability_files(tree)
     if not files:
@@ -308,7 +266,7 @@ def resolve_base(tree: Path, base: str | None) -> tuple[str, str]:
     derivation, whose ambiguity is reported and never guessed (T10g), and no name is ever defaulted
     (`main` is right for most projects and wrong for this one, C6).
     """
-    _, accept = _tools()
+    accept = _accept_module()
     if base:
         return base, ""
     rc, out = accept._git(tree, "symbolic-ref", "--quiet", "--short", "HEAD")
@@ -370,7 +328,7 @@ def _surface_section(tree: Path, out: list[str]) -> str:
 
 def report(tree: Path, base: str | None) -> tuple[str, list[str]]:
     """Run both halves of §5.5 over `tree`. Returns (verdict, report lines)."""
-    _, accept = _tools()
+    accept = _accept_module()
     out = [f"drift-check (spec §5.5) on {tree}", ""]
     statuses: list[str] = []
 
