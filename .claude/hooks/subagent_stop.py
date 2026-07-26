@@ -5,7 +5,9 @@ Holds the implementer subagent while gate.py is RED on the change branch: emits
 `{"decision":"block","reason":<failed checks>}` so the agent keeps working toward green.
 ONLY the implementer is held-and-counted — the SubagentStop payload carries `agent_type`
 (F-2), so any other agent's stop (test-author, whose deliverable IS a red gate; evaluator)
-passes straight through with no gate run and no counter change. When the block ceiling is
+passes straight through with no gate run and no counter change. That name is NAMESPACED when
+the workflow is installed as a plugin (`adw:implementer`) and bare when it is loaded from
+project config, so the role is read off the last `:`-separated segment (T15/D1). When the block ceiling is
 hit, THE HOOK ITSELF writes `changes/NNN-slug/ESCALATE` (E-08: escalation is a material
 file, not a line in an ephemeral report) and then allows the stop so the session can surface
 it to the human. Respects `stop_hook_active` and a configurable ceiling (F-4/5: the
@@ -53,6 +55,21 @@ DESCRIBE = (
 DEFAULT_CEILING = 3
 COUNTER_REL = Path(".gate") / "subagent-stop-count"
 IMPLEMENTER_AGENT = "implementer"  # matches .claude/agents/implementer.md frontmatter name
+
+
+def is_implementer(agent_type: str | None) -> bool:
+    """True when `agent_type` names the implementer, namespaced or bare (T15/D1).
+
+    Shipped as a plugin, an agent's `agent_type` arrives NAMESPACED — `adw:implementer` —
+    while a project-config load reports the bare `implementer`. Both name the same role, so
+    the comparison is on the last `:`-separated segment. Comparing the whole string would be
+    silently wrong exactly where it matters: installed, the implementer would never be held
+    on a RED gate (T06c dead), and no test in the workflow's own repo — which loads via
+    project config — would notice.
+    """
+    if not agent_type:
+        return False
+    return agent_type.rsplit(":", 1)[-1] == IMPLEMENTER_AGENT
 
 
 def find_change_dir(root: Path) -> Path | None:
@@ -170,7 +187,8 @@ def main() -> int:
     # Only the implementer is held-and-counted while red; the test-author's deliverable IS a
     # red gate, and the evaluator merely reports. Any non-implementer stop passes through
     # untouched — no gate run, no counter change (F-2: SubagentStop carries agent_type).
-    if payload.get("agent_type") != IMPLEMENTER_AGENT:
+    # The name may be plugin-namespaced (`adw:implementer`) or bare (T15/D1).
+    if not is_implementer(payload.get("agent_type")):
         return 0
 
     root = Path(payload.get("cwd") or os.getcwd()).resolve()

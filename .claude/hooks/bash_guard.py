@@ -66,8 +66,10 @@ Role-aware owned-tree write path (T06d). The cycle subagents have NO Write/Edit 
 the harness reads only the tool NAME, not the glob), so the shell is their ONLY write path to
 the very trees they own. Denying it deadlocked them into a hook bypass on every /implement run.
 So the guard reads the acting role from the PreToolUse payload's `agent_type` (the base hook
-input carries it, same field SubagentStop uses, F-2) and does NOT fire when the target is that
-role's OWNED tree: test-author -> tests/** + pyproject.toml/uv.lock; implementer -> src/**;
+input carries it, same field SubagentStop uses, F-2 — namespaced as `adw:<role>` when the
+workflow is installed as a plugin, bare when loaded from project config, T15/D1) and does NOT
+fire when the target is that role's OWNED tree: test-author -> tests/** + pyproject.toml/uv.lock;
+implementer -> src/**;
 evaluator -> criteria.md/verdict.md. A write to a NON-owned protected tree still fires (T06b
 precision). `src/**` is additionally closed to the two protected-tree agents (D4: src is the
 implementer's lane) — but stays open to the implementer and to an unidentified/default session,
@@ -117,7 +119,8 @@ PROTECTED_FRAGMENTS = (
 # The owned-tree write path (T06d). Per acting role (`agent_type`), the fragments of a target
 # that the role legitimately writes — a target matching one is allowed even if it also matches
 # a PROTECTED_FRAGMENTS entry (owned overrides protected). Role names match the agent
-# frontmatter `name`s (and subagent_stop.py's IMPLEMENTER_AGENT).
+# frontmatter `name`s (and subagent_stop.py's IMPLEMENTER_AGENT) — BARE names: the payload's
+# plugin namespace is stripped by acting_role() before the lookup (T15/D1).
 ROLE_OWNED = {
     "test-author": ("tests/", "pyproject.toml", "uv.lock"),
     "evaluator": ("criteria.md", "verdict.md"),
@@ -374,6 +377,21 @@ def _matches(frag: str, candidate: str) -> bool:
     return any(parts[i : i + len(want)] == want for i in range(len(parts) - len(want) - tail + 1))
 
 
+def acting_role(agent_type: str | None) -> str | None:
+    """The BARE role name behind a payload's `agent_type` (T15/D1).
+
+    Shipped as a plugin, an agent arrives namespaced — `adw:test-author` — while a
+    project-config load reports the bare `test-author`. Both name the same role, so the lookup
+    keys on the last `:`-separated segment. Comparing the whole string would be silently wrong
+    exactly where it matters: installed, ROLE_OWNED would miss for every cycle role and all
+    three would lose their owned-tree write path (T06d), which is the only write path they
+    have — and no test in the workflow's own repo, which loads via project config, would see it.
+    """
+    if not agent_type:
+        return None
+    return agent_type.rsplit(":", 1)[-1] or None
+
+
 def _protected_for(role: str | None) -> tuple[str, ...]:
     """The protected fragments that apply to the acting role.
 
@@ -447,7 +465,7 @@ def main() -> int:
         return 0  # ergonomics only — never block on a malformed payload
 
     command = (payload.get("tool_input") or {}).get("command", "")
-    role = payload.get("agent_type")
+    role = acting_role(payload.get("agent_type"))  # `adw:implementer` and `implementer` are one role
     cwd = payload.get("cwd") or os.getcwd()
     frag = offending(command, role, repo_root=_repo_root(cwd), cwd=cwd)
     if frag is not None:

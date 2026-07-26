@@ -51,6 +51,10 @@ def _load_hook(name: str):  # noqa: ANN202 — the hook module, imported for its
     spec = importlib.util.spec_from_file_location(f"{name}_mod", HOOKS_DIR / f"{name}.py")
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
+    # Registered before exec: a module with `from __future__ import annotations` AND a
+    # @dataclass (bash_guard) resolves its field annotations through sys.modules at class
+    # creation, and blows up with AttributeError if it is not there.
+    sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -306,6 +310,47 @@ def test_bash_guard_owner_denial_names_the_role() -> None:
     proc = run_bash_guard(_bash("echo x > src/app/core.py", "evaluator"))
     assert decision(proc) == "deny"
     assert "'evaluator'" in proc.stdout, proc.stdout
+
+
+# --- T15/D1: the same role, namespaced by the plugin loader -----------------------------
+#
+# Installed as a plugin, `agent_type` arrives as `adw:<role>`; loaded from project config
+# (as in this repo) it arrives bare. ROLE_OWNED is keyed on bare names, so without stripping
+# the namespace every cycle role loses its owned-tree write path — silently, and invisibly to
+# every other test here. BOTH forms are pinned: the bare one must keep working.
+
+
+@pytest.mark.parametrize(
+    ("agent_type", "command", "expected"),
+    [
+        ("adw:test-author", "echo x > tests/test_foo.py", None),
+        ("adw:test-author", "echo x > src/app/core.py", "deny"),
+        ("adw:evaluator", "echo x > specs/demo/changes/001-thing/verdict.md", None),
+        ("adw:evaluator", "echo x > tests/test_foo.py", "deny"),
+        ("adw:implementer", "echo x > src/app/core.py", None),
+        ("adw:implementer", "echo x > tests/test_foo.py", "deny"),
+        # The namespace is STRIPPED, not validated (D1's rule is the last segment): a foreign
+        # plugin's identically-named role is read as this workflow's. Pinned as the shipped
+        # behaviour — the widening only ever grants a role its OWN tree, so the blast radius is
+        # an unrelated `*:test-author` writing tests/**, and the gate backstops it (S8).
+        ("other:test-author", "echo x > tests/test_foo.py", None),
+        # a name that is no role of this workflow's still fires on every protected tree
+        ("stranger", "echo x > tests/test_foo.py", "deny"),
+        ("adw:stranger", "echo x > tests/test_foo.py", "deny"),
+    ],
+)
+def test_bash_guard_role_survives_the_plugin_namespace(agent_type: str, command: str, expected: str | None) -> None:
+    proc = run_bash_guard(_bash(command, agent_type))
+    assert decision(proc) == expected, (agent_type, command, proc.stdout)
+
+
+def test_bash_guard_acting_role_strips_only_the_namespace() -> None:
+    mod = _load_hook("bash_guard")
+    assert mod.acting_role("adw:implementer") == "implementer"
+    assert mod.acting_role("implementer") == "implementer"
+    assert mod.acting_role(None) is None
+    assert mod.acting_role("") is None
+    assert mod.acting_role("adw:") is None  # a trailing colon names no role
 
 
 # =======================================================================================
@@ -718,6 +763,42 @@ def test_subagent_stop_passes_through_when_agent_type_absent(repo: FixtureRepo) 
     proc = run_hook("subagent_stop.py", {"cwd": str(repo.root), "stop_hook_active": False}, cwd=repo.root)
     assert proc.returncode == 0, proc.stderr
     assert decision(proc) is None, proc.stdout
+
+
+# T15/D1 — installed as a plugin the payload says `adw:implementer`. Comparing the whole string
+# would release the implementer on every RED gate, i.e. silently undo T06c in every consumer.
+
+
+def test_subagent_stop_holds_a_namespaced_implementer(repo: FixtureRepo) -> None:
+    repo.write("src/app/main.py", SRC_MAIN_BROKEN)  # gate is RED
+    proc = run_hook(
+        "subagent_stop.py",
+        {"cwd": str(repo.root), "stop_hook_active": False, "agent_type": "adw:implementer"},
+        cwd=repo.root,
+    )
+    assert decision(proc) == "block", proc.stdout
+    assert "smoke.construct" in proc.stdout
+
+
+def test_subagent_stop_passes_through_a_namespaced_non_implementer(repo: FixtureRepo) -> None:
+    repo.write("src/app/main.py", SRC_MAIN_BROKEN)  # gate is RED
+    proc = run_hook(
+        "subagent_stop.py",
+        {"cwd": str(repo.root), "stop_hook_active": False, "agent_type": "adw:test-author"},
+        cwd=repo.root,
+    )
+    assert decision(proc) is None, proc.stdout
+    assert not proc.stdout.strip(), "no gate run, no output for a non-implementer stop"
+
+
+def test_subagent_stop_is_implementer_reads_both_forms() -> None:
+    mod = _load_hook("subagent_stop")
+    assert mod.is_implementer("implementer")
+    assert mod.is_implementer("adw:implementer")
+    assert not mod.is_implementer("adw:test-author")
+    assert not mod.is_implementer("implementer-helper")
+    assert not mod.is_implementer(None)
+    assert not mod.is_implementer("")
 
 
 # T06j — a gate that CANNOT RUN is not a RED: its sentence must reach the human, and it must
