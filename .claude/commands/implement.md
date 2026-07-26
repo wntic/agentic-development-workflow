@@ -30,8 +30,10 @@ F-7). At most **one change per context** is in `/implement` at a time (spec §6)
 ## 0.5 Precondition — a Python project exists (no bootstrap, no template)
 
 The workflow does **not** bootstrap and generates no code (D1/A3). A brand-new project needs
-nothing but a plain `uv init` project (a `pyproject.toml` with `[project] name` — the package
-root `src/<pkg>/` is derived from it, `-`→`_`) plus the installed workflow plugin. That is
+nothing but a `uv init --package` project (a `pyproject.toml` with `[project] name` **and**
+`[build-system]` — the package root `src/<pkg>/` is derived from the name, `-`→`_`) plus the
+installed workflow plugin. `--package` is load-bearing: plain `uv init` puts `main.py` at the root
+and creates neither `src/<pkg>/` nor `[build-system]` (spec §9). That is
 ordinary one-time project setup done by the human **outside** `/implement`, not a workflow step
 and **not** a scaffold template that ships `fastapi`/a shell (that would re-encode the very
 prediction the workflow forbids — deps and the shell are agent-owned, per change).
@@ -43,8 +45,8 @@ change is genuine greenfield — there is no shell to import yet — and `red_ch
 fallback (a static `ac`-marker scan) treats the tests' import-of-the-unwritten-package as a real
 RED. Every later change is brownfield: the shell and prior deps are already present.
 
-If `pyproject.toml` (with a `[project] name`) is absent, **stop** — that is `uv init`, the
-human's one-time setup, not something `/implement` does.
+If `pyproject.toml` (with a `[project] name`) is absent, **stop** — that is `uv init --package`,
+the human's one-time setup, not something `/implement` does.
 
 ## 1. test-author → deps commit, then red baseline
 

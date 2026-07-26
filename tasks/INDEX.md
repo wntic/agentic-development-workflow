@@ -226,6 +226,32 @@ What it surfaced is below. Every claim re-derived from source before filing.
   **not** the plugin — no manifest, no `${CLAUDE_PLUGIN_ROOT}`, no marketplace (that is T15, and it
   answers "does it work when *installed*"). Keeping them apart means a failure is attributable.
   Also answers T15's open "where does a trialled change live" with evidence. Depends: none.
+  **BUILT 2026-07-26 (`e396012`), and it paid for itself on first use.** Venue at
+  `~/Projects/adw-consumer-probe`, runbook `notes/20_consumer_trial_venue.md`. It immediately caught
+  an **S9 violation nobody could have seen here** (→ **T10j**), and confirmed both halves of T12b
+  live: the toolchain preflight is genuinely missing (three FAILs reading `No module named mypy`
+  with no guidance), and — the useful half — because `uv init --package` ships `[build-system]`, the
+  operator's own `uvicorn` command works with **no gate-provided `PYTHONPATH``. So the A4 hole is a
+  property of *this repo's* non-installable layout, not of the workflow. Caveat recorded by the
+  builder: a builder subagent cannot spawn subagents, so all four cycle roles were played by one
+  agent in one context — every *script* ran for real, but the cycle's anti-collusion properties
+  (fresh-context evaluator, `disallowedTools`, the SubagentStop ceiling) were **not** exercised.
+  Still owed by the human: `/orient` in the venue, to confirm Claude Code actually loads a symlinked
+  `.claude/` (hook *logic* was verified by hand-fed payloads, not by harness discovery).
+- [ ] T10j — **A successful `accept.py --execute` leaves the base branch RED — S9 broken by the
+  acceptance script itself.** The birth path copies `.claude/templates/capability.md` verbatim
+  including its HTML comment, whose `- <invariant> (verified by: <test-id>)` line is then read by
+  `gate.py:808` as a real provenance reference (`CAPABILITY_REF`, `:195`, runs over raw text) → L-06
+  FAILs looking for a test named `<test-id>`. `lint._strip_html_comments` is already used one
+  function away at `:755`, for the criteria check — the capability check just does not call it.
+  Verified on the born file: `findall` returns the ghost **and** the real reference. Survived because
+  no acceptance had ever been `--execute`d *and then gate-checked* — `users/002`'s was executed and
+  reset before anyone ran the gate on the merged state. Blast radius: `subagent_stop` then holds the
+  next change's implementer on a RED no `src/**` edit can clear (T09f's deadlock, from a new
+  direction). Fix both halves (gate stops parsing comments; birth stops emitting a data-shaped
+  placeholder) and repair the venue's `main` **with** the fix as the end-to-end proof — a unit test
+  alone does not discharge this, since the defect existed precisely because nobody ran the sequence.
+  **Blocks the next trial.** Depends: T10, T04, T16.
 - [ ] T10h — `accept.py`'s `_section()` matches only `"## "`, so a `### Interface sketch` is found as
   **nothing** → empty section → reads as S depth → `adversarial.presence` PASSes for an M/L change.
   The existing-capability half of T10f's F-02 (which fixed only the birth path); left unfixed there

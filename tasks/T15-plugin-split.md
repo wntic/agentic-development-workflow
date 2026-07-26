@@ -34,6 +34,15 @@ split.
   installed rather than checked out.
 - `.claude/hooks/bash_guard.py` — `_repo_root()` (`CLAUDE_PROJECT_DIR` or the git toplevel): the
   distinction between *plugin root* and *project root* becomes load-bearing here.
+- **`notes/20_consumer_trial_venue.md` finding F-02 — measured, and it is this task's sharpest
+  input.** In a consumer project the enforcement infrastructure is protected by **`check_self_hash`
+  alone**. `bash_guard` anchors to the *consumer's* root and resolves targets, so a write to the
+  plugin's own `.claude/tools|hooks|settings.json` — by absolute path **or** through the `.claude`
+  symlink — is **ALLOWED**; and `gate.py`'s `integrity.protected-trees` diffs those same paths inside
+  the consumer tree, where they do not exist, so it PASSes **vacuously**. Of the protected set, only
+  `pyproject.toml` is genuinely covered in a consumer. Any layout this task proposes must say what
+  protects the plugin's own files once it ships, and `self-hash` needs the plugin directory to be a
+  git repository — which an installed plugin may not be.
 - `pyproject.toml` — its header already documents the shared meta/target ownership.
 - `CLAUDE.md`'s two-layer table (Meta vs Target) — this task makes that table physical.
 - `PRINCIPLES.md` A1 (layer separation), C6, C7, F1.
