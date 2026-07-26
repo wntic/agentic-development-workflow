@@ -282,11 +282,22 @@ What it surfaced is below. Every claim re-derived from source before filing.
   because it also touches verdict.md's parse. Six call sites (`:318, 670, 672, 685, 1171`). The trap:
   a naïve `#+` terminator would let a `### ` subheading truncate its parent `## ` section — match any
   depth, terminate at same-or-shallower. Depends: T10f.
-- [ ] T04f — `gate.py`'s `_baseline_paths()` swallows the git rc (`return [...] if rc == 0 else []`);
+- [x] T04f — `gate.py`'s `_baseline_paths()` swallows the git rc (`return [...] if rc == 0 else []`);
   `notes/19` credits `gate.py` with guarding *every* integrity `_git` call, which is false for this
   helper. Both callers fail closed **by luck** (`_baseline_blob` also fails, giving a misleading
   "created after the baseline commit"), so the fuse is unlit, not absent — F-01's family. Includes a
   sweep for the same pattern and a correction to the register's claim. Depends: T04, T04e, T10f.
+  **BUILT 2026-07-26.** Helper raises `GateError`; each caller returns a FAIL naming the git call
+  (not an abort — a broken baseline is a verdict about the tree). **Three** callers, not two: the
+  filing missed `check_test_inventory`, where the swallowed rc silently shrinks the legal-removal
+  allowance read out of the baseline `change.md`, i.e. would blame the tests for a git failure. The
+  sweep found **no second fail-open site** (so no escalation), and two rc's that are discarded but
+  degrade loudly by design — `rev-parse HEAD` → `sha: UNKNOWN`, `status --porcelain` → the `dirty`
+  flag nothing reads; both recorded in the `notes/19` correction. Also fixed the misattribution that
+  hid the defect: an unreadable blob for a path the baseline tree *lists* can no longer be reported
+  as "created after the baseline commit". Lint debris cleared in `gate.py` only — the pinned
+  `RUFF_SELECT` still flags **21** findings across the rest of `.claude/tools|hooks` (accept.py 11,
+  red_check 2, hooks 2, test files 6), a separate cleanup with a separate argument.
 - [x] T06i — **Six point fixes into the `bash_guard` tokeniser** (T06b quoted `-m` · T06e absolute
   paths · T06f relative/`cd` · T06f substring filenames · T06g heredoc bodies · open: `;` glued to a
   quoted word makes `rm`'s target slice swallow a later `cp`'s **source**). Each fix correct, each
