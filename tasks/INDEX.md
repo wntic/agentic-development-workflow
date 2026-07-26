@@ -523,7 +523,7 @@ files existed with no line here, which makes `/build-task`'s "every *Depends on*
   `notes/19` defect class a whole audit dispatch was spent enumerating. Treat `RUF059` and `B905`
   (`zip` without `strict=` in `criteria_guard`, which silently truncates) as bug reports, not nits.
   Depends: T04, T04f.
-- [ ] T04h — the legal-removal allowance is a **raw substring match over the whole `change.md`**
+- [x] T04h — the legal-removal allowance is a **raw substring match over the whole `change.md`**
   (`gate.py:1322`, comments **not** stripped), one function away from the `CAPABILITY_REF` path T10j
   fixed with the stripper already imported in that file. So a node-id in an instruction comment would
   authorise deleting a baseline test for every change that keeps the comment. Third instance of "a
