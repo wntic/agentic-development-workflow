@@ -530,7 +530,7 @@ files existed with no line here, which makes `/build-task`'s "every *Depends on*
   comment is not content" and the only one that **widens a permission** — the fail-open direction.
   Latent only because T03c's builder wrote the template placeholders as non-node-ids on purpose.
   Depends: T10j, T03c, T04, T10k.
-- [ ] T06l — `git rm` is not in `bash_guard`'s write-op inventory, so it deletes protected files where
+- [x] T06l — `git rm` is not in `bash_guard`'s write-op inventory, so it deletes protected files where
   plain `rm` is denied — and it is a **documented instruction**
   (`tasks/T02-harvest-and-purge.md:40`, "Use `git rm` so the commit is reviewable"), so it has actually
   been used that way. No read-direction to get wrong. `--cached` is ruled a write (tracked state is
