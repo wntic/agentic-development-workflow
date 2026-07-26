@@ -191,9 +191,10 @@ def _section(text: str, heading: str) -> str:
     parent section instead of ending it.
 
     Heading TEXT still has to match in full, case-insensitively. The tolerant `#+ <name>…` form
-    that also accepts trailing text after the name lives in `red_check.section_body`; the two
-    parsers differ in that tolerance only, and widening it here would change which headings match,
-    which is not this function's question.
+    that also accepts trailing text after the name lives in `red_check.section_body` and in
+    `_REMOVED_HEADING` below; the three parsers differ in that tolerance and in first-vs-all
+    matching only — see the note at `_REMOVED_HEADING` for why they stay three (T03c/T10h).
+    Widening this one would change which headings match, which is not its question.
     """
     out: list[str] = []
     depth = 0
@@ -666,6 +667,16 @@ _REMOVED_MARKER = re.compile(r"(?m)^Class:[^\n]*\bREMOVED\b")
 # the sweep simply not running on a genuine removal, which is the fail-open direction notes/19 is
 # about. So this feeds a FLAG, never a classification.
 _UNPINNED_ON_CLASS_LINE = re.compile(r"(?im)^Class:[^\n]*?\b(remov(?:al|als|ed|es|ing))\b")
+#
+# THREE section parses live in this repo, and they stay three deliberately (T10h finding 3's C7
+# smell, ruled on here because T03c ships the `## Removed` skeleton and so owns this one):
+#   `_section`                 — full heading text, any depth, same-or-shallower, FIRST match;
+#   `red_check.section_body`   — name PREFIX (trailing text tolerated), any depth, FIRST match;
+#   `_REMOVED_HEADING` here    — name prefix, any depth, same-or-shallower, and EVERY match.
+# Unifying them would change which headings match: `_section("Context")` would start matching
+# `## Context of the change`, and this parse would stop seeing a second `## Removed (tests)`
+# section. What was a real defect — and is fixed — is the terminator: all three now agree that a
+# section ends at a same-or-shallower heading, so no `### ` sub-entry truncates its parent.
 _REMOVED_HEADING = re.compile(r"(?m)^(#+)[ \t]*Removed\b[^\n]*$")
 
 
