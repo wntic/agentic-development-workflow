@@ -216,7 +216,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   how `notes/19`'s own baseline and every acceptance run of 2026-07-25/26 were produced, so that gate
   has never been exercised against a real lock. Depends: T04e, T06, T09b, T09f, T10f.
 
-- [ ] T16 — Stand up a **packaging-faithful consumer project** as the trial venue: a sibling repo
+- [x] T16 — Stand up a **packaging-faithful consumer project** as the trial venue: a sibling repo
   created with `uv init --package`, `.claude/` symlinked (verified: `check_self_hash` resolves
   through the symlink back to the workflow repo, so E-02 survives unchanged), one small change driven
   end to end, and a runbook in `notes/`. **Blocks T12b** — T12b would otherwise ship two checks whose
