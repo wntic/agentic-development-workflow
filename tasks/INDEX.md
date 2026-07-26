@@ -242,7 +242,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   the symlink. Harness discovery, not hand-fed payloads. The same run reproduced F-01 unchanged and
   surfaced two further findings → **T17** (`/orient`'s drift-check) and the empty `## Behaviour`
   question, now folded into T10j.
-- [ ] T06j — **The toolchain preflight T12b built never reaches the one who must act on it.** Two
+- [x] T06j — **The toolchain preflight T12b built never reaches the one who must act on it.** Two
   entry points throw the sentence away: `subagent_stop.run_gate` discards the gate's stdout and reads
   only `.gate/verdict.json`, so an exit-2 abort surfaces to the implementer as `gate produced no
   verdict.json` **three times** and then writes ESCALATE — the T09f deadlock shape a third time, an
