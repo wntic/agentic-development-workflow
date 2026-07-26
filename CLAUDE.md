@@ -129,7 +129,10 @@ construct-smoke (`create_app()` + `app.openapi()`, table-metadata import); Docke
 `[x]` must be backed by a **passed** `ac`-marked test in this run's junit); and **integrity against
 the red-commit baseline** — protected-tree diff (criteria.md legal flips only, change.md hash,
 `.claude/tools|hooks`, settings, `pyproject.toml`), test inventory ⊇ baseline (a missing/skipped/
-xfailed baseline test is RED), self-hash of gate.py + toolchain config. **S8 in one breath: hooks
+xfailed baseline test is RED), self-hash of gate.py + toolchain config, and `escalate-intact`
+(an `ESCALATE` carried by the *baseline commit* must still exist — note the narrow reach: the hook
+writes the file **untracked** and only after baselining, so §5.3's human-only-removal rule is **not
+yet enforced** in the shipped flow; T06h, `notes/19`). **S8 in one breath: hooks
 are ergonomics — trust is the post-hoc check against the git baseline; bypassing a hook only gets
 your result invalidated at the gate.**
 

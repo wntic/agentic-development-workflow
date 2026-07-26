@@ -193,6 +193,34 @@ What it surfaced is below. Every claim re-derived from source before filing.
   gate-failing against the baseline — NOT by protecting the whole change dir, which would deadlock
   the cycle (`criteria.md` flips and `verdict.md` writes are legal traffic). From T10f's register,
   finding 10. Depends: T04, T06, T10f.
+  **BUILT, BUT THE SPECIFICATION WAS WRONG — the hole is still open (→ T06h).** The task file (mine)
+  specified a baseline-vs-HEAD check without checking whether the file ever reaches git. It does not:
+  `subagent_stop.py:169` writes it untracked with a bare `write_text`, and the hook fires *after*
+  baselining anyway, so even a committed ESCALATE would sit outside the baseline tree. The shipped
+  `integrity.escalate-intact` is correct, tested and harmless, and becomes load-bearing under T06h —
+  but it covers only an ESCALATE that somehow reached the baseline commit, which the shipped flow
+  cannot produce. Kept rather than reverted for that reason; its narrow reach is now stated in
+  `CLAUDE.md` and in a dated CORRECTION block in `notes/19`.
+- [ ] T06h — Make the `ESCALATE` lock real: (1) the hook **commits** the file (scoped to that path),
+  (2) `gate.py`+`accept.py` ask a **branch-history** question ("committed since baseline, now gone?")
+  instead of a baseline diff / a filesystem `exists()`, (3) a sanctioned way for the human to clear
+  it — without which clearing a lock leaves the gate permanently RED, since `red_check --rebaseline`
+  refuses a non-`tests/` commit. All three or none: any one alone leaves the lock broken. Also fixes
+  the second victim — `accept.py`'s `exists()` gate is invisible to a **detached worktree**, which is
+  how `notes/19`'s own baseline and every acceptance run of 2026-07-25/26 were produced, so that gate
+  has never been exercised against a real lock. Depends: T04e, T06, T09b, T09f, T10f.
+
+**Known, deliberately unfiled (from T04e) — decide if either deserves a task:**
+- `gate.py`'s `_baseline_paths()` swallows the git rc (`return [...] if rc == 0 else []`), used by
+  `check_criteria_flips` and `check_change_frozen`. `notes/19` credits `gate.py` with guarding *every*
+  integrity `_git` call — not true of this helper. Both callers happen to fail closed today, so
+  nothing is broken; it is one call site from the F-01 family.
+- **A sixth tokeniser-precision defect in `bash_guard`** (after T06b/e/f/g): `rm -rf "$S"; mkdir …`
+  glues the `;` onto the quoted word, so `_slice_until_control` never sees a CONTROL token and `rm`'s
+  target slice swallows the rest of the command — including a later `cp`'s **source** path. A single
+  space before the `;` flips the verdict, and the reason string blames a path the command only reads.
+  Cost the T04e builder two denied commands. The family keeps producing members; consider whether the
+  answer is another point fix or a real tokeniser.
 - [ ] T10g — `/accept-change` never passes `--base`, and `accept.py` defaults to `main` — but this
   repo's S9 base is `markdown-specs` (`main` is the v2 archive), and a consumer project may be on
   `master`. The `users/002` acceptance only worked because the operator passed `--base` by hand.

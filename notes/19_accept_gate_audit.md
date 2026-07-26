@@ -409,6 +409,32 @@ T10f's scope (the fix belongs in `gate.py`'s integrity inventory, §5.1 — e.g.
 between baseline and HEAD is RED unless the human's commit removed it), but it is recorded here
 because the audit asked the question and this is where the answer will be looked for.
 
+> **CORRECTION (2026-07-26, after T04e).** The fix sketched in the paragraph above — "an ESCALATE
+> deletion between baseline and HEAD is RED" — **was built (T04e, `086fee5`, check
+> `integrity.escalate-intact`) and does not close this hole.** Two reasons, both re-derived from
+> source:
+>
+> 1. **The file is never tracked.** `.claude/hooks/subagent_stop.py:169` writes it with a bare
+>    `escalate.write_text(...)` — no `git add`, no commit — and `.gitignore` does not mention it. Git
+>    retains nothing about a never-committed file, so no `gate.py`-only check can see its removal.
+> 2. **Even if it were committed, a baseline-vs-HEAD comparison would still miss it.** The hook fires
+>    at the *implementer's* ceiling, i.e. after the test-author's RED baseline is committed and
+>    tagged — and `red_check` refuses any baseline commit touching non-`tests/` paths, so an ESCALATE
+>    can never be in the baseline tree. Baseline says "absent", HEAD says "absent" → PASS.
+>
+> **What T04e's shipped check actually covers:** only an ESCALATE that somehow reached the *baseline
+> commit*. In the shipped flow that is unreachable. The check is correct, tested, and harmless, and
+> it becomes load-bearing under the real fix — but it must not be read as closing this row.
+>
+> **Second victim of the same root cause:** `accept.py`'s `escalate` gate is `escalate.exists()` on
+> the work tree. A fresh `git worktree` never carries untracked files, so a worktree-based acceptance
+> — which is how this very register's `users/002` baseline was produced — cannot see a genuine
+> ESCALATE at all. No agent misbehaviour required.
+>
+> The real fix (hook commits the file + a branch-history check + a sanctioned clearing step, since
+> `red_check --rebaseline` refuses a non-`tests/` commit) is filed as **T06h**. This row stays
+> **OPEN**.
+
 ---
 
 ## Proposed structural answer (the escalation)
