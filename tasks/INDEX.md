@@ -216,17 +216,54 @@ What it surfaced is below. Every claim re-derived from source before filing.
   how `notes/19`'s own baseline and every acceptance run of 2026-07-25/26 were produced, so that gate
   has never been exercised against a real lock. Depends: T04e, T06, T09b, T09f, T10f.
 
-**Known, deliberately unfiled (from T04e) — decide if either deserves a task:**
-- `gate.py`'s `_baseline_paths()` swallows the git rc (`return [...] if rc == 0 else []`), used by
-  `check_criteria_flips` and `check_change_frozen`. `notes/19` credits `gate.py` with guarding *every*
-  integrity `_git` call — not true of this helper. Both callers happen to fail closed today, so
-  nothing is broken; it is one call site from the F-01 family.
-- **A sixth tokeniser-precision defect in `bash_guard`** (after T06b/e/f/g): `rm -rf "$S"; mkdir …`
-  glues the `;` onto the quoted word, so `_slice_until_control` never sees a CONTROL token and `rm`'s
-  target slice swallows the rest of the command — including a later `cp`'s **source** path. A single
-  space before the `;` flips the verdict, and the reason string blames a path the command only reads.
-  Cost the T04e builder two denied commands. The family keeps producing members; consider whether the
-  answer is another point fix or a real tokeniser.
+- [ ] T16 — Stand up a **packaging-faithful consumer project** as the trial venue: a sibling repo
+  created with `uv init --package`, `.claude/` symlinked (verified: `check_self_hash` resolves
+  through the symlink back to the workflow repo, so E-02 survives unchanged), one small change driven
+  end to end, and a runbook in `notes/`. **Blocks T12b** — T12b would otherwise ship two checks whose
+  live branches cannot be exercised here (the toolchain preflight: this repo always has the toolchain;
+  the import check: this repo is permanently non-installable, so only its SKIP runs). Shipping gates
+  whose failure paths were never exercised is the exact defect class `notes/19` is about. Deliberately
+  **not** the plugin — no manifest, no `${CLAUDE_PLUGIN_ROOT}`, no marketplace (that is T15, and it
+  answers "does it work when *installed*"). Keeping them apart means a failure is attributable.
+  Also answers T15's open "where does a trialled change live" with evidence. Depends: none.
+- [ ] T10h — `accept.py`'s `_section()` matches only `"## "`, so a `### Interface sketch` is found as
+  **nothing** → empty section → reads as S depth → `adversarial.presence` PASSes for an M/L change.
+  The existing-capability half of T10f's F-02 (which fixed only the birth path); left unfixed there
+  because it also touches verdict.md's parse. Six call sites (`:318, 670, 672, 685, 1171`). The trap:
+  a naïve `#+` terminator would let a `### ` subheading truncate its parent `## ` section — match any
+  depth, terminate at same-or-shallower. Depends: T10f.
+- [ ] T04f — `gate.py`'s `_baseline_paths()` swallows the git rc (`return [...] if rc == 0 else []`);
+  `notes/19` credits `gate.py` with guarding *every* integrity `_git` call, which is false for this
+  helper. Both callers fail closed **by luck** (`_baseline_blob` also fails, giving a misleading
+  "created after the baseline commit"), so the fuse is unlit, not absent — F-01's family. Includes a
+  sweep for the same pattern and a correction to the register's claim. Depends: T04, T04e, T10f.
+- [ ] T06i — **Six point fixes into the `bash_guard` tokeniser** (T06b quoted `-m` · T06e absolute
+  paths · T06f relative/`cd` · T06f substring filenames · T06g heredoc bodies · open: `;` glued to a
+  quoted word makes `rm`'s target slice swallow a later `cp`'s **source**). Each fix correct, each
+  left another variant; every miss trains the bypass reflex the guard exists to prevent and blames
+  the wrong path. Decide: a seventh point fix, a real tokeniser (stdlib `shlex(punctuation_chars=True)`
+  may be near drop-in), or shrink what the guard claims to prevent (S8 permits it). The 113 existing
+  cases are the specification — they must all survive. Escalate the comparison before rewriting.
+  Depends: T06, T06b, T06e, T06f, T06g.
+- [ ] T03c — **Pin the removal-flavour vocabulary.** Four documents say four different things (spec
+  §3.1 `REMOVED` · the template comment "removal flavour" · `/spec` "listed explicitly" ·
+  `test-author.md`'s "Removed tests block", a section that exists in **no template**), and the V-02
+  sweep now keys on a `#+ Removed` heading nobody is instructed to emit. T10e's tolerant classifier
+  and T06f Part B's FLAG are holding patterns, not the fix. Ship a `## Removed` skeleton, narrow the
+  classifier, close T10f's F-05 (an empty heading still PASSes). Depends: T03, T10e, T06f, T10f.
+- [ ] T09g — **A test-strengthening change has no red phase, so it has no home.**
+  `red_check.rebaseline` refuses unless the tests are still a valid RED baseline; strengthened tests
+  over already-correct code are green on arrival. So `users/002`'s F1/F2 cannot be acted on, which
+  makes the adversarial pass — the one step whose job is measuring test strength — advisory theatre
+  (S5/D3). Design-sensitive: extend `invisible` (same no-red-phase shape, check whether it has the
+  hole too), a new class proved by **mutation** rather than redness (strictly stronger, and the
+  adversarial pass already produces it), or let the adversarial step commit within the change
+  (collides with D4). Escalate the shape first; expect a §3 canon edit. Depends: T09, T09b, T09f, T03, T10.
+- [ ] T10i — Two T10f leftovers plus one cosmetic: `merge.placement`'s REVIEW-vs-TRUST class (its
+  check-mode FLAG means a multi-target change reads ACCEPTABLE while being un-executable);
+  `/accept-change`'s prose gate list omits `invariant.provenance` (prefer replacing the enumeration
+  with a pointer to the registry — enumerations in prose are how this drifted); `_spec_lint` emits
+  duplicate findings. Depends: T10f, T10g.
 - [x] T10g — `/accept-change` never passes `--base`, and `accept.py` defaults to `main` — but this
   repo's S9 base is `markdown-specs` (`main` is the v2 archive), and a consumer project may be on
   `master`. The `users/002` acceptance only worked because the operator passed `--base` by hand.
