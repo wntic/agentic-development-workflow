@@ -339,7 +339,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   the project declares itself installable and isn't, loud SKIP if it doesn't — this repo's permanent,
   honest case). The injections **stay** — the editable `.pth` is absolute, and
   `collect_baseline_inventory` needs one to reach the extracted baseline tree.
-- [ ] T15 — Split the shipped plugin from the trial harness. The root `pyproject.toml` serves three
+- [x] T15 — Split the shipped plugin from the trial harness. The root `pyproject.toml` serves three
   masters: the trial app's runtime deps, the toolchain a consumer legitimately needs (correct where
   it is — `gate.py` runs `sys.executable -m mypy|ruff|pytest`, so the tools must see the project's
   code), and the meta layer's own test env for the 297 `.claude/tools/` tests, which ships nowhere.
