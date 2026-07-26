@@ -54,10 +54,33 @@ Two independent halves. **Do both** — either alone leaves a sharp edge:
   comments before matching, exactly as the criteria check already does. This is the real fix: a
   comment is not content, and *any* capability file may legitimately carry one.
 - **`accept.py`'s birth path must not emit a placeholder that looks like data.** Decide and state
-  which: strip the instructional comment when instantiating, or reword the template so its example
-  cannot be mistaken for a reference (e.g. no parenthesised `verified by:` form inside the comment).
-  Prefer stripping — the comment's audience is the author of the *template*, not the reader of a born
-  file, and a born file that carries `<invariant>` placeholders reads as unfinished.
+  which: strip the instructional comments when instantiating, or reword the template so its example
+  cannot be mistaken for a reference (no parenthesised `verified by:` form inside a comment).
+  **Weigh both** — the comments have a real human audience ("50–300 lines — cut it" orients whoever
+  opens the file next), so stripping is not obviously right; rewording keeps the guidance and removes
+  only the data-shaped bait. The *gate* fix above is the load-bearing one either way.
+
+  Here is a real born file (T16's venue, `specs/health/service-health.md`) so the choice is made
+  against evidence rather than imagination:
+
+  ```
+  # health / service-health
+  <!-- The LIVING spec of one capability, 50–300 lines … -->
+  ## Behaviour
+  <!-- The capability's operations as observable behaviour … -->
+  ## Invariants
+  <!-- … EVERY invariant carries its provenance mark:
+         - <invariant> (verified by: <test-id>)     ← the ghost gate.py reads
+         - <invariant> (MANUAL) … -->
+  - `GET /health` returns 200 with the JSON body `{"status": "ok"}`. (verified by: tests/…)
+  ```
+
+- **Decide what an empty `## Behaviour` means on the birth path.** As shown above, a born file gets
+  the heading and its comment but **no content** — `accept.py` writes invariants, never prose. Is a
+  bare `## Behaviour` the correct placeholder for a later `/spec` to fill, or should birth populate
+  it? State the answer; do not let it be a side effect of whichever comment decision you take. (This
+  is not a defect today — the invariants *are* observable-behaviour statements, so the file is
+  usable — but a heading that is always empty after birth is either a promise or a smell.)
 - Tests both sides: `test_gate.py` — a capability file whose comment contains a `(verified by: …)`
   line passes `spec.invariant-tests` while a genuinely rotted reference still FAILs;
   `test_accept.py` — a birth produces a file that `gate.py` accepts.

@@ -236,8 +236,22 @@ What it surfaced is below. Every claim re-derived from source before filing.
   builder: a builder subagent cannot spawn subagents, so all four cycle roles were played by one
   agent in one context — every *script* ran for real, but the cycle's anti-collusion properties
   (fresh-context evaluator, `disallowedTools`, the SubagentStop ceiling) were **not** exercised.
-  Still owed by the human: `/orient` in the venue, to confirm Claude Code actually loads a symlinked
-  `.claude/` (hook *logic* was verified by hand-fed payloads, not by harness discovery).
+  **Last owed item DISCHARGED 2026-07-26 (human, `/orient` run in the venue): Claude Code does load
+  a symlinked `.claude/`** — the session registry carried the v3 agents (test-author / implementer /
+  evaluator / v3-builder) and commands (`/spec`, `/implement`, `/accept-change`, `/abandon`) through
+  the symlink. Harness discovery, not hand-fed payloads. The same run reproduced F-01 unchanged and
+  surfaced two further findings → **T17** (`/orient`'s drift-check) and the empty `## Behaviour`
+  question, now folded into T10j.
+- [ ] T17 — `/orient` still defers its §5.5 drift-check as *planned (T05/T10)* and says "skip that
+  step" — but both shipped. Worse, the two sides point at each other: `accept.py`'s `--execute`
+  report ends with *"OpenAPI route⊆operation drift is surfaced by /orient"*, while `/orient` waits
+  for `accept.py` to arrive. **Nobody runs the OpenAPI half.** The hotfix half (base src-commits with
+  no `change/*` tag) *is* automated in `accept.py` and must be cited, not reimplemented (C7). Open
+  choice: prose-in-the-command (the comparison is genuinely semantic — a route may be described in
+  prose no grep matches) or a script (S4's shape, and how every other must-hold check here ended up);
+  read §5.5 before assuming the latter. Not a blocking gate — §5.5 surfaces, it does not deny.
+  Found by the human's `/orient` in the venue, who did the check by hand and found it clean — which
+  is the only reason this is not a live gap today. Depends: T05, T10, T04.
 - [ ] T10j — **A successful `accept.py --execute` leaves the base branch RED — S9 broken by the
   acceptance script itself.** The birth path copies `.claude/templates/capability.md` verbatim
   including its HTML comment, whose `- <invariant> (verified by: <test-id>)` line is then read by
