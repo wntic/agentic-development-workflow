@@ -30,6 +30,13 @@ version = "0.1.0"
 requires-python = ">=3.12"
 """
 
+# The same fixture project CLAIMING to be installable. Nothing ever installs a fixture tree
+# into an environment (that is what keeps this suite cheap), so this is the shape of a project
+# whose `[build-system]` promise is not kept — the FAIL branch of the import smoke (T12b).
+PYPROJECT_INSTALLABLE = (
+    PYPROJECT + '\n[build-system]\nrequires = ["uv_build>=0.11.6,<0.12.0"]\nbuild-backend = "uv_build"\n'
+)
+
 GITIGNORE = """\
 .gate/
 __pycache__/
@@ -246,9 +253,16 @@ class FixtureRepo:
         return {c["id"]: c["status"] for c in self.verdict()["checks"]}
 
 
-def make_repo(root: Path, *, change_md: str = CHANGE_MD, tag: bool = True, escalate: bool = False) -> FixtureRepo:
+def make_repo(
+    root: Path,
+    *,
+    change_md: str = CHANGE_MD,
+    tag: bool = True,
+    escalate: bool = False,
+    pyproject: str = PYPROJECT,
+) -> FixtureRepo:
     repo = FixtureRepo(root)
-    repo.write("pyproject.toml", PYPROJECT)
+    repo.write("pyproject.toml", pyproject)
     repo.write(".gitignore", GITIGNORE)
     repo.write("src/app/__init__.py", SRC_INIT)
     repo.write("src/app/core.py", SRC_CORE)
@@ -324,6 +338,11 @@ def test_green_tree_is_green(repo: FixtureRepo) -> None:
         assert statuses[check_id] == "PASS", (check_id, statuses)
     assert statuses["smoke.table-metadata"] == "SKIP"
     assert statuses["docker.alembic"] == "SKIP"
+    # the fixture tree is never installed into any environment, so the import smoke's SKIP is
+    # the honest report — and it is LOUD, naming the reason (T12b).
+    assert statuses["smoke.package-import"] == "SKIP"
+    assert "PACKAGE IMPORT SKIPPED" in proc.stdout
+    assert "no [build-system]" in proc.stdout
 
 
 def test_red_localized_to_tests_when_only_tests_static_toolchain_red(tmp_path: Path) -> None:
@@ -595,6 +614,133 @@ def test_table_smoke_red_when_table_module_import_fails(repo: FixtureRepo) -> No
     assert proc.returncode == 1
     assert repo.statuses()["smoke.table-metadata"] == "FAIL"
     assert "F-012" in proc.stdout
+
+
+# ---------------------------------------------------------------------------------------
+# Toolchain preflight (T12b) — a missing tool is a sentence, not a traceback
+# ---------------------------------------------------------------------------------------
+
+
+def test_required_toolchain_tracks_what_the_run_will_invoke(tmp_path: Path) -> None:
+    # The preflight's scope is exactly the checks that will run: a tree whose checks SKIP must
+    # never abort over a tool it was never going to invoke.
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert gate.required_toolchain(bare, docker_available=False) == []
+
+    src_only = tmp_path / "src-only"
+    (src_only / "src").mkdir(parents=True)
+    assert gate.required_toolchain(src_only, docker_available=False) == ["mypy", "ruff"]
+
+    app = tmp_path / "app"
+    (app / "src").mkdir(parents=True)
+    (app / "tests").mkdir(parents=True)
+    assert gate.required_toolchain(app, docker_available=False) == ["mypy", "ruff", "pytest"]
+
+    (app / "alembic.ini").write_text("[alembic]\n", encoding="utf-8")
+    # the alembic tier only runs when the daemon is there, so neither does its requirement
+    assert gate.required_toolchain(app, docker_available=False) == ["mypy", "ruff", "pytest"]
+    assert gate.required_toolchain(app, docker_available=True) == ["mypy", "ruff", "pytest", "alembic"]
+
+
+def test_missing_toolchain_probe_that_cannot_run_is_loud(tmp_path: Path) -> None:
+    # "could not ask" must never read as "nothing missing" (T10f's rule, applied here).
+    with pytest.raises(gate.GateError):
+        gate.missing_toolchain(["mypy"], {}, tmp_path / "does-not-exist")
+
+
+def test_missing_toolchain_aborts_with_the_fix_not_a_traceback(tmp_path: Path) -> None:
+    # A consumer project whose environment lacks the toolchain used to get a raw
+    # `No module named mypy` out of three separate subprocesses. The gate now refuses to run
+    # and says what to install — and leaves NO verdict.json, so nothing downstream can read
+    # the aborted run as an answer.
+    repo = make_repo(tmp_path / "app")
+    bare = tmp_path / "bare-venv"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(bare)], check=True, capture_output=True)
+    python = bare / "bin" / "python"
+    if not python.exists():  # pragma: no cover — Windows layout
+        python = bare / "Scripts" / "python.exe"
+
+    env = os.environ.copy()
+    env["GATE_DOCKER"] = "0"
+    proc = subprocess.run(
+        [str(python), str(repo.root / ".claude/tools/gate.py"), str(repo.root)],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=repo.root,
+    )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 2, output  # 2 = could not run, distinct from RED's 1
+    assert "toolchain missing from this project's environment" in output
+    for tool in ("mypy", "ruff", "pytest"):
+        assert tool in output
+    assert "[dependency-groups]" in output and "uv sync" in output
+    assert "Traceback" not in output
+    assert not (repo.root / ".gate/verdict.json").exists()
+
+
+# ---------------------------------------------------------------------------------------
+# Package-import smoke (T12b) — the A4 question asked with the gate's injection stripped
+# ---------------------------------------------------------------------------------------
+
+
+def test_plan_package_import_unit(tmp_path: Path) -> None:
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert gate.plan_package_import(bare).kind == "skip"
+
+    not_installable = tmp_path / "not-installable"
+    not_installable.mkdir()
+    (not_installable / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
+    plan = gate.plan_package_import(not_installable)
+    assert plan.kind == "skip" and "[build-system]" in plan.reason
+
+    installable = tmp_path / "installable"
+    installable.mkdir()
+    (installable / "pyproject.toml").write_text(PYPROJECT_INSTALLABLE, encoding="utf-8")
+    plan = gate.plan_package_import(installable)
+    assert plan.kind == "import" and plan.package == "fixture_app"  # `-` -> `_`
+
+    nameless = tmp_path / "nameless"
+    nameless.mkdir()
+    (nameless / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["uv_build"]\nbuild-backend = "uv_build"\n', encoding="utf-8"
+    )
+    assert gate.plan_package_import(nameless).kind == "fail"  # undetermined input, never a pass
+
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    (broken / "pyproject.toml").write_text("[project\nname = oops\n", encoding="utf-8")
+    assert gate.plan_package_import(broken).kind == "fail"
+
+
+def test_import_probe_ignores_a_pythonpath_injection(tmp_path: Path) -> None:
+    # The whole point of the smoke: a package reachable ONLY through PYTHONPATH (which is what
+    # gate.py hands every other subprocess) must NOT count as importable here.
+    (tmp_path / "src" / "ghostpkg").mkdir(parents=True)
+    (tmp_path / "src" / "ghostpkg" / "__init__.py").write_text("", encoding="utf-8")
+    env = dict(os.environ, PYTHONPATH=str(tmp_path / "src"))
+    rc, _ = gate.import_without_injection("ghostpkg", env, tmp_path)
+    assert rc != 0
+    # the same probe still finds what the interpreter's own environment really provides
+    rc, _ = gate.import_without_injection("json", env, tmp_path)
+    assert rc == 0
+
+
+def test_installable_project_that_cannot_be_imported_is_red(tmp_path: Path) -> None:
+    # The A4 finding itself: every other check is GREEN (they all run under the gate's
+    # PYTHONPATH=src injection) while `uvicorn` / a plain import would die.
+    repo = make_repo(tmp_path / "app", pyproject=PYPROJECT_INSTALLABLE)
+    proc = repo.gate()
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    statuses = repo.statuses()
+    assert statuses["smoke.package-import"] == "FAIL"
+    assert statuses["toolchain.pytest"] == "PASS"
+    assert statuses["smoke.construct"] == "PASS"  # constructs fine — under the injection
+    assert repo.verdict()["failed"] == ["smoke.package-import"]
+    assert "unstartable outside gate.py" in proc.stdout
+    assert "fixture_app" in proc.stdout
 
 
 # ---------------------------------------------------------------------------------------

@@ -29,7 +29,9 @@ accept.py, the human):
   - `.gate/verdict.json` in the tree: sha, dirty flag, baseline, per-check status, and
     `docker_exempt` (integration node-ids the daemon-absence carve-out let skip, T04b);
   - `.gate/last-run.xml` in the tree: junit-xml of the pytest run (backs --criteria);
-  - exit code 0 only on GREEN.
+  - exit code 0 only on GREEN; exit code 2 when the gate could not run at all (an unresolvable
+    --change/--baseline, a toolchain missing from the project's environment) — that is an
+    abort, not a verdict: no `.gate/verdict.json` is left behind for anyone to misread.
 
 Environment contract:
   - GATE_DOCKER=0 force-skips the Docker tier (reported loudly as DOCKER SKIPPED).
@@ -431,6 +433,81 @@ def resolve_context(tree: Path, change_arg: str | None, baseline_arg: str | None
 
 
 # ---------------------------------------------------------------------------------------
+# 0. Toolchain preflight — a PRECONDITION, not a check row (T12b)
+# ---------------------------------------------------------------------------------------
+
+# The gate invokes its toolchain as `sys.executable -m <tool>` inside the PROJECT's own
+# interpreter (the tools must see the project's code and dependencies). A project whose
+# environment lacks one of them used to get a raw `No module named mypy` out of a subprocess,
+# attributed to whichever check happened to run it — three FAILs and not one sentence saying
+# what to install (the first consumer-project run, T16).
+#
+# This is a precondition, not a check: with the tool absent the gate cannot answer GREEN/RED at
+# all, so it aborts loudly (exit 2, no verdict.json) rather than occupying a check row — the
+# same shape accept.py gives an input it cannot determine (T10f). It still fails closed:
+# resolve_context() has already deleted any stale .gate/verdict.json, so no downstream consumer
+# (SubagentStop, accept.py) can read a previous run's answer as this one's.
+TOOLCHAIN_FIX = (
+    "gate.py runs each of them as `<python> -m <tool>` in the project's own interpreter, so they must be "
+    'installed in the project\'s environment: add them to `[dependency-groups] dev` ("Dev (always present)" '
+    "in the `conventions` skill, block D) and run `uv sync`."
+)
+
+
+def required_toolchain(tree: Path, *, docker_available: bool) -> list[str]:
+    """The modules THIS run is about to invoke — the preflight's scope.
+
+    Conditioned exactly like the checks that invoke them, so a tree whose checks would SKIP
+    anyway never aborts over a tool it was never going to run (an empty greenfield tree)."""
+    needed: list[str] = []
+    if (tree / "src").is_dir() or (tree / "tests").is_dir():
+        needed += ["mypy", "ruff"]  # check_mypy / check_ruff
+    if (tree / "tests").is_dir():
+        needed.append("pytest")  # check_pytest
+    if docker_available and (tree / "alembic.ini").exists():
+        needed.append("alembic")  # check_docker_tier
+    return needed
+
+
+def missing_toolchain(modules: list[str], env: dict[str, str], cwd: Path) -> list[str]:
+    """Which of `modules` the gate's own interpreter cannot import. A probe that cannot be
+    run at all is a loud GateError — "could not ask" must never read as "nothing missing"."""
+    if not modules:
+        return []
+    probe = (
+        "import importlib.util, json, sys\n"
+        "missing = []\n"
+        "for name in sys.argv[1:]:\n"
+        "    try:\n"
+        "        found = importlib.util.find_spec(name) is not None\n"
+        "    except (ImportError, ValueError):\n"
+        "        found = False\n"
+        "    if not found:\n"
+        "        missing.append(name)\n"
+        "print(json.dumps(missing))\n"
+    )
+    rc, out = _run([sys.executable, "-c", probe, *modules], cwd=cwd, env=env, timeout=120)
+    if rc != 0:
+        raise GateError(f"toolchain preflight could not run under {sys.executable}:\n{_tail(out)}")
+    try:
+        result = json.loads(out.strip().splitlines()[-1])
+    except (IndexError, json.JSONDecodeError):
+        raise GateError(f"toolchain preflight returned no answer under {sys.executable}:\n{_tail(out)}") from None
+    return [str(name) for name in result]
+
+
+def preflight_toolchain(ctx: GateContext, *, docker_available: bool) -> None:
+    missing = missing_toolchain(required_toolchain(ctx.tree, docker_available=docker_available), ctx.env, ctx.tree)
+    if missing:
+        raise GateError(
+            f"toolchain missing from this project's environment ({sys.executable}): "
+            + ", ".join(missing)
+            + "\n"
+            + TOOLCHAIN_FIX
+        )
+
+
+# ---------------------------------------------------------------------------------------
 # 1. Toolchain (spec §5.1: mypy / ruff check / ruff format / pytest with pinned config)
 # ---------------------------------------------------------------------------------------
 
@@ -626,6 +703,90 @@ def check_table_smoke(ctx: GateContext) -> Check:
     if rc != 0:
         return Check("smoke.table-metadata", "FAIL", f"table module import failed (F-012):\n{_tail(out)}")
     return Check("smoke.table-metadata", "PASS", f"imported {len(table_modules)} table module(s) (F-012)")
+
+
+# ---------------------------------------------------------------------------------------
+# 3b. Package-import smoke (A4, T12b): the app must import with the gate's injection stripped
+# ---------------------------------------------------------------------------------------
+
+# resolve_context() puts `<tree>/src` on PYTHONPATH for every subprocess the gate spawns, so
+# mypy/pytest/the construct smoke all reach the app under an import path ONLY the gate provides.
+# A project that is not installable therefore passed every other check while `uv run uvicorn …` died
+# with ModuleNotFoundError — the gate supplying the conditions that hide the failure mode is
+# exactly what A4 forbids. The injections stay (the editable install's .pth holds an ABSOLUTE
+# path to one tree's src, and collect_baseline_inventory needs one to reach the extracted
+# baseline tree — removing them would trade this A4 hole for an integrity hole); instead ONE
+# check asks the question with the injection stripped.
+#
+# It can only ask it of a project that claims to be importable, so the trigger is the project's
+# own `[build-system]` declaration: present -> the claim is checked and a failure is RED; absent
+# -> the project says it is not installable and the SKIP says so out loud (this repo's permanent,
+# honest case — see the T12b task file). Never silent either way.
+
+
+@dataclass
+class PackageImportPlan:
+    kind: str  # "import" | "skip" | "fail"
+    package: str | None
+    reason: str
+
+
+def plan_package_import(tree: Path) -> PackageImportPlan:
+    """Decide what the import smoke can ask of this tree, from pyproject.toml alone."""
+    pyproject = tree / "pyproject.toml"
+    if not pyproject.is_file():
+        return PackageImportPlan("skip", None, "no pyproject.toml in tree — the project declares no packaging to check")
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        # unreadable input for a check that guards trust: FAIL, never a quiet pass (T10f).
+        return PackageImportPlan("fail", None, f"pyproject.toml could not be read: {exc}")
+    if not isinstance(data.get("build-system"), dict):
+        return PackageImportPlan(
+            "skip",
+            None,
+            "pyproject.toml declares no [build-system], so the project is not installable: nothing outside "
+            "gate.py (uvicorn, a plain `python -c import`) can reach src/** — the gate injects PYTHONPATH=src "
+            "itself. Add [build-system] (`conventions` skill, block D) to have this checked",
+        )
+    package = project_package(tree)
+    if not package:
+        return PackageImportPlan(
+            "fail",
+            None,
+            "pyproject.toml declares [build-system] but no [project] name — the import package cannot be determined",
+        )
+    return PackageImportPlan("import", package, "")
+
+
+def import_without_injection(package: str, env: dict[str, str], cwd: Path) -> tuple[int, str]:
+    """`import <package>` under `-I`: no PYTHONPATH, no cwd on sys.path, no user site — only
+    what the interpreter's own environment installs, which is all `uvicorn` gets."""
+    clean = {k: v for k, v in env.items() if k != "PYTHONPATH"}
+    return _run([sys.executable, "-I", "-c", f"import {package}"], cwd=cwd, env=clean, timeout=300)
+
+
+def check_package_import(ctx: GateContext) -> Check:
+    plan = plan_package_import(ctx.tree)
+    if plan.kind == "skip":
+        return Check("smoke.package-import", "SKIP", f"PACKAGE IMPORT SKIPPED — {plan.reason}")
+    if plan.kind == "fail" or plan.package is None:
+        return Check("smoke.package-import", "FAIL", plan.reason)
+    rc, out = import_without_injection(plan.package, ctx.env, ctx.tree)
+    if rc == 0:
+        return Check(
+            "smoke.package-import",
+            "PASS",
+            f"`import {plan.package}` succeeds with the gate's PYTHONPATH=src injection stripped (A4)",
+        )
+    return Check(
+        "smoke.package-import",
+        "FAIL",
+        f"the project declares [build-system] but `import {plan.package}` fails without the gate's own "
+        f"PYTHONPATH=src injection — the app is unstartable outside gate.py (A4). Install the project into "
+        f"its environment (`uv sync`) and check that src/{plan.package}/ is the package the build backend "
+        f"builds:\n{_tail(out)}",
+    )
 
 
 # ---------------------------------------------------------------------------------------
@@ -1143,6 +1304,10 @@ def check_self_hash(ctx: GateContext) -> Check:
 
 def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg: str | None) -> int:
     ctx = resolve_context(tree, change_arg, baseline_arg)
+    # one probe per run, shared by the Docker tier, the inventory carve-out AND the preflight
+    # (the alembic tier is the one toolchain user whose invocation depends on the daemon).
+    docker_probe = probe_docker()
+    preflight_toolchain(ctx, docker_available=docker_probe.available)
     checks: list[Check] = []
 
     checks.append(check_mypy(ctx))
@@ -1152,7 +1317,7 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
     checks.extend(check_greps(ctx))
     checks.append(check_construct_smoke(ctx))
     checks.append(check_table_smoke(ctx))
-    docker_probe = probe_docker()  # one probe per run, shared by the tier and the carve-out
+    checks.append(check_package_import(ctx))
     checks.append(check_docker_tier(ctx, docker_probe))
     if criteria:
         checks.extend(check_criteria(ctx))
