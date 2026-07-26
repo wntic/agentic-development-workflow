@@ -54,6 +54,19 @@ something exercises it — add that exercise (the app-construction smoke test). 
 no-op — an under-specified body fails loud, it does not pass quietly. *Why:* mypy, ruff, and the unit
 tests all stayed green while `create_app()` raised. `v3 §0, §3.1, §5.1`
 
+**A5 · A narrowing fix must be verified in BOTH directions, over EVERY input form.** *Trigger:* a fix
+makes a check fire less often — a match anchored, a parse tightened, a false positive removed.
+*Litmus:* "the existing N cases still pass" **cannot see coverage no case pinned**, so it is not
+evidence. Before calling it closed: (a) enumerate every *input form* the match accepts — absolute,
+relative, basename, quoted, heredoc, variable, comment; (b) run the differential in the *deny*
+direction too, not only over the false positives that motivated the fix. *Why:* paid for four times.
+`bash_guard`'s tokeniser produced **twelve** measured false positives across seven point fixes, each
+closing one form and leaving another (T06b → T06e → T06f → T06g → T06i → T06k → T06l); T06e closed the
+absolute-path variant and never checked the relative one; and **T06i, a correct fix, silently deleted a
+deny it had — pre-T06i `git rm tests/x.py` was DENIED, after it was ALLOWED** — because its acceptance
+criterion was "all 116 cases still pass" and its differential ran allow-direction only. Same shape in
+the specs: T10e's classifier fixed one variant of its own defect and opened another. `notes/19`
+
 ---
 
 ## S. The spec, the criteria, the gates (replaces the v2 B-series)
