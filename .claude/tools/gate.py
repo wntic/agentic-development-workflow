@@ -48,6 +48,7 @@ around (spec §5, V-04).
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import io
 import json
 import os
@@ -190,9 +191,42 @@ PROTECTED_PATHS = (".claude/tools", ".claude/hooks", ".claude/settings.json", "p
 # skip-reason string.
 INTEGRATION_TEST_PREFIX = "tests/integration/"
 
-# Files whose worktree content must match git HEAD for the gate to trust itself (E-02).
-# criteria_lint.py is imported by --criteria, so it is part of the trust base (C7).
-SELF_INTEGRITY_FILES = ("gate.py", "criteria_lint.py")
+# Files whose worktree content must match git HEAD for the gate to trust the enforcement
+# layer (E-02, widened by T18). Paths are PLUGIN-ROOT-relative — the plugin root is the
+# directory that holds `tools/`: `.claude/` in this repo, the repository top in a
+# `git subtree split --prefix=.claude` plugin repo (notes/21 §1).
+#
+# Why this is not just gate.py: once the workflow is INSTALLED, it lives outside the
+# consumer's repository, and the two other protections both go blind there —
+# `bash_guard` anchors to the consumer's root (so a write to the plugin's own files
+# resolves outside it and is allowed, deliberately, T06e) and `integrity.protected-trees`
+# diffs `.claude/tools|hooks|settings.json` INSIDE the consumer tree, where they do not
+# exist, so it passes vacuously (notes/20 F-02). Self-hash is the only check that follows
+# `__file__` back to where the workflow actually lives, so everything a consumer's trust
+# rests on has to be anchored HERE or nowhere.
+#
+# An anchor is a file whose content DECIDES something: the tools a verdict comes out of,
+# the four hooks, and the two manifests that decide which components are wired at all
+# (tamper with `plugin.json` and every hook silently unhooks). Expressed as globs so a new
+# tool or hook is anchored by construction rather than by remembering to extend a list.
+#
+# Deliberately NOT anchored:
+#   * `tools/test_*.py` — they ship (notes/21 §1) but no enforcement decision reads them:
+#     a tampered test cannot change a verdict, while anchoring them would turn every
+#     uncommitted edit to the meta layer's own suite into a RED gate;
+#   * skills / agents / commands / templates — knowledge and prompts. Their drift is a
+#     review question, not an integrity one, and freezing them would make editing a skill
+#     require a commit before any gate run.
+SELF_INTEGRITY_GLOBS = (
+    "tools/*.py",  # gate.py, criteria_lint.py (imported by --criteria), accept.py, red_check.py
+    "hooks/*.py",  # the four hooks: ergonomics, but a tampered one lies to its reader
+    "hooks/*.json",  # hooks.json — the hook wiring of an INSTALLED load
+    "bin/*.py",  # the one sanctioned invocation form (notes/21 §3): tamper it and "the gate" is a fake
+    ".claude-plugin/*.json",  # plugin.json names the components
+    "settings.json",  # the hook wiring of a CHECKED-OUT / symlinked load — every trial so far
+)
+# Applied to an anchor candidate's basename (see the exclusion note above).
+SELF_INTEGRITY_SKIP = re.compile(r"^test_.*\.py$")
 
 CAPABILITY_REF = re.compile(r"\(verified by:\s*([^)]+)\)")  # L-06
 CREATE_APP_DEF = re.compile(r"^def create_app\(", re.MULTILINE)  # A4 construct-smoke
@@ -1327,29 +1361,117 @@ def check_test_inventory(ctx: GateContext, pytest_check: Check, *, docker_availa
     )
 
 
+def plugin_root() -> Path:
+    """Where the workflow's own files live: the parent of the tools directory.
+
+    `.claude/` in this repository, the repository top in a split plugin repo — i.e. what
+    Claude Code passes as `${CLAUDE_PLUGIN_ROOT}`. Unrelated to `GateContext.plugin_dir`,
+    which is the injected *pytest* plugin's scratch directory.
+
+    Resolved through symlinks on purpose — a consumer may attach `.claude` by symlink
+    (notes/20 §2), and the question this answers is "where is the workflow REALLY", not
+    "how was it reached".
+    """
+    return Path(__file__).resolve().parent.parent
+
+
+def self_integrity_anchors(candidates: list[str]) -> list[str]:
+    """The plugin-root-relative paths in `candidates` that SELF_INTEGRITY_GLOBS anchors (E-02).
+
+    Matching is component-wise (directory part equal, basename fnmatch'ed), so `tools/*.py`
+    means exactly the files in `tools/` and never something nested under it.
+    """
+    anchors = set()
+    for rel in candidates:
+        parent, _, name = rel.rpartition("/")
+        if SELF_INTEGRITY_SKIP.match(name):
+            continue
+        for glob in SELF_INTEGRITY_GLOBS:
+            glob_parent, _, glob_name = glob.rpartition("/")
+            if parent == glob_parent and fnmatch.fnmatchcase(name, glob_name):
+                anchors.add(rel)
+                break
+    return sorted(anchors)
+
+
+def _worktree_anchor_candidates(root: Path) -> list[str]:
+    """Every file under `root` that the anchor globs could match, as it is on disk.
+
+    Read together with the HEAD listing so that an ADDED enforcement file (an untracked
+    `tools/helper.py` dropped next to the gate) is a violation too, not an invisible one.
+    """
+    candidates = []
+    for glob in SELF_INTEGRITY_GLOBS:
+        parent, _, name = glob.rpartition("/")
+        base = root / parent if parent else root
+        if not base.is_dir():
+            continue
+        candidates.extend(f"{parent}/{p.name}" if parent else p.name for p in sorted(base.glob(name)) if p.is_file())
+    return candidates
+
+
 def check_self_hash(ctx: GateContext) -> Check:
-    # E-02: the gate does not trust the file system about ITSELF — gate.py and the
-    # criteria grammar it imports must match git HEAD of the repo they live in. The
-    # toolchain config is constants inside gate.py, so this hash covers it too.
-    tools_dir = Path(__file__).resolve().parent
-    rc, out = _run(["git", "-C", str(tools_dir), "rev-parse", "--show-toplevel"], timeout=60)
+    # E-02 (widened by T18): the gate does not trust the file system about the ENFORCEMENT
+    # LAYER — every tool, hook and manifest under the plugin root must match git HEAD of the
+    # repository the workflow is installed from. gate.py itself was the original coverage;
+    # `accept.py`, `red_check.py`, the hooks and `plugin.json` are anchors for the same
+    # reason, and in a consumer they have no other protection at all (see the note on
+    # SELF_INTEGRITY_GLOBS). The toolchain config is constants inside gate.py, so this
+    # covers it too.
+    #
+    # The anchor set is the union of what HEAD carries and what the work tree has, and both
+    # git calls are guarded: an unanswerable git result is a FAIL, never an empty set a
+    # caller would read as "nothing to check" (notes/19's fail-open class).
+    #
+    # No provenance means no verdict: an installed plugin that is not a git repository FAILs
+    # rather than degrading, because a trust anchor that quietly stops anchoring is worse
+    # than an absent one. The legitimate install modes all keep `.git` — the one that does
+    # not is a `git-subdir` marketplace source, which is forbidden for exactly this reason
+    # (notes/21 §5).
+    root = plugin_root()
+    rc, out = _run(["git", "-C", str(root), "rev-parse", "--show-toplevel"], timeout=60)
     if rc != 0:
         return Check(
-            "integrity.self-hash", "FAIL", "gate.py is not inside a git repository — self-integrity unverifiable"
+            "integrity.self-hash",
+            "FAIL",
+            f"the workflow's own files ({root}) are not inside a git repository — self-integrity is "
+            "unverifiable, so no verdict from this run can be trusted (E-02). Install the workflow "
+            "from a WHOLE-REPO source (a `github`/`url` marketplace source, never `git-subdir`): a "
+            "subdirectory source is a content copy with no `.git` (notes/21 §5).",
         )
     top = Path(out.strip()).resolve()
+    prefix = "" if root == top else root.relative_to(top).as_posix() + "/"
+    rc, listing = _git(top, "ls-tree", "-r", "--name-only", "HEAD", "--", prefix or ".")
+    if rc != 0:
+        return Check(
+            "integrity.self-hash",
+            "FAIL",
+            f"cannot list the workflow's own files at HEAD of {top} — self-integrity unverifiable "
+            f"(E-02):\n{_tail(listing)}",
+        )
+    tracked = [line[len(prefix) :] for line in listing.splitlines() if line.startswith(prefix) and line.strip()]
+    anchors = set(self_integrity_anchors(tracked)) | set(self_integrity_anchors(_worktree_anchor_candidates(root)))
+    # Fail-closed floor: whatever the globs see, the gate and the criteria grammar it imports
+    # are ALWAYS anchored. E-02's original coverage must not be able to shrink because a
+    # layout moved a file out of a glob's reach.
+    tools_dir = Path(__file__).resolve().parent
+    tools_prefix = "" if tools_dir == root else tools_dir.relative_to(root).as_posix() + "/"
+    anchors |= {f"{tools_prefix}gate.py", f"{tools_prefix}criteria_lint.py"}
     problems = []
-    for name in SELF_INTEGRITY_FILES:
-        file_path = tools_dir / name
-        rel = file_path.relative_to(top).as_posix()
-        rc, blob = _run_bytes(["git", "-C", str(top), "show", f"HEAD:{rel}"])
+    for rel in sorted(anchors):
+        file_path = root / rel
+        rc, blob = _run_bytes(["git", "-C", str(top), "show", f"HEAD:{prefix}{rel}"])
         if rc != 0:
-            problems.append(f"{rel}: not committed at HEAD — the gate cannot vouch for itself")
-        elif not file_path.exists() or file_path.read_bytes() != blob:
-            problems.append(f"{rel}: work-tree content differs from HEAD — the gate itself was modified")
+            problems.append(f"{rel}: not committed at HEAD — the gate cannot vouch for it")
+        elif not file_path.exists():
+            problems.append(
+                f"{rel}: committed at HEAD but missing from the work tree — an enforcement file was removed"
+            )
+        elif file_path.read_bytes() != blob:
+            problems.append(f"{rel}: work-tree content differs from HEAD — the enforcement layer was modified")
     if problems:
         return Check("integrity.self-hash", "FAIL", "self-integrity violated (E-02):\n" + "\n".join(problems))
-    return Check("integrity.self-hash", "PASS", f"{', '.join(SELF_INTEGRITY_FILES)} match git HEAD (E-02)")
+    return Check("integrity.self-hash", "PASS", f"all {len(anchors)} enforcement anchor(s) match git HEAD (E-02)")
 
 
 # ---------------------------------------------------------------------------------------

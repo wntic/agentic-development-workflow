@@ -12,6 +12,7 @@ self-hash check judges the fixture repo's HEAD, not this repo's."""
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -1027,6 +1028,205 @@ def test_gate_edited_on_work_tree_is_red(repo: FixtureRepo) -> None:
     assert proc.returncode == 1
     assert repo.statuses()["integrity.self-hash"] == "FAIL"
     assert "E-02" in proc.stdout
+
+
+# ---------------------------------------------------------------------------------------
+# The anchor set: what a consumer's trust rests on (E-02 widened by T18)
+# ---------------------------------------------------------------------------------------
+#
+# In a consumer the plugin lives outside the project's repository, so `bash_guard` allows
+# writes to it (T06e, by design) and `integrity.protected-trees` diffs paths that do not
+# exist in the consumer tree (vacuous PASS, notes/20 F-02). Self-hash is the only check
+# left, so every file a verdict depends on has to be inside it.
+
+
+def test_anchor_globs_pick_the_deciders_and_leave_the_rest(tmp_path: Path) -> None:
+    anchors = gate.self_integrity_anchors(
+        [
+            "tools/gate.py",
+            "tools/criteria_lint.py",
+            "tools/accept.py",
+            "tools/red_check.py",
+            "hooks/bash_guard.py",
+            "hooks/criteria_guard.py",
+            "hooks/subagent_stop.py",
+            "hooks/session_stop.py",
+            "hooks/hooks.json",
+            "bin/adw.py",
+            ".claude-plugin/plugin.json",
+            "settings.json",
+            # NOT anchored, each for its own reason (see SELF_INTEGRITY_GLOBS):
+            "tools/test_gate.py",  # ships, but no decision reads it
+            "tools/fixtures/users-002-change-spec.md",  # nested: `tools/*.py` is one level
+            "skills/conventions/SKILL.md",  # knowledge, not a decider
+            "agents/implementer.md",
+            "commands/spec.md",
+            "templates/change.md",
+        ]
+    )
+    assert anchors == [
+        ".claude-plugin/plugin.json",
+        "bin/adw.py",
+        "hooks/bash_guard.py",
+        "hooks/criteria_guard.py",
+        "hooks/hooks.json",
+        "hooks/session_stop.py",
+        "hooks/subagent_stop.py",
+        "settings.json",
+        "tools/accept.py",
+        "tools/criteria_lint.py",
+        "tools/gate.py",
+        "tools/red_check.py",
+    ]
+
+
+def test_this_repos_own_plugin_tree_anchors_all_twelve_files() -> None:
+    """The live set, so that adding a tool/hook without anchoring it cannot pass unnoticed."""
+    root = gate.plugin_root()
+    assert root == TOOLS_DIR.parent
+    anchors = set(gate.self_integrity_anchors(gate._worktree_anchor_candidates(root)))
+    assert {
+        "tools/gate.py",
+        "tools/criteria_lint.py",
+        "tools/accept.py",
+        "tools/red_check.py",
+        "hooks/bash_guard.py",
+        "hooks/criteria_guard.py",
+        "hooks/subagent_stop.py",
+        "hooks/session_stop.py",
+        "hooks/hooks.json",
+        "bin/adw.py",
+        ".claude-plugin/plugin.json",
+        "settings.json",
+    } == anchors, anchors
+
+
+# The plugin layout as it ships (notes/21 §1), relative to the plugin root.
+PLUGIN_FILES = (
+    "tools/accept.py",
+    "tools/red_check.py",
+    "hooks/bash_guard.py",
+    "hooks/criteria_guard.py",
+    "hooks/subagent_stop.py",
+    "hooks/session_stop.py",
+    "hooks/hooks.json",
+    "bin/adw.py",
+    ".claude-plugin/plugin.json",
+    "settings.json",
+)
+
+
+def install_plugin_files(repo: FixtureRepo) -> None:
+    """Give the fixture the WHOLE plugin (not just gate.py + criteria_lint.py) at its baseline.
+
+    Amends the baseline commit rather than adding one, so `integrity.protected-trees` still
+    sees `.claude/**` identical to the baseline and this isolates the self-hash question.
+    """
+    for rel in PLUGIN_FILES:
+        repo.write(f".claude/{rel}", (TOOLS_DIR.parent / rel).read_text(encoding="utf-8"))
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "--amend", "--no-edit")
+    repo.git("tag", "-f", "baseline/demo-001")
+
+
+@pytest.fixture()
+def plugin_repo(tmp_path: Path) -> FixtureRepo:
+    repo = make_repo(tmp_path / "app")
+    install_plugin_files(repo)
+    return repo
+
+
+def test_a_full_plugin_tree_is_green(plugin_repo: FixtureRepo) -> None:
+    proc = plugin_repo.gate("--change", "demo/001")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert plugin_repo.statuses()["integrity.self-hash"] == "PASS"
+    assert "12 enforcement anchor(s) match git HEAD" in proc.stdout
+
+
+@pytest.mark.parametrize("rel", PLUGIN_FILES)
+def test_every_anchor_fails_the_gate_when_tampered(plugin_repo: FixtureRepo, rel: str) -> None:
+    # The case the task exists for: accept.py, red_check.py, the four hooks, hooks.json,
+    # the invocation shim and plugin.json itself were all unprotected in a consumer.
+    plugin_repo.append(f".claude/{rel}", "\n" if rel.endswith(".json") else "\n# tampered\n")
+    proc = plugin_repo.gate("--change", "demo/001")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert plugin_repo.statuses()["integrity.self-hash"] == "FAIL"
+    assert rel in proc.stdout  # the message NAMES the file
+    assert "the enforcement layer was modified" in proc.stdout
+
+
+def test_a_deleted_anchor_fails_the_gate(plugin_repo: FixtureRepo) -> None:
+    # Deletion is the other tamper direction: unhook by removal rather than by edit.
+    (plugin_repo.root / ".claude/hooks/bash_guard.py").unlink()
+    proc = plugin_repo.gate("--change", "demo/001")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert plugin_repo.statuses()["integrity.self-hash"] == "FAIL"
+    assert "hooks/bash_guard.py: committed at HEAD but missing from the work tree" in proc.stdout
+
+
+def test_an_uncommitted_new_tool_fails_the_gate(plugin_repo: FixtureRepo) -> None:
+    # The anchor set is the union of HEAD and the work tree, so a tool DROPPED IN next to the
+    # gate cannot hide from it by never being committed.
+    plugin_repo.write(".claude/tools/helper.py", "# dropped in after the baseline\n")
+    proc = plugin_repo.gate("--change", "demo/001")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert plugin_repo.statuses()["integrity.self-hash"] == "FAIL"
+    assert "tools/helper.py: not committed at HEAD" in proc.stdout
+
+
+def test_a_plugin_outside_git_fails_loudly_with_the_remedy(plugin_repo: FixtureRepo, tmp_path: Path) -> None:
+    # Decision (2): no provenance means no verdict. A `git-subdir` marketplace source is a
+    # content copy with no `.git` (notes/21 §5) — the gate must FAIL, not degrade quietly.
+    detached = tmp_path / "plugin-cache"
+    shutil.copytree(plugin_repo.root / ".claude", detached)
+    assert not (detached / ".git").exists()
+    env = os.environ.copy()
+    env["GATE_DOCKER"] = "0"
+    proc = subprocess.run(
+        [sys.executable, str(detached / "tools/gate.py"), "--change", "demo/001", str(plugin_repo.root)],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=plugin_repo.root,
+    )
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert plugin_repo.statuses()["integrity.self-hash"] == "FAIL"
+    assert "are not inside a git repository" in proc.stdout
+    assert "never `git-subdir`" in proc.stdout
+
+
+def test_the_self_hash_floor_holds_when_the_globs_see_nothing(plugin_repo: FixtureRepo) -> None:
+    # Fail-closed floor: gate.py + criteria_lint.py are anchored even in a layout whose plugin
+    # root holds no `tools/`, `hooks/` or manifest at all (a vendored copy), so E-02's original
+    # coverage can never shrink to zero because a file moved out of a glob's reach.
+    elsewhere = plugin_repo.root / "vendor" / "toolz"
+    elsewhere.mkdir(parents=True)
+    for name in TOOL_FILES:
+        shutil.copy(plugin_repo.root / ".claude/tools" / name, elsewhere / name)
+    plugin_repo.git("add", "-A")
+    plugin_repo.git("commit", "-q", "--amend", "--no-edit")
+    plugin_repo.git("tag", "-f", "baseline/demo-001")
+    env = os.environ.copy()
+    env["GATE_DOCKER"] = "0"
+
+    def run() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(elsewhere / "gate.py"), "--change", "demo/001", str(plugin_repo.root)],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=plugin_repo.root,
+        )
+
+    proc = run()
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "2 enforcement anchor(s) match git HEAD" in proc.stdout
+    (elsewhere / "gate.py").write_text(
+        (elsewhere / "gate.py").read_text(encoding="utf-8") + "\n# tampered\n", encoding="utf-8"
+    )
+    proc = run()
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "toolz/gate.py: work-tree content differs from HEAD" in proc.stdout
 
 
 # ---------------------------------------------------------------------------------------

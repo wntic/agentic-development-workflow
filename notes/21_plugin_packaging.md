@@ -29,9 +29,12 @@ Not one file moved to make this work, and that is the point:
 - `gate.py`'s `PROTECTED_PATHS` (`.claude/tools`, `.claude/hooks`, `.claude/settings.json`) and
   `bash_guard`'s `PROTECTED_FRAGMENTS` stay **literally true and unedited**;
 - the new `hooks/hooks.json` lands inside an already-protected tree for free;
-- `check_self_hash` needed no change at all: it computes `relative_to(<git toplevel>)` at runtime,
-  so `tools/gate.py` in the split repo verifies exactly as `.claude/tools/gate.py` does here — and
-  against the *published* commit, which is a strictly stronger anchor.
+- `check_self_hash` needed no change *for the layout*: it computes `relative_to(<git toplevel>)` at
+  runtime, so `tools/gate.py` in the split repo verifies exactly as `.claude/tools/gate.py` does here
+  — and against the *published* commit, which is a strictly stronger anchor. **(T18, 2026-07-26: its
+  file SET did change — the anchors are now plugin-root-relative globs covering every tool, hook and
+  manifest, not gate.py + criteria_lint.py. The path arithmetic is untouched, and the split repo is
+  still verified as-is.)**
 
 ### The ship rule — by location
 
@@ -141,8 +144,9 @@ are measured:
 
 - whole-repo clone → the cache keeps `.git` → `integrity.self-hash` **PASS**;
 - a subdirectory source is a *content copy* with no `.git` → `check_self_hash` returns
-  *"gate.py is not inside a git repository — self-integrity unverifiable"* → **GATE: RED on every
-  run in every consumer**. Reproduced verbatim on a `.git`-stripped copy of the split repo.
+  *"the workflow's own files (…) are not inside a git repository — self-integrity is unverifiable"*
+  (T18 reworded it to name the directory and the remedy) → **GATE: RED on every run in every
+  consumer**. Reproduced verbatim on a `.git`-stripped copy of the split repo.
 
 The obvious packaging choice is the broken one. It is also the failure with the worst shape: the
 gate is red for a reason that has nothing to do with the consumer's code.
@@ -154,8 +158,8 @@ gate is red for a reason that has nothing to do with the consumer's code.
 2. Fresh consumer: `uv init --package consumer`, `uv add --dev pytest ruff mypy`, `uv add pydantic`
    (the framework substrate of `conventions` block D covers this in a real app).
 3. `CLAUDE_PLUGIN_ROOT=<split repo> uv run "<split repo>/bin/adw.py" gate` → **GATE: GREEN**, with
-   `[PASS] integrity.self-hash — gate.py, criteria_lint.py match git HEAD (E-02)` from the
-   *installed* location.
+   `[PASS] integrity.self-hash` from the *installed* location (since T18 the line reads
+   `all 12 enforcement anchor(s) match git HEAD (E-02)`).
 4. A live `claude -p --plugin-dir <split repo>` session in that consumer: all 7 commands and 4
    agents resolve under the `adw:` namespace, `/adw:orient` runs, and `echo probe > tests/probe.py`
    is **denied** by `bash_guard` — fired through `hooks/hooks.json` from the installed location —
@@ -225,6 +229,13 @@ forbidden outright.
   the consumer tree and passes **vacuously**. All that remains is `check_self_hash`, covering
   `gate.py` + `criteria_lint.py` alone. Verified live against the installed plugin. That is
   **T18** — a trust-model decision about which files are anchors, not a packaging one.
+  **ANSWERED 2026-07-26 (T18):** `check_self_hash` now anchors the whole enforcement layer —
+  `tools/*.py`, `hooks/*.py|json`, `bin/*.py`, `.claude-plugin/*.json`, `settings.json` (12 files
+  here), as globs so a new tool or hook is covered by construction. The other two protections are
+  unchanged and still blind in a consumer; what closes the chain is that `accept.py` re-runs the gate
+  in-process, so **nothing merges while an anchor differs from HEAD**. The anchor set, the two hooks
+  that have *no* post-hoc backstop (`subagent_stop`, `session_stop`) and the local-`HEAD` limit are
+  written up in `notes/20_consumer_trial_venue.md` F-02.
 - **The namespace is stripped, not validated.** Both hooks read the role as
   `agent_type.rsplit(":", 1)[-1]`, so a foreign plugin's `other:test-author` is read as this
   workflow's test-author. The widening only ever grants a role its *own* tree and the gate

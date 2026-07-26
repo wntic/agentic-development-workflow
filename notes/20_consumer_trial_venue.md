@@ -169,6 +169,54 @@ criteria_lint.py against *its* git HEAD, so a tampered gate is caught. That is t
 story in a consumer — worth stating explicitly in T15, which will make plugin root a first-class
 concept.
 
+**ANSWERED 2026-07-26 by T18** — `check_self_hash` now anchors the whole enforcement layer, and the
+answer to "what backstops each hook in a consumer" is written down below. Both halves of the finding
+stand as measured: `bash_guard` still allows a write to the plugin's own files (T06e, on purpose) and
+`integrity.protected-trees` is still vacuous in a consumer. What changed is that the vacuum is no
+longer unattended.
+
+**The anchor set (plugin-root-relative globs, `SELF_INTEGRITY_GLOBS` in `gate.py`):** `tools/*.py`
+(gate, criteria_lint, accept, red_check) · `hooks/*.py` (all four) · `hooks/*.json` (the installed
+hook wiring) · `bin/*.py` (the invocation shim) · `.claude-plugin/*.json` (the manifest, which names
+the components) · `settings.json` (the checked-out/symlinked hook wiring — i.e. this venue's).
+Twelve files today. Globs, not a list, so a new tool or hook is anchored by construction. Not
+anchored, deliberately: `tools/test_*.py` (they ship, but no decision reads them) and
+skills/agents/commands/templates (knowledge and prompts — drift there is a review question, and
+freezing them would mean committing before every gate run while editing a skill).
+
+**Why anchoring is enough, and where the chain actually closes:** a tampered anchor is not
+*prevented* — it is made unable to produce a verdict. Any `gate.py` run FAILs with the file named,
+and `accept.py` imports `gate` and re-runs it in-process (`accept.run_gate`), so **nothing merges
+while an anchor differs from HEAD**. That is S8 in its own terms: the hook is porous, the post-hoc
+check is not.
+
+### What backstops each hook in a consumer (T18 deliverable 3)
+
+| Hook | If it is tampered with / never fires | Backstop |
+|---|---|---|
+| `criteria_guard` | a reworded criterion under the same checkbox | `integrity.criteria-flips` — full baseline diff of every `criteria.md`, plus `accept.py`'s junit cross-check. **Real.** |
+| `bash_guard` | a non-owner writes another role's tree | `integrity.protected-trees` for `.claude/**` + `pyproject.toml` — **vacuous in a consumer** for the `.claude` paths (they live outside the project), real for `pyproject.toml`. For the cycle's own lanes (`src/**` vs `tests/**`) the backstop is `integrity.test-inventory` (a silenced/deleted baseline test is RED) and the red baseline's tests-only commit (T09b) — so *anti-collusion* survives, while "which role wrote this line" does not. **Partial, by design (S8).** |
+| `subagent_stop` | the implementer is never held on a RED gate, and the iteration ceiling never writes `ESCALATE` | **Nothing at the gate.** The gate is a verdict, not a scheduler: it cannot know that an agent stopped early or that a ceiling was reached. The evaluator's own `gate.py --criteria` run catches the *state* (a RED tree, an unbacked flip), so a bad result cannot pass — but the *ceiling* is unenforced without the hook, and a lock that was never written cannot be missed by `integrity.escalate-intact`. |
+| `session_stop` | the end-of-session reminder is silent | Nothing, and nothing is owed: it is advisory ergonomics with no invariant behind it. |
+
+Both "nothing" rows are the honest answer, and they are the interesting output of T18: the two hooks
+whose job is *process* (hold the implementer, cap the iterations, remind at the end) have no post-hoc
+equivalent, because a post-hoc check judges a tree and those hooks judge a moment. Anchoring them
+means a tamper is *detected at the next gate run* — it does not mean the held moment is recovered.
+A ceiling that never fires costs iterations, not correctness; that is the trade S8 already accepts.
+
+**Two limits worth stating (neither closed, both known):**
+
+1. **Self-hash compares against the plugin's LOCAL `HEAD`.** An agent that can write the plugin
+   directory can also `git -C <plugin> commit -a`, after which work tree == HEAD and the check
+   passes. Closing it needs a remote/published-commit comparison (network, or a signed manifest) —
+   out of T18's scope. What it costs today: the tamper stops being invisible only if nobody commits
+   it inside the plugin.
+2. **In this venue, the plugin's `settings.json` is also the project's** (`.claude` is a symlink), so
+   a consumer who customises hooks *there* turns the gate RED until the edit is committed in the
+   workflow repo. Under a real plugin install the two files are distinct and the question does not
+   arise.
+
 ### F-03 — Missing toolchain in a consumer is a raw traceback, not a sentence (T12b input, live).
 
 The very first gate run in a fresh `uv init --package` project (deps not yet declared):

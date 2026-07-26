@@ -137,7 +137,11 @@ construct-smoke (`create_app()` + `app.openapi()`, table-metadata import); Docke
 `[x]` must be backed by a **passed** `ac`-marked test in this run's junit); and **integrity against
 the red-commit baseline** — protected-tree diff (criteria.md legal flips only, change.md hash,
 `.claude/tools|hooks`, settings, `pyproject.toml`), test inventory ⊇ baseline (a missing/skipped/
-xfailed baseline test is RED), self-hash of gate.py + toolchain config, and `escalate-intact`
+xfailed baseline test is RED), self-hash of the **whole enforcement layer** (T18: every tool, hook
+and manifest under the plugin root — `tools/*.py`, `hooks/*.py|json`, `bin/*.py`, `plugin.json`,
+`settings.json` — must match git HEAD of the repo the plugin lives in, which is the *only* protection
+the plugin's own files have once installed: `bash_guard` is anchored to the consumer's root and the
+protected-tree diff is vacuous there), and `escalate-intact`
 (an `ESCALATE` the branch's history knows — carried by the baseline commit *or* committed by the hook
 since it — must still be in the work tree; its *removal* is RED, its *presence* is not, since a
 standing lock is `accept.py`'s business. Clearing it is a recorded act: commit the deletion, then
