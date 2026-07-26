@@ -325,7 +325,7 @@ def instantiate_capability(ctx: str, capability: str) -> str:
 
     The template's HTML comments are copied VERBATIM, on purpose (T10j): this script is the
     template's only consumer, so a comment stripped here serves nobody, and those comments are
-    the only orientation whoever opens a freshly born file gets ("50–300 lines — cut it", who
+    the only orientation whoever opens a freshly born file gets ("50-300 lines — cut it", who
     owns which section). The obligation the birth path carries instead is that the template
     must hold no data-shaped specimen — a `verified by:` example in parentheses was read by
     gate.py's L-06 check as a real, rotted provenance reference and turned the base branch RED
@@ -568,7 +568,7 @@ def parse_verdict_sha(verdict_text: str) -> str | None:
 
     Tolerant to markdown around the hex: the template renders a bare `SHA: <hex>`, but an
     evaluator that wraps it in backticks or emphasis (`` SHA: `246f84…` ``) must not be
-    silently denied over cosmetics (T10c). Match the first 7–40 hex run after the `SHA:`
+    silently denied over cosmetics (T10c). Match the first 7-40 hex run after the `SHA:`
     token, skipping any backticks / emphasis punctuation between them. Freshness still
     requires the hex to resolve to a real commit downstream — this widens the parse, not the
     semantics; a verdict with no hex anywhere still yields None (and FAILs freshness)."""
@@ -1053,7 +1053,8 @@ def prechecks(actx: AcceptContext) -> list[Result]:
                 Result(
                     "companion",
                     FAIL,
-                    f"companion {comp} not yet accepted — accept both together (T10); tag {tag} missing or its change dir still present",
+                    f"companion {comp} not yet accepted — accept both together (T10); tag {tag} missing "
+                    "or its change dir still present",
                 )
             )
 
@@ -1125,7 +1126,8 @@ def gate_dependent_checks(
             Result(
                 "docker.tier",
                 FLAG,
-                f"accepting with a SKIPPED Docker tier — {len(exempt)} integration test(s) not run: {', '.join(exempt)} (conscious human decision, T04b)",
+                f"accepting with a SKIPPED Docker tier — {len(exempt)} integration test(s) not run: "
+                f"{', '.join(exempt)} (conscious human decision, T04b)",
             )
         )
     elif "DOCKER SKIPPED" in docker_detail:
@@ -1133,7 +1135,8 @@ def gate_dependent_checks(
             Result(
                 "docker.tier",
                 FLAG,
-                f"Docker tier SKIPPED ({docker_detail}) — accepting without the migration tier is a conscious human decision (T04b)",
+                f"Docker tier SKIPPED ({docker_detail}) — accepting without the migration tier is a "
+                "conscious human decision (T04b)",
             )
         )
     else:
@@ -1618,7 +1621,8 @@ def run(tree: Path, change_id: str, base: str | None, do_execute: bool, placemen
         print()
         print("== EXECUTED ==")
         print(
-            f"merged {actx.branch} into {actx.base}, tagged change/{actx.change_id.replace('/', '-')}, deleted the change dir"
+            f"merged {actx.branch} into {actx.base}, tagged change/{actx.change_id.replace('/', '-')}, "
+            "deleted the change dir"
         )
         print(report)
         return 0

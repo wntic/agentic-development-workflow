@@ -209,7 +209,8 @@ M_CHANGE_MD_NESTED_SKETCH = M_CHANGE_MD.replace("## Interface sketch", "### Inte
 # The same verdict, but with the adversarial section actually filled by a run.
 VERDICT_ADVERSARIAL = VERDICT_MD.replace(
     "## Adversarial review\nN/A (S)",
-    "## Adversarial review\nRan the assert-strength recipes over the test diff — asserts pin\nexact values; no tautologies found.",
+    "## Adversarial review\nRan the assert-strength recipes over the test diff — asserts pin\n"
+    "exact values; no tautologies found.",
 )
 
 # The exact platform/001 pre-fix shape (T10c): the Gate-line SHA wrapped in backticks and the

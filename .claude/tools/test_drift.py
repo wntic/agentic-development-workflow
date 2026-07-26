@@ -234,7 +234,7 @@ def test_a_parameter_named_differently_in_the_spec_still_matches(tmp_path: Path)
 def test_a_similar_path_is_not_taken_for_a_match(tmp_path: Path, route_path: str, spec_path: str) -> None:
     fx = make_tree(
         tmp_path / "app",
-        paths='{"%s": {"get": {}}}' % route_path,
+        paths='{"' + route_path + '": {"get": {}}}',
         capability=CAPABILITY.replace("`GET /health` returns 200", f"`GET {spec_path}` returns 200"),
     )
     assert f"[DRIFT] GET {route_path} — served by app.main, described in no capability file" in fx.run().stdout

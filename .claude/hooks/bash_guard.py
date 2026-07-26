@@ -676,7 +676,7 @@ def _protected_for(role: str | None) -> tuple[str, ...]:
     implementer's lane is closed to them (it stays open to the implementer and the default).
     """
     if role in SRC_CLOSED_TO:
-        return PROTECTED_FRAGMENTS + (SRC_FRAGMENT,)
+        return (*PROTECTED_FRAGMENTS, SRC_FRAGMENT)
     return PROTECTED_FRAGMENTS
 
 

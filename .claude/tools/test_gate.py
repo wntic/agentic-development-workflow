@@ -384,7 +384,10 @@ def test_red_localized_to_none_when_src_is_static_toolchain_red(tmp_path: Path) 
     # The mirror case: the static-toolchain RED is in src/ (the implementer's OWN lane), so it is
     # NOT a handback — the localization signal must stay None even though the failing check id is
     # in the handback set. The src-alone re-run is what distinguishes the two.
-    src_unsorted = '"""Fixture domain module."""\n\nimport sys\nimport os\n\n__all__ = ["add", "os", "sys"]\n\n\ndef add(a: int, b: int) -> int:\n    return a + b\n'
+    src_unsorted = (
+        '"""Fixture domain module."""\n\nimport sys\nimport os\n\n'
+        '__all__ = ["add", "os", "sys"]\n\n\ndef add(a: int, b: int) -> int:\n    return a + b\n'
+    )
     repo = make_repo(tmp_path / "app")
     repo.write("src/app/core.py", src_unsorted)
     repo.git("add", "-A")
