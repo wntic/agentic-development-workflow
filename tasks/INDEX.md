@@ -467,7 +467,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   Two limits left open, stated in the note: self-hash compares against the plugin's **local** HEAD (an
   agent that can write the plugin dir can commit there), and in the symlink venue the plugin's
   `settings.json` *is* the project's.
-- [ ] T06k — `cp`, `install`, `dd of=`, `truncate` are **not** in `bash_guard`'s write-op inventory,
+- [x] T06k — `cp`, `install`, `dd of=`, `truncate` are **not** in `bash_guard`'s write-op inventory,
   so `cp /tmp/evil.py .claude/tools/gate.py` is ALLOWED for any role. Severity is **ergonomics, not
   trust** — under S8 the gate backstops, and `integrity.self-hash` (E-02) catches a modified
   `gate.py` post-hoc; what the miss costs is the early legible denial. The reason it is a task and
