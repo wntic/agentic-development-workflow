@@ -569,6 +569,25 @@ files existed with no line here, which makes `/build-task`'s "every *Depends on*
   *can* run (`git diff @{u}` over the anchor dirs after a `fetch`) — and in `check_self_hash`'s
   docstring. No behaviour change; option (c), a checksum pinned outside the plugin, remains the only
   real close and adds a concept nobody owns.
+- [ ] T05b — the freshness gate's **second** `git diff` still discards its rc (`_, out = _git(...,
+  verdict_sha, actx.head)`), so an unusable diff yields an empty `changed_since` that reads as
+  *"nothing changed since the pin"* — the register's root-cause sentence on a **TRUST** gate. T10f fixed
+  the sibling call twelve lines above **with exactly this reasoning**, so the file disagrees with
+  itself. Not bitten yet because `resolvable` is verified upstream — but T04g's finding 1 is the
+  cautionary case: the same shape on `execute()`'s work-tree precondition also looked guarded and
+  would have `rmtree`'d a change directory. Multiplier worth knowing: `accept.py`'s `_git` returns
+  **stdout only**, so a failed call yields `""` with nothing in the value to notice. From T04g finding
+  3, deliberately left there because it changes what a trust gate means. Depends: T10f, T10d, T04g.
+- [ ] T06m — `bash_guard.ROLE_OWNED` has **no entry for `v3-builder`**, the role whose entire job is
+  writing `.claude/**` — so the one role that legitimately owns the protected tree is the only one with
+  no sanctioned path, and the denial message lists the three cycle lanes without mentioning it. T06d's
+  exact shape, one role later. **The route around it is one line and was taken:** T04g's builder, denied
+  `cp … .claude/tools/accept.py`, wrote the same six files with a `python3 - <<'PY' … write_text(…) PY`
+  heredoc, which the guard allows — it cannot see interpreter writes. Fourth builder this session to
+  route around rather than be stopped. Ergonomics, not trust (T18 anchors every `.claude/**` file), but
+  the habit is what T06i measured twelve false positives' worth of damage from. Fix = a **scoped** lane
+  from `v3-builder.md` (`.claude/**`, `tasks/`, `notes/`, design docs) that stays **denied** on
+  `src/`, `tests/`, `specs/`. Depends: T06d, T06f, T06i, T06k, T18.
 - [ ] T09j — `red_check.py` calls the shared `criteria_lint.strip_html_comments` **and** carries its own
   `_strip_html_comments` regex thirty lines below, and the two are **not** equivalent: the regex deletes
   the span including newlines (shifting every later line number) while the shared helper blanks in
