@@ -164,6 +164,25 @@ def test_the_report_states_that_it_never_denies(clean: Fixture) -> None:
     assert "never denies" in clean.run().stdout
 
 
+@pytest.mark.parametrize(
+    "decider",
+    ["gate.py", "accept.py", "red_check.py"]
+    + [f"../hooks/{h}" for h in ("bash_guard.py", "criteria_guard.py")]
+    + [f"../hooks/{h}" for h in ("subagent_stop.py", "session_stop.py")],
+)
+def test_no_decider_runs_this_script(decider: str) -> None:
+    """Nothing that can DENY may invoke drift.py, or §5.5 would have become a gate by the back door.
+
+    Making it deny would change canon (a hotfix is legal, only not silent). A MENTION is not the
+    risk and must stay legal — `accept.py`'s report points the reader at the tool, and both scripts
+    document the reuse seam in prose. An invocation is the risk: a spawned path or an import.
+    """
+    source = (TOOLS_DIR / decider).read_text(encoding="utf-8")
+    invocations = ('"drift.py"', "'drift.py'", "import drift", "drift.report(", "drift.main(")
+    hits = [line.strip() for line in source.splitlines() if any(form in line for form in invocations)]
+    assert not hits, f"{decider} invokes drift.py: {hits}"
+
+
 # --- route ⊆ described operations --------------------------------------------------------
 
 
