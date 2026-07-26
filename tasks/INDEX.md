@@ -6,6 +6,31 @@ Each task is one file in this directory, executed by the `v3-builder` agent via
 spec sections, they do not restate them; on any conflict the spec wins and the builder
 escalates instead of improvising.
 
+## The `users/002` reproduction fixture — read this before concluding it is gone
+
+Many task files ask you to confirm that `users/002` still reproduces. **The worktree is not
+persistent — you create it.** A builder once looked for an existing `git worktree`, found none, and
+concluded the change had been accepted; it had not. The facts, as of 2026-07-26:
+
+- branch `change/users-002` → `a931ee6` (7 commits), tag `baseline/users-002` → `dd3a64b`, plus
+  `backup/users-002-prerebase` → `201cff8`;
+- there is **no** `change/users-002` *tag*, so the acceptance has **not** happened — it was executed
+  once and deliberately reset, because this repo is a trial harness and T15 evicted trials from it;
+- `markdown-specs` itself carries no `specs/`, `src/` or `tests/`, so an empty `specs/` in the work
+  tree is **expected** and is not evidence about the branch.
+
+Reproduce with:
+
+```
+git worktree add --detach <scratch>/u002 a931ee6
+GATE_DOCKER=0 uv run .claude/tools/accept.py users/002 --tree <scratch>/u002   # → ACCEPTABLE
+git worktree remove --force <scratch>/u002
+```
+
+`--base` is no longer needed (T10g derives it). Never commit to, rebase, or delete that branch inside
+a task; it is the shared regression fixture. **T09h is blocked on it being accepted or abandoned** —
+that decision is the author's.
+
 ## Task file format (all tasks follow it)
 
 - **Goal** — one paragraph.
