@@ -1,5 +1,74 @@
 # T09h — AC ids collide across changes, so the *second* change in any repo cannot get a baseline
 
+---
+
+## ESCALATION RESOLVED — author's decisions, 2026-07-26
+
+The first dispatch **refuted this task's own preferred fix**, with a measurement rather than an
+argument, and it is right. Option (a) is dead: `workflow_v3_spec.md:256` numbers the example
+`meetings/003-upload-recording` from `AC-1`, and `.claude/templates/criteria.md` starts every change
+at `AC-1`, so ids overlap **by construction** — "ignore markers outside this change's declared set"
+keeps exactly the tests that collide. My filing was wrong; do not attempt (a).
+
+Also confirmed in source, and my filing under-rated it: `gate.py:975-976` builds `backed` from
+**every** passing `ac` property in the run with no change scoping at all, so this half **fails open**
+— a change with zero tests of its own reads `criteria.junit-backing PASS`. That is the anchor §3.3
+rests on, so it is the more urgent half.
+
+**Decision: option 1 — the marker carries the change.** Single-string form, not two arguments:
+
+```python
+@pytest.mark.ac("users/002:AC-8")
+```
+
+Why option 1 over the dispatch's recommended option 2 (acceptance stamps the namespace): option 2
+puts the correctness of a **trust** check into a post-hoc rewrite step, so if that step ever misses,
+the hole reopens **silently** — the `notes/19` failure direction. Option 1's failure mode (an author
+omits the namespace) is visible at authoring time to both the test-author and the scripts. Option 2
+also has `accept.py` rewriting `tests/**` *after* the gate verified them, so `main` would receive a
+tree that was green **before** a mechanical edit — a real weakening of S9 for a convenience. D4's
+boundary ("`tests/**` belongs to the test-author") stays intact under option 1.
+
+Option 3 stays rejected for the dispatch's reason: a `hardening` change legitimately pins new AC ids
+on **pre-existing** test functions, so any git-novelty rule excludes them and fails a correct change.
+
+**The legacy rule, which is what makes this affordable: a bare `AC-n` marker means "a previously
+accepted change's test" — never the change in flight.** That is exactly the semantics needed, and it
+requires **no migration of accepted trees**: the venue's `health/001` tests are bare and accepted, so
+they read as legacy and are correctly ignored when `health/002` is judged. Report them, loudly, in the
+judged/ignored partition (below) — never silently.
+
+**The one casualty, and its resolution.** `change/users-002` is **in flight** with bare markers, so
+under this rule its own criteria would read as unbacked. It cannot be migrated in place: rewriting
+markers needs a new baseline, `--rebaseline` requires the tests to still be RED, and `users/002`'s
+tests are green because the code exists (the very T09g problem). Therefore:
+
+> **`users/002` must be accepted or abandoned before this lands.** It is currently `accept.py`
+> ACCEPTABLE, and this is already owed — T15's finding 13 records that the trial-eviction rule is not
+> honest while `change/users-002` and `backup/users-002-prerebase` exist. Two threads resolve each
+> other. **Say in your report whether the branch was still present when you ran**; do not touch it,
+> and do not migrate it.
+
+**Also required, from the dispatch's finding 4 — print the partition.** Its first fixture produced a
+diagnostic that named the *accepted* change's test as "NOT RED (skipped/xfail/uncollected)" when the
+real cause was a collection error in the new change's test. Whatever lands, `red_check` and the gate
+must print which ac-marked tests were **judged** and which were **ignored as legacy**, so the tool
+stops blaming the innocent test.
+
+**Both consumers, one implementation (C7):** `red_check.analyze()` / `_ac_ids_of_decorator` + its
+injected plugin, and `gate.py`'s junit property stamp + `junit_passed_ac_ids`. Fixing one and leaving
+the other is not done.
+
+**Canon edit: mine, and I will land it on your report.** `workflow_v3_spec.md:270` and `:459` write the
+bare form. Report the exact wording you need; write the code against the shape above meanwhile. Same
+for `.claude/skills/testing-unit/SKILL.md`, `test-author.md`, `evaluator.md`,
+`.claude/templates/criteria.md` and `CLAUDE.md` — those are yours to edit, and each must **cite** the
+grammar rather than restating it (C7).
+
+**Do not escalate again on shape.** Escalate only if a specific piece cannot be built as described.
+
+---
+
 ## Goal
 AC ids are **per change** (`AC-1`, `AC-2`, …) and the pytest marker carries nothing else — verified:
 `@pytest.mark.ac("AC-8")` in `users/002`'s tests, bare. But `red_check.analyze()` judges **every**
@@ -82,6 +151,8 @@ and the gate's `--criteria` cross-check — from one implementation.
   reference, not a target.
 - Do NOT renumber or namespace ACs inside existing `criteria.md` files. `change.md` is frozen against
   its baseline (E-12), so any grammar change is a rebase for anything in flight.
-- **Escalate if** the spec turns out to make AC ids canonically *global* per context rather than per
-  change. Then the defect is in the templates and `/spec`, not in `red_check`, and the fix is a
-  different task with a canon edit attached.
+- ~~**Escalate if** the spec turns out to make AC ids canonically *global*~~ — checked: they are
+  canonically **per change** (`workflow_v3_spec.md:256`), which is precisely why option (a) fails.
+- Do NOT migrate `change/users-002`'s markers, and do NOT edit `workflow_v3_spec.md` — report the
+  wording instead.
+- Do NOT let a bare marker satisfy the in-flight change's backing check. That is the whole fix.
