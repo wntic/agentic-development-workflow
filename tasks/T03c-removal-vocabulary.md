@@ -34,9 +34,16 @@ T03 (the templates + `/spec`), T10e (the classifier), T06f (Part B's FLAG), T10f
   FLAG/SKIP/PASS directions (T06f Part B, T10f F-05).
 - `PRINCIPLES.md` S1 (behaviour not construction), S4, C7 (derivation has one home).
 
+> **Settled 2026-07-26 — there is nothing to decide, only to conform.** §3.1 was read in full and it
+> is already correct and sufficient: it pins the marker (`REMOVED`) **and** the obligation («change
+> явно перечисляет отменяемое поведение»). No canon edit is needed or wanted. The four-way
+> disagreement is entirely downstream, so this task is mechanical: make the template, `/spec` and
+> `test-author.md` say what §3.1 already says, and cite it rather than restating it (C7). If you find
+> yourself wanting to change §3.1, stop and escalate — that would mean this reading was wrong.
+
 ## Deliverables
-- **One spelling, one home.** Pick the `Class:` vocabulary (spec §3.1's `REMOVED` is the canonical
-  candidate) and make the template emit it; every other document *cites* rather than restates (C7).
+- **One spelling, and it is §3.1's `REMOVED`.** Make the `change.md` template emit it on the `Class:`
+  line; every other document *cites* §3.1 rather than restating it (C7).
 - **A `## Removed` section skeleton in the `change.md` template**, with a comment saying what goes in
   it: the removed behaviour, with the symbols/node-ids that must disappear written as backticked
   identifiers — because that is exactly what the sweep harvests. Today an author has no way to know.

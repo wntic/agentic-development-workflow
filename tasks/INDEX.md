@@ -302,20 +302,18 @@ What it surfaced is below. Every claim re-derived from source before filing.
   before writing code. Depends: T12b; coordinate with T11. Supersedes the `plugin-packaging-plan`
   note. Depends: T12b.
 
-**OPEN CANON EDIT the author owes §9 (from T12b, verified against uv 0.11.6).**
-`workflow_v3_spec.md:591` says a new project is «просто `uv init` (`pyproject.toml` c
-`[project] name`, откуда выводится корень пакета `src/<pkg>/`…) + установленный плагин». Probed:
-plain `uv init` emits `main.py`, README, `.gitignore`, `.python-version` — **no `src/<pkg>/`, no
-`[build-system]`**. The package root §9 calls "derived" is never created by the command §9 names, so
-every consumer following it literally gets a layout the gate's own assumptions (`mypy_path = src`,
-`_src_files`, construct-smoke) do not fit. `uv init --package` emits both. Proposed wording — two
-words, but it is the sentence every consumer follows:
+**CANON EDIT LANDED — §9's `uv init` → `uv init --package` (2026-07-26, author-authorised).**
+`workflow_v3_spec.md:591` said a new project is «просто `uv init`… откуда выводится корень пакета
+`src/<pkg>/`». Probed on uv 0.11.6: plain `uv init` emits `main.py` at the root and creates **neither
+`src/<pkg>/` nor `[build-system]`** — the package root the sentence calls "derived" is never created
+by the command it names. Fixed, with the reason inline so nobody "simplifies" it back. T11's copy is
+corrected; T12b is written to match.
 
-> новый проект — это просто **`uv init --package`** (`pyproject.toml` c `[project] name` +
-> `[build-system]`, откуда выводится корень пакета `src/<pkg>/`…) + установленный плагин
-
-Design canon is never edited by agents (CLAUDE.md), so this one is the author's. T11's copy of the
-same sentence is already corrected above; T12b is written to be consistent with the fix.
+**No canon edit is needed for the removal vocabulary (T03c) — §3.1 is already right.** It pins the
+marker (`REMOVED`) *and* the obligation ("change явно перечисляет отменяемое поведение"). The four-way
+disagreement is entirely downstream: the `change.md` template comment, `/spec`, and `test-author.md`'s
+"Removed tests block". So T03c is a **conform-to-§3.1** task, not a canon question — which is C7
+exactly: the derivation has one home, and the home was correct all along.
 
 **OPEN DECISION the author owes T03 (from T10e findings #1/#2):** the removal-flavour vocabulary is
 not pinned anywhere. `workflow_v3_spec.md §3.1` says `REMOVED`, the `change.md` template comment says
