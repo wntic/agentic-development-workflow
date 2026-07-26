@@ -52,6 +52,14 @@ dev = [
     "pre-commit>=4.6.0",
 ]
 
+# Deliberately NO `[tool.ruff.lint] select` here, and this is not an omission (T04g).
+# This section configures the pre-commit pass only, so it runs ruff's default `E4,E7,E9,F` — a
+# rule set several times narrower than the `RUFF_SELECT` the gate imposes on a consumer's code.
+# The full selection IS enforced over `.claude/**`, by `.claude/tools/test_self_lint.py`, which
+# imports `RUFF_SELECT` + `ruff_common()` from gate.py. A `select` list copied into this file
+# would be a second definition of the toolchain (C7) — and two configs disagreeing is precisely
+# how `RUF103`/`RUF100` survived inside gate.py itself, and how `RUF059` (ruff naming a discarded
+# git return code in accept.py — notes/19's defect class, found unaided) went unread.
 [tool.ruff]
 line-length = 120
 target-version = "py312"
