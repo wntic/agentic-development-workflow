@@ -221,7 +221,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   space before the `;` flips the verdict, and the reason string blames a path the command only reads.
   Cost the T04e builder two denied commands. The family keeps producing members; consider whether the
   answer is another point fix or a real tokeniser.
-- [ ] T10g — `/accept-change` never passes `--base`, and `accept.py` defaults to `main` — but this
+- [x] T10g — `/accept-change` never passes `--base`, and `accept.py` defaults to `main` — but this
   repo's S9 base is `markdown-specs` (`main` is the v2 archive), and a consumer project may be on
   `master`. The `users/002` acceptance only worked because the operator passed `--base` by hand.
   Distinct from T10f's F-01 (the script failing *open* on an unresolvable base) and compounding with
