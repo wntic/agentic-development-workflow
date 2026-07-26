@@ -138,9 +138,10 @@ construct-smoke (`create_app()` + `app.openapi()`, table-metadata import); Docke
 the red-commit baseline** — protected-tree diff (criteria.md legal flips only, change.md hash,
 `.claude/tools|hooks`, settings, `pyproject.toml`), test inventory ⊇ baseline (a missing/skipped/
 xfailed baseline test is RED), self-hash of gate.py + toolchain config, and `escalate-intact`
-(an `ESCALATE` carried by the *baseline commit* must still exist — note the narrow reach: the hook
-writes the file **untracked** and only after baselining, so §5.3's human-only-removal rule is **not
-yet enforced** in the shipped flow; T06h, `notes/19`). **S8 in one breath: hooks
+(an `ESCALATE` the branch's history knows — carried by the baseline commit *or* committed by the hook
+since it — must still be in the work tree; its *removal* is RED, its *presence* is not, since a
+standing lock is `accept.py`'s business. Clearing it is a recorded act: commit the deletion, then
+`red_check.py --change <ctx>/NNN --clear-escalate` moves the baseline over it — T06h). **S8 in one breath: hooks
 are ergonomics — trust is the post-hoc check against the git baseline; bypassing a hook only gets
 your result invalidated at the gate.**
 
@@ -154,8 +155,9 @@ one breath: one change = one branch — red tests, code and verdict live on the 
 
 Hook ergonomics + stop-gates *(planned, T06)*: criteria-guard (disk-diff on Write), bash-guard,
 path canonicalisation, SubagentStop blocking the implementer while the gate is red, and a
-**hook-written** `ESCALATE` file at the iteration ceiling (`accept.py` denies while it exists;
-only the human removes it). Hotfixes past the workflow are legal but not silent: `/spec --retro`
+**hook-written and hook-committed** `ESCALATE` file at the iteration ceiling (`accept.py` denies
+while it exists *and* after a committed one disappears; only the human clears it, through
+`red_check --clear-escalate`). Hotfixes past the workflow are legal but not silent: `/spec --retro`
 + the drift-check in `accept.py`/`/orient` (§5.5).
 
 ## v2 — archived
