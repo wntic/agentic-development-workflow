@@ -200,6 +200,11 @@ M_CHANGE_MD = CHANGE_MD.replace(
     "## Interface sketch\n`app.core.add(a, b)`; `create_app()` factory.\n\n## Acceptance criteria",
 )
 
+# The same M-depth change with the sketch nested one level deeper (T10h). `_section` used to match
+# `## ` only, so this read as NO Interface sketch -> S depth -> the mandatory adversarial pass was
+# skipped. Depth is not the question the gate asks; "did the author write one" is.
+M_CHANGE_MD_NESTED_SKETCH = M_CHANGE_MD.replace("## Interface sketch", "### Interface sketch")
+
 # The same verdict, but with the adversarial section actually filled by a run.
 VERDICT_ADVERSARIAL = VERDICT_MD.replace(
     "## Adversarial review\nN/A (S)",
@@ -597,6 +602,53 @@ def test_adversarial_section_filled() -> None:
     assert accept.adversarial_section_filled("## Adversarial pass\n<!-- slot -->\n") is False
 
 
+def test_section_matches_any_heading_depth_and_survives_a_subheading() -> None:
+    """T10h: `_section` matched `## ` only, so a differently-nested heading was found as NOTHING.
+
+    DECISION pinned here: a `### Interface sketch` under a `## Something` DOES count as the
+    Interface sketch. The question every call site asks is "did the author write this section",
+    not "at what depth" — the templates emit `## `, so any other depth is hand-written or nested
+    prose, and reading it as an absent section fails OPEN (see the test below). Termination stays
+    same-or-shallower: a naive `#+` terminator would let a `### ` subheading truncate its parent.
+    """
+    nested_heading = "# Title\n\n## Wrapper\n\n### Interface sketch\n`Foo(dep: Bar)`\n\n## Next\nafter\n"
+    assert accept._section(nested_heading, "Interface sketch").strip() == "`Foo(dep: Bar)`"
+    # a DEEPER heading is body, not a terminator (the users/002 verdict's `## Adversarial review`
+    # carries `### F1 …` findings — truncating there would drop the whole recorded pass).
+    nested_body = "## Section\nlead\n\n### Sub\ndeep\n\n#### Deeper\ndeepest\n\n## Other\nout\n"
+    body = accept._section(nested_body, "Section")
+    assert "lead" in body and "### Sub" in body and "deep" in body and "deepest" in body
+    assert "out" not in body
+    # a SHALLOWER heading still terminates, so a nested section never swallows the rest of the file.
+    assert "out" not in accept._section("## Wrap\n\n### Section\nin\n\n## Other\nout\n", "Section")
+    # unchanged on the shape the templates emit: full heading text, first match, absent -> "".
+    assert accept._section("## A\nfirst\n\n## B\nsecond\n", "A").strip() == "first"
+    assert accept._section("## A\nfirst\n", "Missing") == ""
+    assert accept._section("## Acceptance criteria extra\n- AC-1: x\n", "Acceptance criteria") == ""
+
+
+def test_adversarial_required_reads_an_m_l_signal_at_any_heading_depth() -> None:
+    """The T10h fail-open at the unit level: the existing-capability half of T10f's F-02. A nested
+    Interface sketch matched nothing -> empty section -> S depth -> `adversarial.presence` PASSed
+    with "adversarial pass not required" for a change that is actually M/L."""
+    sketch = "## Task\ndo a thing\n\n### Interface sketch\n`Foo(dep: Bar)`\n\n## Acceptance criteria\n- AC-1: x\n"
+    required, reason = accept.adversarial_required(sketch, creates_new_capability=False)
+    assert required is True
+    assert "Interface sketch" in reason
+    # same for the other M/L signal, a filled Context section.
+    context = "## Task\ndo a thing\n\n### Context\nbecause.\n\n## Acceptance criteria\n- AC-1: x\n"
+    assert accept.adversarial_required(context, creates_new_capability=False)[0] is True
+
+
+def test_adversarial_section_filled_reads_a_nested_adversarial_heading() -> None:
+    """The fail-CLOSED twin of the same parse bug: a `### Adversarial review` (e.g. nested under a
+    `## Review` wrapper) was invisible, so a pass that DID run denied acceptance."""
+    verdict = "# Verdict\n\n## Review\n\n### Adversarial review\nRan the recipes; asserts pin exact values.\n"
+    assert accept.adversarial_section_filled(verdict) is True
+    # a nested heading whose body is only the template comment is still not a run.
+    assert accept.adversarial_section_filled("## Review\n\n### Adversarial review\n<!-- slot -->\n") is False
+
+
 def test_instantiate_and_append() -> None:
     text = accept.instantiate_capability("demo", "search.md")
     assert text.startswith("# demo / search")
@@ -902,6 +954,17 @@ def test_m_change_with_adversarial_section_is_acceptable(tmp_path: Path) -> None
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "[PASS] adversarial.presence" in proc.stdout
     assert "verdict: ACCEPTABLE" in proc.stdout
+
+
+def test_nested_interface_sketch_still_requires_the_adversarial_pass(tmp_path: Path) -> None:
+    # T10h end-to-end: the same M-depth change with a `### Interface sketch`. Pre-fix this printed
+    # `[PASS] adversarial.presence` ("S depth on an existing capability") and `verdict: ACCEPTABLE`
+    # for a change whose adversarial pass never ran — a fail-open on the §6 step 4 obligation.
+    repo = make_repo(tmp_path / "app", change_md=M_CHANGE_MD_NESTED_SKETCH, verdict_md=VERDICT_MD)
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "[FAIL] adversarial.presence" in proc.stdout
+    assert "verdict: DENIED" in proc.stdout
 
 
 def test_platform001_prefix_verdict_backticked_sha_and_pass_heading_is_acceptable(tmp_path: Path) -> None:

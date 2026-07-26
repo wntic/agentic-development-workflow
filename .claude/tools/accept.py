@@ -173,18 +173,36 @@ def _git(tree: Path, *args: str, check: bool = False) -> tuple[int, str]:
     return proc.returncode, proc.stdout
 
 
+_HEADING = re.compile(r"^(#+)[ \t]+(.*)$")
+
+
 def _section(text: str, heading: str) -> str:
-    """Return the body of a `## <heading>` section up to the next `## ` heading."""
-    lines = text.splitlines()
+    """Return the body of a `#+ <heading>` section, up to the next same-or-shallower heading.
+
+    The heading is matched at ANY depth: the question every call site asks is "did the author
+    write this section", not "at what depth did they write it". A `## `-only match found a
+    `### Interface sketch` as NOTHING, and an empty Interface sketch reads as S depth — so the
+    mandatory adversarial pass was skipped for an M/L change (T10h; the existing-capability half
+    of T10f's F-02). Termination is same-or-shallower, never any `#+`: a `### F1 …` subheading
+    inside `## Adversarial review` (the users/002 verdict's own shape) must stay part of its
+    parent section instead of ending it.
+
+    Heading TEXT still has to match in full, case-insensitively. The tolerant `#+ <name>…` form
+    that also accepts trailing text after the name lives in `red_check.section_body`; the two
+    parsers differ in that tolerance only, and widening it here would change which headings match,
+    which is not this function's question.
+    """
     out: list[str] = []
-    collecting = False
-    for line in lines:
-        if line.strip().lower().startswith("## "):
-            if collecting:
-                break
-            collecting = line.strip()[3:].strip().lower() == heading.lower()
+    depth = 0
+    for line in text.splitlines():
+        match = _HEADING.match(line.strip())
+        if match and not depth:
+            if match.group(2).strip().lower() == heading.lower():
+                depth = len(match.group(1))
             continue
-        if collecting:
+        if match and len(match.group(1)) <= depth:
+            break
+        if depth:
             out.append(line)
     return "\n".join(out)
 
