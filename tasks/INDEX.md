@@ -59,8 +59,14 @@ escalates instead of improvising.
   test-author lands the change's deps in a pre-baseline commit (from the Interface sketch);
   implementer writes the behaviorless shell from the skills; `red_check` gains a greenfield
   collection-error fallback (static AST marker scan). `gate.py` untouched. See `tasks/T12-*.md`.
-- [ ] T11 — E2E probe runbook (WP7, human-driven). Greenfield e2e runs after T12: `uv init` project →
-  `/spec` → `/implement` reaches green with no bootstrap and no template; thereafter brownfield.
+- [ ] T11 — E2E probe runbook (WP7, human-driven). Greenfield e2e runs after T12:
+  **`uv init --package`** project → `/spec` → `/implement` reaches green with no bootstrap and no
+  template; thereafter brownfield. (**Corrected 2026-07-26:** said plain `uv init`, which on uv
+  0.11.6 emits `main.py` at the root and creates neither `src/<pkg>/` nor `[build-system]` — the
+  probe would have reproduced the broken layout and "verified" the wrong thing. Same drift as
+  `workflow_v3_spec.md` §9; see the note at the end of this section.) The probe is also the only
+  thing that exercises the shipped artifact in a real consumer project — so it is the acceptance
+  test for **T15**.
 
 ### Skill-catalog progressive disclosure (2026-07-24 — the T08 merge produced monolithic bodies)
 
@@ -232,9 +238,47 @@ What it surfaced is below. Every claim re-derived from source before filing.
   `[build-system]`, and `gate.py` injects `PYTHONPATH=src` itself — so the gate constructs the app
   under an import path only the gate provides, and `uvicorn` by hand fails. An **A4** finding (the
   gate isn't exercising the real failure mode, it's papering over it), not the ergonomics annoyance
-  the run reports filed it as. Carries a canon question — is this repo's shared meta+target
-  `pyproject.toml` meant to be installable at all — that must be escalated, not defaulted.
-  Depends: T12, T04.
+  the run reports filed it as. Depends: T12, T04.
+  **ESCALATED then REWRITTEN (2026-07-26) — the original framing was wrong.** "Make this repo's
+  `pyproject.toml` installable" is now explicitly forbidden, for three verified reasons: (1)
+  `[build-system]` with an absent `src/<pkg>/` makes `uv` hard-fail *every* command; (2) this repo's
+  `src/` is transient (T02 purged it, `users/002` recreated it), so declaring it would couple the
+  meta layer's test env to the presence of a trial app — purge the trial and `pytest .claude/tools/`
+  breaks; (3) this `pyproject.toml` is a trial-harness dev artifact wearing three hats, and
+  untangling that is **T15**. T12b is now consumer-facing only: `[build-system]` into `conventions`
+  block D (backend `uv_build`, matching what `uv init --package` emits); a **toolchain preflight** in
+  `gate.py` (there is none today — a consumer missing `ruff`/`mypy` gets a raw `ModuleNotFoundError`
+  from a subprocess instead of a sentence); and an import check with the injection stripped (FAIL if
+  the project declares itself installable and isn't, loud SKIP if it doesn't — this repo's permanent,
+  honest case). The injections **stay** — the editable `.pth` is absolute, and
+  `collect_baseline_inventory` needs one to reach the extracted baseline tree.
+- [ ] T15 — Split the shipped plugin from the trial harness. The root `pyproject.toml` serves three
+  masters: the trial app's runtime deps, the toolchain a consumer legitimately needs (correct where
+  it is — `gate.py` runs `sys.executable -m mypy|ruff|pytest`, so the tools must see the project's
+  code), and the meta layer's own test env for the 297 `.claude/tools/` tests, which ships nowhere.
+  The third has no home — the workflow's own dependencies live outside the workflow. No
+  `.claude-plugin/plugin.json` exists yet, so nothing has forced the question. Deliverables: the
+  manifest + `${CLAUDE_PLUGIN_ROOT}` paths, a home for the meta layer's env (**acceptance test:
+  delete `src/` and `pytest .claude/tools/` still passes**), a decision on where a trialled change
+  lives (today it is not packaging-faithful to a consumer project — which is how T12b's A4 hole
+  survived), and the rule for what is excluded from the shipped plugin. Escalate with a layout
+  before writing code. Depends: T12b; coordinate with T11. Supersedes the `plugin-packaging-plan`
+  note. Depends: T12b.
+
+**OPEN CANON EDIT the author owes §9 (from T12b, verified against uv 0.11.6).**
+`workflow_v3_spec.md:591` says a new project is «просто `uv init` (`pyproject.toml` c
+`[project] name`, откуда выводится корень пакета `src/<pkg>/`…) + установленный плагин». Probed:
+plain `uv init` emits `main.py`, README, `.gitignore`, `.python-version` — **no `src/<pkg>/`, no
+`[build-system]`**. The package root §9 calls "derived" is never created by the command §9 names, so
+every consumer following it literally gets a layout the gate's own assumptions (`mypy_path = src`,
+`_src_files`, construct-smoke) do not fit. `uv init --package` emits both. Proposed wording — two
+words, but it is the sentence every consumer follows:
+
+> новый проект — это просто **`uv init --package`** (`pyproject.toml` c `[project] name` +
+> `[build-system]`, откуда выводится корень пакета `src/<pkg>/`…) + установленный плагин
+
+Design canon is never edited by agents (CLAUDE.md), so this one is the author's. T11's copy of the
+same sentence is already corrected above; T12b is written to be consistent with the fix.
 
 **OPEN DECISION the author owes T03 (from T10e findings #1/#2):** the removal-flavour vocabulary is
 not pinned anywhere. `workflow_v3_spec.md §3.1` says `REMOVED`, the `change.md` template comment says
