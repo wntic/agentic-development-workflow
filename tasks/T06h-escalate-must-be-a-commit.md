@@ -1,5 +1,71 @@
 # T06h — Make the `ESCALATE` lock real: a commit, a history check, and a way to clear it
 
+---
+
+## ESCALATION RESOLVED — author's decisions, 2026-07-26
+
+The first dispatch stopped correctly: part 3 is not derivable from §5.3, which says only «снять файл
+может только человек» and specifies no mechanism. Its probe table is confirmed and is the
+specification — read it in that report. Both decisions:
+
+**Mechanism: option A — `red_check.py --change <ctx>/NNN --clear-escalate`.** Not option B.
+
+- It makes an existing promise true instead of replacing it: `gate.py`'s own comment (verified, at
+  `check_escalate_intact`) already says *"clear the file, then move the baseline
+  (`red_check.py --rebaseline`)"*. That sentence is false today, because `--rebaseline` refuses a
+  non-`tests/` commit. A closes the gap it describes.
+- One home for baseline-tag movement (C7) — `red_check` already owns it. Option B is, in the first
+  dispatch's own words, "A's script plus a new vocabulary": the enforcement still has to live in a
+  script (S4), so B adds a concept without removing work.
+- Guards, all three required: (i) an ESCALATE was added on this branch since the baseline and is now
+  absent; (ii) **every** commit in `old-baseline..HEAD` touches nothing but
+  `specs/*/changes/*/ESCALATE`; (iii) `--rebaseline`'s no-dropped-ac-marked-test guard. Guard (ii) is
+  what makes this *strictly narrower* than `--rebaseline` — the old and new baseline trees differ only
+  by the ESCALATE, so no criteria flip, `change.md` edit or dropped test can be laundered through it.
+- **The ordering objection answers itself, which the first dispatch only half-noticed.** Guard (ii)
+  requires the lock be cleared before anything else is committed — and in a *real* ESCALATE that
+  holds by construction: since T09e the implementer commits `src/**` **only on green**, and an
+  escalated change never reached green, so its `src/` is uncommitted. Say this in the error message
+  when (ii) refuses, so the human knows the rule rather than guessing.
+- Document the flag next to the existing `--rebaseline` paragraph in `.claude/commands/implement.md`
+  §5. A thin `/adw:escalate-clear` wrapping the same flag can be added later without touching
+  enforcement; do not add it now.
+
+**Sub-question: (a) — accept that the path cannot distinguish a human from an agent.** An agent at its
+ceiling can delete the file, commit, and run the clearing flag itself. That is S8's stated position:
+the deliverable is that the act is **recorded** — a commit plus a tag move — not that it is prevented.
+Do **not** add a `bash_guard` denial for the clearing invocation: a hook denial is ergonomics, and
+T06i just closed the seventh false positive in that family (12 measured). Note (b) in the report as an
+available follow-up if the recorded-act evidence ever proves insufficient.
+
+**Also settled from the first dispatch's findings, so it is not rediscovered:**
+
+- **Finding 1 — part 1 alone closes the worktree hole.** Once the ESCALATE is *tracked*, a fresh
+  worktree carries it and today's `escalate.exists()` already denies. So the task's "the worktree case
+  must deny" bullet is discharged by the commit; the history check is needed only for the
+  delete-and-commit bypass. Keep the accept-side change small accordingly.
+- **Finding 2 — do not add a second implementation in `accept.py`.** It re-runs `gate.py` in-process
+  and echoes its checks, so a gate-side FAIL already turns `gate.green` red and denies. The
+  accept-side edit is only about the **precheck** short-circuit that prints the human-facing reason.
+- **Finding 3 — `git commit -- <path>` cannot commit an untracked path** (verified: *"did not match
+  any file known to git"*). Part 1 is `git add -- <path>` then `git commit -- <path>`; partial-commit
+  mode still ignores the rest of the index, so an agent's uncommitted `src/` is untouched.
+- **Finding 4 — the hook currently does no git work at all**, and a consumer repo may have no
+  `user.email`. Approved behaviour: attempt the commit; on failure still write the file and append the
+  failure sentence to the `systemMessage`. **Never crash the hook, never lose the escalation** — that
+  is the T06j rule (a precondition failure must be legible to whoever can act on it) applied here.
+- **Finding 6 — preserve the asymmetry:** a *live* lock does not make `gate.py` RED (presence is
+  `accept.py`'s business, §5.3); the gate judges only *removal*. Break this and every escalated change
+  becomes un-gateable.
+- **Finding 7 — keep T04e's rc-guard.** An unanswerable `git log` must FAIL, not read as "no
+  ESCALATE" (`notes/19`'s fail-open class). `_baseline_paths()`'s swallowed rc one function away is
+  **T04f**, not this task.
+
+**Do not escalate again on shape.** Escalate only if a specific guard cannot be implemented as
+written, and say which and why.
+
+---
+
 ## Goal
 §5.3 makes `ESCALATE` a human-only lock. It still isn't one. T04e built the fix as specified
 (`integrity.escalate-intact`, commit `086fee5`) and the T04e builder then proved the specification
@@ -80,7 +146,7 @@ Three parts, all required:
 - Do NOT try to identify *who* removed the file — the workflow cannot distinguish a human from an
   agent at the filesystem (the same reason `criteria_guard` cannot). The goal is to make removal
   **visible and gate-failing**, so that clearing a lock is a deliberate, recorded act.
-- **Escalate if** part 3's shape is not obvious from §5.3 — "how does a human clear an escalation"
-  is a workflow step that does not exist yet, and inventing a command surface is a canon call. Bring
-  both shapes (`/escalate-clear` vs a `red_check` flag) with a recommendation; do not resolve it
-  silently. That failure mode is on record twice now (T10d, and T04e's specification itself).
+- ~~**Escalate if** part 3's shape is not obvious from §5.3~~ — **discharged: option A, decided
+  above.** Escalate only if a specific guard cannot be implemented as written.
+- Do NOT add a `bash_guard` denial for the clearing invocation (sub-question (a) settled), and do NOT
+  fix `_baseline_paths()`'s swallowed rc — that is **T04f**.
