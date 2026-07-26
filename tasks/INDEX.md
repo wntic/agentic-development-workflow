@@ -301,7 +301,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   placeholder) and repair the venue's `main` **with** the fix as the end-to-end proof — a unit test
   alone does not discharge this, since the defect existed precisely because nobody ran the sequence.
   **Blocks the next trial.** Depends: T10, T04, T16.
-- [ ] T10h — `accept.py`'s `_section()` matches only `"## "`, so a `### Interface sketch` is found as
+- [x] T10h — `accept.py`'s `_section()` matches only `"## "`, so a `### Interface sketch` is found as
   **nothing** → empty section → reads as S depth → `adversarial.presence` PASSes for an M/L change.
   The existing-capability half of T10f's F-02 (which fixed only the birth path); left unfixed there
   because it also touches verdict.md's parse. Six call sites (`:318, 670, 672, 685, 1171`). The trap:
