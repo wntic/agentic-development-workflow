@@ -515,7 +515,7 @@ T10k's builder found that this status list had stopped being a complete index of
 files existed with no line here, which makes `/build-task`'s "every *Depends on* entry is `[x]`"
 **uncheckable** for them. That is a protocol break, not a cosmetic gap. The entries:
 
-- [ ] T04g — the repo lints its own tooling with a rule set narrower than the gate imposes on the app:
+- [x] T04g — the repo lints its own tooling with a rule set narrower than the gate imposes on the app:
   pre-commit runs ruff with `pyproject.toml`'s config, which sets **no `select`**, so only ruff's
   default `E4,E7,E9,F` applies. That is why `RUF103`/`RUF100` sat in `gate.py` itself until T04f. The
   finding that makes it more than hygiene: among the 21 remaining is `RUF059 "Unpacked variable rc is
