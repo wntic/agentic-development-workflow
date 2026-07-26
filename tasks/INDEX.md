@@ -138,10 +138,17 @@ theme (thin `SKILL.md` router + one `<topic>.md` per artifact, read on demand). 
 ~13-theme map are untouched — this splits bodies, not the catalog. Contract first (T13), then apply
 (T14) — the T07→T08 shape.
 
-- [ ] T13 — Progressive-disclosure contract: rewrite CONVENTIONS.md "Skill format" (thin router +
+- [x] T13 — Progressive-disclosure contract: rewrite CONVENTIONS.md "Skill format" (thin router +
   bundled `<topic>.md`, with a split threshold), teach both shapes in `meta-skill-author`, clarify
   C2 ("one theme" = one auto-invocation entry, not one file). Design-sensitive; no canon edit.
   Depends: T08.
+  **BUILT 2026-07-27.** Threshold is **size only — a `SKILL.md` past ~500 lines becomes a router**;
+  the task's example second trigger (`> 3 artifacts`) was deliberately **not** shipped, because it
+  contradicts T14's own candidate list: `domain-model` (449 lines, 5 cohesive artifacts) would split
+  for nothing. So T14's borderline pair both split (`application` 585, `infra-integration` 537) and
+  nothing under 500 does — no ambiguity left for T14 to escalate. The contract names the shape's one
+  failure mode (a soft "see also" pointer: only `SKILL.md` is injected, so a topic file reaches the
+  agent only if it opens it) and forbids frontmatter in a topic file.
 - [ ] T14 — Split the over-threshold skills into router + topic files per T13, losing no paid-for
   line. `test_skill_catalog.py` is the unedited oracle (`rglob("*.md")` already covers bundled
   files). Frontmatter moved verbatim. On-demand-read reliability confirmed only in an e2e probe.
