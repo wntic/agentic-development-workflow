@@ -42,7 +42,12 @@ Nothing hard. Best done immediately; T12b depends on it.
 ## Deliverables
 - **A consumer project outside this repository**: its own git repo, created with
   `uv init --package` (**not** plain `uv init` — it creates neither `src/<pkg>/` nor
-  `[build-system]`; see the §9 canon note in `tasks/INDEX.md`).
+  `[build-system]`; `workflow_v3_spec.md` §9 now says `--package` for exactly this reason).
+  **Location: `~/Projects/adw-consumer-probe`** — a sibling of this repo, named so it is obviously
+  disposable. Do not create it anywhere else, do not nest it inside this repository (a nested repo
+  would confuse `bash_guard`'s `_repo_root()` and `gate.py`'s self-hash, which are precisely what
+  this venue exists to exercise honestly), and do not touch any other directory under `~/Projects`.
+  If the path already exists, **stop and report** rather than reusing or overwriting it.
 - **`.claude/` reachable from it** — symlink preferred (the self-hash is verified to survive it, and
   edits to the workflow take effect with no sync step). If a symlink proves unworkable, record why
   before falling back to a copy; a copy needs an explicit sync story or the two drift.
