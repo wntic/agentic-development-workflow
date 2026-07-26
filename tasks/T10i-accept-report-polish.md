@@ -17,6 +17,13 @@ reads.
    about, and T10g has since touched this file anyway.
 3. **`spec.lint` emits duplicate findings** (T10f register, F-10 area): a reference appearing twice
    in `overview.md` produces two identical lines. Cosmetic noise in the human's review output.
+4. **`_spec_lint` reads HTML comments as content** (T10j finding 3, added 2026-07-26) — the same
+   "a comment is not content" mistake T10j just fixed in `gate.py`, still live one function over.
+   `_spec_lint` runs its dangling-ref scan (`` `([A-Za-z0-9_./-]+\.md)` ``) **and** its >300-line S7
+   count over the capability file's **raw** text. So a comment mentioning a backticked `*.md` that
+   does not exist produces a false dangling-ref finding, and comment lines count toward the cut
+   threshold. Live shape today: every born capability file ships the template's comment block, so
+   every one of them carries lines the S7 count should not see.
 
 ## Depends on
 T10f (both findings), T10g (which last touched `.claude/commands/accept-change.md`).
@@ -42,7 +49,12 @@ T10f (both findings), T10g (which last touched `.claude/commands/accept-change.m
   the enumeration with a pointer to `accept.py`'s registry so it cannot drift again. Prefer the
   pointer; enumerations in prose are how this happened.
 - **Item 3** — dedupe `_spec_lint`'s findings, preserving order.
-- Tests for items 1 (if it changes) and 3.
+- **Item 4** — strip HTML comments before both the dangling-ref scan and the S7 line count. Reuse
+  `criteria_lint._strip_html_comments`, which `gate.py` already relies on at two call sites (C7: one
+  grammar, one home) — do not write a second stripper. Note the private-underscore coupling this
+  extends (T10j finding 5).
+- Tests for items 1 (if it changes), 3, and 4 — for item 4, a capability file whose comment names a
+  nonexistent `` `foo.md` `` must lint clean, while a real dangling ref in its body must still FLAG.
 
 ## Verification
 - `uv run pytest .claude/tools/test_accept.py` green.
