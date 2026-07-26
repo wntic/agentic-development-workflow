@@ -252,7 +252,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   read §5.5 before assuming the latter. Not a blocking gate — §5.5 surfaces, it does not deny.
   Found by the human's `/orient` in the venue, who did the check by hand and found it clean — which
   is the only reason this is not a live gap today. Depends: T05, T10, T04.
-- [ ] T10j — **A successful `accept.py --execute` leaves the base branch RED — S9 broken by the
+- [x] T10j — **A successful `accept.py --execute` leaves the base branch RED — S9 broken by the
   acceptance script itself.** The birth path copies `.claude/templates/capability.md` verbatim
   including its HTML comment, whose `- <invariant> (verified by: <test-id>)` line is then read by
   `gate.py:808` as a real provenance reference (`CAPABILITY_REF`, `:195`, runs over raw text) → L-06

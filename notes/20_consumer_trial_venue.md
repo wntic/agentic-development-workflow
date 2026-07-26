@@ -124,6 +124,32 @@ birth path's *output* had never been gate-checked. Not fixed here — T16 forbid
 checks, and the fix is a one-line decision between the two halves (strip comments in the gate, or
 ship a comment-free template).
 
+**FIXED 2026-07-26 by T10j**, both halves, plus a decision the finding did not raise:
+
+1. *(load-bearing)* `gate.py:check_invariant_tests` now runs `CAPABILITY_REF` over
+   `criteria_lint._strip_html_comments(...)` output, exactly as the criteria check already did — a
+   comment is not content, and **any** capability file may legitimately carry one. Rot beside a
+   comment still FAILs (`test_a_rotted_reference_still_fails_beside_a_comment`).
+2. The birth path keeps copying the template's comments **verbatim** and the *template* was
+   reworded. Weighed against stripping at instantiation: `accept.py` is the template's only
+   consumer, so a comment stripped there serves nobody, while those comments are the entire
+   orientation whoever opens a freshly born file gets. What the template owed was to *describe* the
+   provenance form instead of *showing* a specimen of it.
+3. **What an empty `## Behaviour` means on the birth path** (asked by the human's `/orient` in the
+   venue): it is the intended placeholder, and the template now says so, with its owner. The
+   criteria `accept.py` merges are already observable-behaviour statements (S3), so the Invariants
+   *are* the behaviour record until a human-led `/spec` — the only other sanctioned writer of
+   canonical spec files (D4) — writes the narrative around them. Birth must not populate it: a
+   script inventing prose no gate can check is A3, and lifting the change's Task up into the
+   capability file would be the second copy of history S6 forbids.
+
+End-to-end proof, in a throwaway **clone of this venue** (packaging-faithful: consumer root ≠ plugin
+root, `.claude` symlinked): `change/health-001` re-accepted with `--execute` onto a fresh base →
+`gate.py` on that base → **GATE: GREEN**, `spec.invariant-tests — 1 invariant reference(s) resolve
+to living tests`. One reference, not two. The same sequence is pinned as a test
+(`test_executed_capability_birth_leaves_the_base_branch_green`), which reports `GATE: RED` against
+the pre-fix scripts.
+
 ### F-02 — In a consumer, the enforcement infra is protected by self-hash alone.
 
 `PROTECTED_FRAGMENTS` in `bash_guard` and `PROTECTED_PATHS` in `gate.py` both name
@@ -190,8 +216,10 @@ wants that branch must force it with `GATE_DOCKER=0`.
 
 - `~/Projects/adw-consumer-probe`, branch `main`, tags `baseline/health-001`, `change/health-001`.
 - Working tree clean; `specs/health/{overview.md,service-health.md}` are the living spec.
-- `gate.py` on `main` is **RED on F-01 only** — deliberately left as found (T16 forbids fixing a
-  gate in the same breath as exposing it). Clear it by deciding F-01, not by hand-editing the
-  capability file.
+- `gate.py` on `main` is **GREEN** since T10j (2026-07-26). Repaired *by the fix*, with **zero edits
+  to the venue** — the gate stopped reading comments as data, so the born file needs no touch-up.
+  It still carries the pre-T10j template's comment (with the `<test-id>` specimen in it): harmless
+  now, and left alone on purpose — hand-editing a canonical spec file is exactly what F-01 said not
+  to do, and only `accept.py` and `/spec` write those files (D4).
 - This repository was untouched throughout: `git status` clean on `markdown-specs` before, during
   and after.
