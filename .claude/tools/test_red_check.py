@@ -801,3 +801,455 @@ def test_clear_escalate_and_rebaseline_are_not_combinable(tmp_path: Path) -> Non
     with pytest.raises(SystemExit) as exc:
         red_check.main([str(tmp_path), "--change", "demo/001", "--rebaseline", "--clear-escalate"])
     assert exc.value.code == 2
+
+
+# =======================================================================================
+# `Class: hardening` — the baseline proved by MUTATION, because it has no red phase (T09g)
+# =======================================================================================
+#
+# The change shape the cycle had no lane for: the tests get stronger while behaviour stays
+# identical (a prior adversarial pass found a mutation the suite did not kill). Such tests are
+# green on arrival, so redness cannot be their baseline property; this class replaces it with
+# GREEN-on-clean + RED-on-mutation. The fixtures below are the users/002 **F1** shape verbatim,
+# reduced to one function: a `save` that filters by key, a weak suite that a filter-dropping
+# mutation walks straight through, and the strengthened suite that kills it.
+
+CHANGE_TEMPLATE = (TOOLS_DIR.parent / "templates" / "change.md").read_text(encoding="utf-8")
+
+
+# --- pure: the change.md parse ---------------------------------------------------------
+
+
+def test_parse_change_class_defaults_to_behavioral() -> None:
+    assert red_check.parse_change_class("") == "behavioral"
+    assert red_check.parse_change_class("# demo/001 — x\n\n## Task\nwhatever\n") == "behavioral"
+
+
+def test_parse_change_class_reads_the_declared_class() -> None:
+    assert red_check.parse_change_class("Class: hardening\n") == "hardening"
+    assert red_check.parse_change_class("Class: Hardening    <!-- comment -->\n") == "hardening"
+    assert red_check.parse_change_class("Class: invisible\n") == "invisible"
+
+
+def test_parse_change_class_ignores_the_template_comment() -> None:
+    # The template's own comment enumerates every class name, `hardening` included. A change that
+    # kept the comment declares `behavioral` — the same trap accept.classify_removal disarms.
+    assert "hardening" in CHANGE_TEMPLATE  # the trap is really in the template
+    assert red_check.parse_change_class(CHANGE_TEMPLATE) == "behavioral"
+
+
+def test_parse_mutations_reads_the_fenced_diffs_and_their_ac_ids() -> None:
+    change_md = (
+        "Class: hardening\n\n## Acceptance criteria\n- AC-9 something\n\n"
+        "## Mutations\n\n"
+        "### M-1 — must kill AC-1, AC-2\n\n"
+        "```diff\n--- a/src/app/store.py\n+++ b/src/app/store.py\n@@ -1 +1 @@\n-old\n+new\n```\n\n"
+        "The second one must kill AC-2 only:\n\n"
+        "```diff\n--- a/src/app/other.py\n+++ b/src/app/other.py\n@@ -1 +1 @@\n-a\n+b\n```\n\n"
+        "## Verification\n- AC-3 is not a mutation id\n"
+    )
+    mutations = red_check.parse_mutations(change_md)
+    assert [(m.mid, m.ac_ids) for m in mutations] == [("M-1", ("AC-1", "AC-2")), ("M-2", ("AC-2",))]
+    assert mutations[0].paths == ("src/app/store.py",)
+    # the section ends at the next same-or-shallower heading: AC-3 (Verification) leaked nowhere
+    assert all("AC-3" not in m.ac_ids for m in mutations)
+
+
+def test_parse_mutations_is_empty_without_the_section_and_for_the_template() -> None:
+    assert red_check.parse_mutations("Class: hardening\n\n## Task\nx\n") == []
+    # the template's EXAMPLE diff lives inside the section's HTML comment, so a change that kept
+    # the comment declares no mutation (it must not read as a satisfied obligation)
+    assert "## Mutations" in CHANGE_TEMPLATE
+    assert red_check.parse_mutations(CHANGE_TEMPLATE) == []
+
+
+def test_section_body_survives_a_subheading_and_matches_any_depth() -> None:
+    text = "## Mutations\nbody\n### M-1\nmore\n## Verification\nout\n"
+    assert red_check.section_body(text, "Mutations") == "\nbody\n### M-1\nmore\n"
+    assert red_check.section_body("### Mutations\nb\n## Next\n", "Mutations") == "\nb\n"
+    assert red_check.section_body(text, "Nope") is None
+
+
+def test_mutation_paths_drop_the_dev_null_side() -> None:
+    mutation = red_check.Mutation("M-1", ("AC-1",), "--- /dev/null\n+++ b/src/app/new.py\n@@ -0,0 +1 @@\n+x\n")
+    assert mutation.paths == ("src/app/new.py",)
+
+
+# --- pure: analyze_green + the declaration screen ---------------------------------------
+
+
+def test_analyze_green_wants_marked_tests_to_pass() -> None:
+    inv = {
+        "outcomes": {"tests/t.py::a": "passed", "tests/t.py::b": "failed"},
+        "markers": {"tests/t.py::a": ["AC-1"], "tests/t.py::b": ["AC-2"]},
+    }
+    result = red_check.analyze_green(["AC-1", "AC-2"], inv)
+    assert not result.ok
+    assert result.passed_tests == ["tests/t.py::a"]
+    assert result.not_green == [("tests/t.py::b", "failed")]
+
+    ok = red_check.analyze_green(["AC-1"], inv)
+    assert ok.ok and ok.missing_acs == []
+
+
+def test_analyze_green_reports_an_uncovered_ac() -> None:
+    inv = {"outcomes": {"tests/t.py::a": "passed"}, "markers": {"tests/t.py::a": ["AC-1"]}}
+    result = red_check.analyze_green(["AC-1", "AC-2"], inv)
+    assert not result.ok and result.missing_acs == ["AC-2"]
+
+
+def test_analyze_green_ignores_tests_of_other_changes_acs() -> None:
+    # A hardening change is brownfield: older changes' tests carry their own ac markers. Their
+    # state is the gate's business, not this baseline's — judging them here would make an
+    # unrelated failure anywhere in the suite refuse a correct hardening baseline.
+    inv = {
+        "outcomes": {"tests/new.py::a": "passed", "tests/old.py::z": "failed"},
+        "markers": {"tests/new.py::a": ["AC-1"], "tests/old.py::z": ["AC-7"]},
+    }
+    assert red_check.analyze_green(["AC-1"], inv).ok
+
+
+def _mutation(diff: str, *, mid: str = "M-1", acs: tuple[str, ...] = ("AC-1",)):  # noqa: ANN202
+    return red_check.Mutation(mid, acs, diff)
+
+
+HUNK = "--- a/src/app/store.py\n+++ b/src/app/store.py\n@@ -1 +1 @@\n-old\n+new\n"
+
+
+def test_declaration_defects_refuse_a_hardening_change_with_no_mutations() -> None:
+    defects = red_check.mutation_declaration_defects(["AC-1"], [])
+    assert len(defects) == 1
+    assert "## Mutations" in defects[0]
+
+
+def test_declaration_defects_refuse_a_mutation_outside_src() -> None:
+    diff = HUNK.replace("src/app/store.py", "tests/test_store.py")
+    defects = red_check.mutation_declaration_defects(["AC-1"], [_mutation(diff)])
+    assert any("may only patch `src/**`" in d for d in defects), defects
+
+
+def test_declaration_defects_refuse_a_traversal_back_into_tests() -> None:
+    # `src/../tests/x.py` starts with `src/` and lands in the test tree — the one thing the
+    # src-only rule exists to stop, so the prefix check alone is not the check.
+    diff = HUNK.replace("src/app/store.py", "src/../tests/test_store.py")
+    defects = red_check.mutation_declaration_defects(["AC-1"], [_mutation(diff)])
+    assert any("may only patch `src/**`" in d for d in defects), defects
+
+
+def test_declaration_defects_refuse_an_ac_no_mutation_names() -> None:
+    defects = red_check.mutation_declaration_defects(["AC-1", "AC-2"], [_mutation(HUNK)])
+    assert any(d.startswith("AC-2 is named by no mutation") for d in defects), defects
+
+
+def test_declaration_defects_refuse_an_unknown_ac_and_a_non_diff() -> None:
+    defects = red_check.mutation_declaration_defects(["AC-1"], [_mutation("prose, not a patch", acs=("AC-1", "AC-9"))])
+    assert any("not a unified diff" in d for d in defects), defects
+    assert any("AC-9, which is not in criteria.md" in d for d in defects), defects
+
+
+def test_declaration_defects_refuse_a_mutation_naming_no_ac() -> None:
+    defects = red_check.mutation_declaration_defects(["AC-1"], [_mutation(HUNK, acs=())])
+    assert any("names no AC id" in d for d in defects), defects
+
+
+# --- end-to-end: the F1 shape ----------------------------------------------------------
+
+STORE_SRC = '''\
+def save(rows: dict[str, str], key: str, value: str) -> dict[str, str]:
+    """Return `rows` with the single row `key` updated to `value`."""
+    return {k: (value if k == key else v) for k, v in rows.items()}
+'''
+
+# users/002's F1 verbatim, one function down: the row filter is gone, so a "single-row update"
+# rewrites EVERY row. The shipped code is correct; this is the wrong code the tests must catch.
+STORE_SRC_MUTATED = '''\
+def save(rows: dict[str, str], key: str, value: str) -> dict[str, str]:
+    """Return `rows` with the single row `key` updated to `value`."""
+    return {k: value for k in rows}
+'''
+
+# The strengthened suite: each test has a BYSTANDER row, which is exactly what F1 said was
+# missing ("AC-8 and AC-9 each create exactly one user").
+STRONG_TESTS = """\
+import pytest
+
+from app.store import save
+
+
+@pytest.mark.ac("AC-1")
+def test_save_updates_only_the_named_row() -> None:
+    assert save({"a": "1", "b": "1"}, "a", "2") == {"a": "2", "b": "1"}
+
+
+@pytest.mark.ac("AC-2")
+def test_save_leaves_a_bystander_row_untouched() -> None:
+    assert save({"a": "1", "b": "1"}, "a", "2")["b"] == "1"
+"""
+
+# The suite as it was BEFORE the hardening change: green, and blind to F1 — one row only, so
+# dropping the filter changes nothing it looks at. This is the "advisory theatre" state.
+WEAK_TESTS = """\
+import pytest
+
+from app.store import save
+
+
+@pytest.mark.ac("AC-1")
+def test_save_updates_only_the_named_row() -> None:
+    assert save({"a": "1"}, "a", "2") == {"a": "2"}
+
+
+@pytest.mark.ac("AC-2")
+def test_save_leaves_a_bystander_row_untouched() -> None:
+    assert save({"a": "1"}, "a", "2")["a"] == "2"
+"""
+
+HARDENING_CRITERIA = """\
+# Criteria — demo/002-harden-save
+
+- [ ] AC-1: updating one row returns the other rows with their previous values
+- [ ] AC-2: after updating row `a`, reading row `b` returns `b`'s old value
+"""
+
+CHANGE_DIR = "specs/demo/changes/002-harden-save"
+
+# The mutation as a human writes it into change.md: a unified diff of STORE_SRC -> STORE_SRC_MUTATED.
+F1_DIFF = '''\
+--- a/src/app/store.py
++++ b/src/app/store.py
+@@ -1,3 +1,3 @@
+ def save(rows: dict[str, str], key: str, value: str) -> dict[str, str]:
+     """Return `rows` with the single row `key` updated to `value`."""
+-    return {k: (value if k == key else v) for k, v in rows.items()}
++    return {k: value for k in rows}
+'''
+
+
+def _change_md(mutations: str | None) -> str:
+    body = (
+        "# demo/002 — strengthen the save() criteria\n\n"
+        "Class: hardening\n\n"
+        "## Task\nAC-1/AC-2 pass against a save() that rewrites every row. Strengthen them.\n\n"
+        "## Acceptance criteria\n- AC-1: only the named row changes\n- AC-2: a bystander keeps its value\n"
+    )
+    return body if mutations is None else f"{body}\n## Mutations\n\n{mutations}"
+
+
+def _mutation_block(diff: str, *, mid: str = "M-1", acs: str = "AC-1, AC-2") -> str:
+    return f"### {mid} — must kill {acs}\n\n```diff\n{diff}```\n"
+
+
+_DEFAULT_MUTATIONS = _mutation_block(F1_DIFF)
+
+
+def _hardening_repo(
+    tmp_path: Path,
+    *,
+    tests: str = STRONG_TESTS,
+    mutations: str | None = _DEFAULT_MUTATIONS,
+    also_in_baseline: dict[str, str] | None = None,
+) -> FixtureRepo:
+    """A brownfield repo with correct, committed src/, then the /spec commit, then the tests commit.
+
+    By default the `## Mutations` section declares the F1 mutation over both ACs; pass another
+    block, or None to leave the section out entirely.
+    """
+    repo = FixtureRepo(tmp_path)
+    repo.write(".gitignore", ".gate/\n__pycache__/\n.pytest_cache/\n")
+    repo.write("pyproject.toml", '[project]\nname = "app"\nversion = "0.1.0"\n')
+    repo.write("src/app/__init__.py", "")
+    repo.write("src/app/store.py", STORE_SRC)
+    repo.git("init", "-q")
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "the shipped, correct app")
+
+    repo.write(f"{CHANGE_DIR}/criteria.md", HARDENING_CRITERIA)
+    repo.write(f"{CHANGE_DIR}/change.md", _change_md(mutations))
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "spec: demo/002 (hardening)")
+
+    repo.write("tests/test_store.py", tests)
+    for rel, content in (also_in_baseline or {}).items():
+        repo.write(rel, content)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: strengthen AC-1/AC-2")
+    return repo
+
+
+def _run_hardening(repo: FixtureRepo, *extra: str) -> int:
+    return red_check.main([str(repo.root), "--change", "demo/002", *extra])
+
+
+def test_e2e_hardening_baseline_is_confirmed_by_mutation_and_tagged(tmp_path: Path, capsys) -> None:
+    # The money test: no red phase anywhere, and the baseline is still earned — the tests pass
+    # against the shipped code AND both ACs go RED under the declared mutation.
+    repo = _hardening_repo(tmp_path)
+
+    assert _run_hardening(repo) == 0
+    out = "".join(capsys.readouterr())
+    assert "HARDENING-CHECK: MUTATION-CONFIRMED" in out
+    assert "GREEN ON CLEAN: 2 ac-marked test(s) pass" in out
+    assert "[KILLED  ] M-1 AC-1: tests/test_store.py::test_save_updates_only_the_named_row" in out
+    assert "[KILLED  ] M-1 AC-2:" in out
+    assert "baseline/demo-002" in repo.tags()
+
+
+def test_e2e_hardening_refuses_the_weak_suite_the_mutation_survives(tmp_path: Path, capsys) -> None:
+    # The pre-hardening suite: green on clean code, blind to F1. This is the state the adversarial
+    # pass reported, and a baseline must not be earned by it — the change would ship no strength.
+    repo = _hardening_repo(tmp_path, tests=WEAK_TESTS)
+
+    assert _run_hardening(repo) == 1
+    out = "".join(capsys.readouterr())
+    assert "[SURVIVED] M-1 AC-1:" in out
+    assert "[SURVIVED] M-1 AC-2:" in out
+    assert "HARDENING-CHECK: FAILED" in out
+    assert "baseline/demo-002" not in repo.tags()
+
+
+def test_e2e_hardening_refuses_tests_that_fail_against_the_shipped_code(tmp_path: Path, capsys) -> None:
+    # Behaviour is identical in a hardening change, so a marked test that FAILS on the unmutated
+    # code is a real defect (a wrong assertion, or a behaviour change smuggled into the class) —
+    # never a red baseline to be tagged.
+    broken = STRONG_TESTS.replace('== {"a": "2", "b": "1"}', '== {"a": "2", "b": "2"}')
+    repo = _hardening_repo(tmp_path, tests=broken)
+
+    assert _run_hardening(repo) == 1
+    out = "".join(capsys.readouterr())
+    assert "NOT GREEN ON CLEAN" in out
+    assert "tests/test_store.py::test_save_updates_only_the_named_row [failed]" in out
+    assert "baseline/demo-002" not in repo.tags()
+
+
+def test_e2e_hardening_refuses_a_change_with_no_mutations_section(tmp_path: Path, capsys) -> None:
+    # Without a mutation the class has NO baseline property at all: not redness (the tests pass),
+    # not a kill (none is declared). Refused before a single test runs.
+    repo = _hardening_repo(tmp_path, mutations=None)
+
+    assert _run_hardening(repo) == 1
+    out = "".join(capsys.readouterr())
+    assert "MUTATION DECLARATION" in out
+    assert "## Mutations" in out
+    assert "GREEN ON CLEAN" not in out  # the declaration is screened first — nothing was run
+    assert "baseline/demo-002" not in repo.tags()
+
+
+def test_e2e_hardening_refuses_a_mutation_that_patches_a_test(tmp_path: Path, capsys) -> None:
+    # A "mutation" that deletes an assertion makes the suite fail for a reason that proves
+    # nothing — the cheapest way to fake this class's proof. src/** only.
+    fake = "--- a/tests/test_store.py\n+++ b/tests/test_store.py\n@@ -1 +1 @@\n-import pytest\n+raise SystemExit\n"
+    repo = _hardening_repo(tmp_path, mutations=_mutation_block(fake))
+
+    assert _run_hardening(repo) == 1
+    assert "may only patch `src/**`" in "".join(capsys.readouterr())
+    assert "baseline/demo-002" not in repo.tags()
+
+
+def test_e2e_hardening_refuses_an_ac_that_no_mutation_names(tmp_path: Path, capsys) -> None:
+    # AC-2 would then have no proof of strength at all — neither redness (it passes) nor a kill.
+    repo = _hardening_repo(tmp_path, mutations=_mutation_block(F1_DIFF, acs="AC-1"))
+
+    assert _run_hardening(repo) == 1
+    assert "AC-2 is named by no mutation" in "".join(capsys.readouterr())
+    assert "baseline/demo-002" not in repo.tags()
+
+
+STALE_DIFF = """\
+--- a/src/app/store.py
++++ b/src/app/store.py
+@@ -1,2 +1,2 @@
+-def gone(rows: dict[str, str]) -> None:
+-    return None
++def gone(rows: dict[str, str]) -> int:
++    return 0
+"""
+
+
+def test_e2e_hardening_refuses_a_patch_that_does_not_apply(tmp_path: Path, capsys) -> None:
+    # A mutation lifted from an older verdict may no longer describe the code. Silence here would
+    # mean "no ac test went red" — i.e. an unappliable patch would read as a survived mutation and
+    # blame the tests; the report must name the real cause.
+    repo = _hardening_repo(tmp_path, mutations=_mutation_block(STALE_DIFF))
+
+    assert _run_hardening(repo) == 1
+    out = "".join(capsys.readouterr())
+    assert "[ERROR   ] M-1" in out
+    assert "does not apply" in out
+    assert "baseline/demo-002" not in repo.tags()
+
+
+def test_e2e_hardening_baseline_commit_must_still_be_tests_only(tmp_path: Path, capsys) -> None:
+    # The anti-collusion screen is class-independent: whatever proved the baseline, the commit
+    # being tagged touches tests/** only. A hardening change that edits src/ is a different change.
+    repo = _hardening_repo(tmp_path, also_in_baseline={"src/app/store.py": STORE_SRC + "\n\nEXTRA = 1\n"})
+
+    assert _run_hardening(repo) == 1
+    combined = capsys.readouterr()
+    assert "src/app/store.py" in (combined.out + combined.err)
+    assert "baseline/demo-002" not in repo.tags()
+
+
+def test_e2e_hardening_no_tag_flag_still_skips_tagging(tmp_path: Path) -> None:
+    repo = _hardening_repo(tmp_path)
+    assert _run_hardening(repo, "--no-tag") == 0
+    assert "baseline/demo-002" not in repo.tags()
+
+
+def test_rebaseline_routes_a_hardening_change_through_the_mutation_path(tmp_path: Path, capsys) -> None:
+    # A TESTS-HANDBACK can happen here too (a lint/type defect in the new tests, which no src/**
+    # edit could fix — this class has no implementer at all). The tag must move over the corrected
+    # tests without a hand `git tag -f`, asking the hardening question, not for redness.
+    repo = _hardening_repo(tmp_path, tests=WEAK_TESTS)
+    repo.git("tag", "baseline/demo-002")  # the baseline as it stood when the handback happened
+    old = repo.git("rev-parse", "baseline/demo-002").strip()
+
+    repo.write("tests/test_store.py", STRONG_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: strengthen after the handback")
+
+    assert _run_hardening(repo, "--rebaseline") == 0
+    out = "".join(capsys.readouterr())
+    assert "HARDENING-CHECK: MUTATION-CONFIRMED" in out
+    assert "RED-CHECK" not in out  # the class's question was asked, not redness
+    head = repo.git("rev-parse", "HEAD").strip()
+    assert repo.git("rev-parse", "baseline/demo-002").strip() == head != old
+
+
+def test_rebaseline_of_a_hardening_change_refuses_a_suite_that_lost_its_bite(tmp_path: Path, capsys) -> None:
+    repo = _hardening_repo(tmp_path)
+    assert _run_hardening(repo) == 0  # a real, mutation-confirmed baseline first
+    old = repo.git("rev-parse", "baseline/demo-002").strip()
+
+    repo.write("tests/test_store.py", WEAK_TESTS)  # a "correction" that drops the bystander
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "test: weaken back")
+
+    assert _run_hardening(repo, "--rebaseline") == 1
+    assert "[SURVIVED] M-1" in "".join(capsys.readouterr())
+    assert repo.git("rev-parse", "baseline/demo-002").strip() == old  # tag did NOT move
+
+
+def test_a_behavioral_change_keeps_the_red_requirement_even_with_a_mutations_section(tmp_path: Path, capsys) -> None:
+    # No existing class loses its proof obligation: the mutation path is keyed on `Class:`, so a
+    # behavioral change is still judged by redness — a `## Mutations` section does not license
+    # green tests, and green-before-implementation still refuses the tag.
+    repo = _base_repo(tmp_path)
+    change_md = (
+        "# demo/001 — health\n\nClass: behavioral\n\n## Mutations\n\n"
+        "```diff\n--- a/src/app/main.py\n+++ b/src/app/main.py\n@@ -1 +1 @@\n-a\n+b\n```\n"
+    )
+    repo.write("specs/demo/changes/001-health/change.md", change_md)
+    repo.write(
+        "tests/test_health.py",
+        "import pytest\n\n\n"
+        '@pytest.mark.ac("AC-1")\ndef test_a() -> None:\n    assert True\n\n\n'
+        '@pytest.mark.ac("AC-2")\ndef test_b() -> None:\n    assert True\n',
+    )
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "green tests + a mutations section")
+
+    assert _run(repo) == 1
+    out = "".join(capsys.readouterr())
+    assert "GREEN BEFORE IMPLEMENTATION" in out
+    assert "HARDENING-CHECK" not in out
+    assert "baseline/demo-001" not in repo.tags()

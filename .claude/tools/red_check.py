@@ -25,6 +25,14 @@ conftest/pyproject does not work, E-05 class), then asserts:
      baseline time, so the test-author fixes it at author time (S4). NOT mypy — a greenfield
      first change imports a not-yet-written package, which is the intended redness.
 
+One change class has no red phase at all: **`hardening`** (spec §3.1) — a change whose tests get
+STRONGER while behaviour stays identical, lifted from a prior change's adversarial pass. Its tests
+are green on arrival, so redness cannot be its baseline property. For that class the script runs a
+strictly stronger pair instead (`run_hardening_checks`): GREEN-on-clean (every ac-marked test
+passes at the candidate commit) AND RED-on-mutation (with each mutation from change.md's
+`## Mutations` applied in a throwaway worktree, the AC ids that mutation names go RED). Then it
+tags exactly as the red path does. See the section note below for what that buys and what it costs.
+
 Before any of that it runs a toolchain preflight (pytest + ruff; mypy too under `--rebaseline`,
 where it is invoked): on a project's first change this is the very first script the workflow
 runs, so an environment missing a tool must meet the actionable sentence here — in gate.py's own
@@ -46,9 +54,10 @@ Usage:
   --no-tag      run the checks only, do not create the baseline tag (used by callers/tests).
   --force-tag   move an existing baseline tag (legal only during the red phase, before code).
   --rebaseline  move an existing baseline tag onto HEAD after a TESTS-HANDBACK: verifies the
-                corrected tests in a throwaway worktree (redness, where src/ is absent) AND in
-                the live tree (mypy, where src/ is present), refusing any move that drops an
-                ac-marked test or writes outside tests/**. See the section note and notes/18.
+                corrected tests in a throwaway worktree (redness — or, for a `hardening` change,
+                the green/mutation pair — where src/ is absent) AND in the live tree (mypy, where
+                src/ is present), refusing any move that drops an ac-marked test or writes outside
+                tests/**. See the section note and notes/18.
   --clear-escalate
                 the human's sanctioned way to clear a §5.3 `ESCALATE`: move the baseline tag over
                 the COMMITTED removal of the lock, and only over that. Without it, clearing a lock
@@ -181,6 +190,101 @@ def parse_ac_ids(criteria_text: str) -> list[str]:
         if crit.ac_id not in seen:
             seen.append(crit.ac_id)
     return seen
+
+
+# ---------------------------------------------------------------------------------------
+# Parsing change.md — the declared Class and, for `hardening`, the mutations
+# ---------------------------------------------------------------------------------------
+#
+# Only two facts are read from change.md here: the `Class:` line (which baseline property
+# applies) and the `## Mutations` section (the `hardening` class's proof). Both are read from
+# the file the gate already freezes: `change.md`'s hash is part of gate.py's protected-tree
+# integrity check at the baseline commit (E-12), so a mutation cannot be rewritten after the
+# fact without the gate seeing it — the attestation comes for free.
+#
+# HTML comments are stripped first, everywhere: the templates carry their own instructions
+# (including an EXAMPLE mutation diff) inside comments, and a change that keeps the comment
+# must not read as a declaration. Same discipline as accept.classify_removal.
+
+DEFAULT_CLASS = "behavioral"  # spec §3.1: the class register's default
+HARDENING_CLASS = "hardening"  # spec §3.1: no red phase — proved by mutation instead
+
+_CLASS_LINE = re.compile(r"(?im)^Class:[ \t]*([A-Za-z][A-Za-z0-9_-]*)")
+_AC_TOKEN = re.compile(r"\bAC-\d+\b")
+_MUTATION_TOKEN = re.compile(r"\bM-\d+\b")
+_FENCE = re.compile(r"(?ms)^```[ \t]*[A-Za-z0-9_+-]*[ \t]*\n(.*?)^```[ \t]*$")
+_DIFF_PATH = re.compile(r"(?m)^(?:---|\+\+\+)[ \t]+(?:[ab]/)?(\S+)")
+
+
+def _strip_html_comments(text: str) -> str:
+    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+
+
+def parse_change_class(change_md: str) -> str:
+    """The change's declared `Class:` (lowercased); `behavioral` when the line is absent."""
+    match = _CLASS_LINE.search(_strip_html_comments(change_md))
+    return match.group(1).lower() if match else DEFAULT_CLASS
+
+
+@dataclass(frozen=True)
+class Mutation:
+    """One mutation from change.md: a unified diff plus the AC ids it must kill."""
+
+    mid: str
+    ac_ids: tuple[str, ...]
+    diff: str
+
+    @property
+    def paths(self) -> tuple[str, ...]:
+        """The files the diff touches (`/dev/null` sides dropped), in first-seen order."""
+        seen: list[str] = []
+        for path in _DIFF_PATH.findall(self.diff):
+            if path != "/dev/null" and path not in seen:
+                seen.append(path)
+        return tuple(seen)
+
+
+def section_body(text: str, name: str) -> str | None:
+    """The body of the `#+ <name>` section, or None. Terminates at a same-or-shallower heading.
+
+    Matched at ANY heading depth and terminated at same-or-shallower, so a `### M-1 …`
+    subheading inside `## Mutations` does not truncate its own parent section (the trap a naive
+    `#+` terminator falls into) and a `### Mutations` still parses.
+    """
+    heading = re.compile(rf"(?m)^(#+)[ \t]*{re.escape(name)}\b[^\n]*$")
+    match = heading.search(text)
+    if not match:
+        return None
+    rest = text[match.end() :]
+    nxt = re.search(rf"(?m)^#{{1,{len(match.group(1))}}}[ \t]", rest)
+    return rest[: nxt.start()] if nxt else rest
+
+
+def parse_mutations(change_md: str) -> list[Mutation]:
+    """The `## Mutations` section's mutations, in file order.
+
+    Grammar (deliberately prose-tolerant, like the rest of the spec format): one fenced block
+    per mutation carrying the unified diff; the AC ids it must kill are the `AC-n` tokens in the
+    text between the previous fence and this one (a `### M-2 — must kill AC-8, AC-9` heading, or
+    a plain sentence). An `M-n` token there names the mutation; else it is numbered by position.
+    """
+    body = section_body(_strip_html_comments(change_md), "Mutations")
+    if body is None:
+        return []
+    mutations: list[Mutation] = []
+    cursor = 0
+    for index, match in enumerate(_FENCE.finditer(body), start=1):
+        preamble = body[cursor : match.start()]
+        cursor = match.end()
+        ids = _MUTATION_TOKEN.findall(preamble)
+        mutations.append(
+            Mutation(
+                mid=ids[-1] if ids else f"M-{index}",
+                ac_ids=tuple(dict.fromkeys(_AC_TOKEN.findall(preamble))),
+                diff=match.group(1),
+            )
+        )
+    return mutations
 
 
 # ---------------------------------------------------------------------------------------
@@ -460,14 +564,20 @@ class RedCheckResult:
         return not self.missing_acs and not self.green_before_impl and not self.not_red_other
 
 
+def map_ac_to_tests(ac_ids: list[str], markers: dict[str, list[str]]) -> dict[str, list[str]]:
+    """`AC-n -> [node-ids marked with it]`, every declared AC present (empty list = uncovered)."""
+    ac_to_tests: dict[str, list[str]] = {ac: [] for ac in ac_ids}
+    for nodeid, acs in sorted(markers.items()):
+        for ac in acs:
+            ac_to_tests.setdefault(ac, []).append(nodeid)
+    return ac_to_tests
+
+
 def analyze(ac_ids: list[str], inventory: dict) -> RedCheckResult:
     outcomes: dict[str, str] = inventory.get("outcomes", {})
     markers: dict[str, list[str]] = inventory.get("markers", {})
 
-    ac_to_tests: dict[str, list[str]] = {ac: [] for ac in ac_ids}
-    for nodeid, acs in markers.items():
-        for ac in acs:
-            ac_to_tests.setdefault(ac, []).append(nodeid)
+    ac_to_tests = map_ac_to_tests(ac_ids, markers)
 
     result = RedCheckResult(ac_ids=ac_ids, ac_to_tests=ac_to_tests)
     result.missing_acs = [ac for ac in ac_ids if not ac_to_tests.get(ac)]
@@ -653,8 +763,268 @@ def mypy_tests(tree: Path) -> list[str] | None:
     return [line for line in (proc.stdout or proc.stderr).splitlines() if line.startswith("tests/")]
 
 
-def rebaseline(tree: Path, change_id: str, ac_ids: list[str]) -> int:
-    """Move `baseline/<ctx>-NNN` onto HEAD after a TESTS-HANDBACK. Return a process exit code."""
+# ---------------------------------------------------------------------------------------
+# The `hardening` class — a baseline proved by MUTATION, because it has no red phase (T09g)
+# ---------------------------------------------------------------------------------------
+#
+# The cycle's baseline property is redness: a test that fails before the code exists proves it
+# asserts the behaviour, and that the behaviour was absent. One legitimate change shape cannot
+# have it — a change that only makes the TESTS stronger while behaviour stays identical (the
+# adversarial pass of an earlier change found a mutation its suite did not kill). Those tests
+# pass on arrival, so red_check would refuse them, and the adversarial pass — the one step whose
+# job is measuring test strength — would produce findings the workflow cannot act on.
+#
+# `Class: hardening` is that lane. Redness is not dropped, it is REPLACED by a strictly stronger
+# pair, and nothing about D3/D4 changes (the mutation is spec content, authored by the human at
+# /adw:spec from the earlier verdict's adversarial table; it is applied only in a throwaway
+# worktree; nobody writes `src/**`):
+#
+#   * GREEN-on-clean — every ac-marked test of THIS change's ACs passes at the candidate commit.
+#     ("this change's ACs", not every marked test in the tree: a hardening change is brownfield
+#     by nature, and the greenness of tests belonging to older changes is the gate's business.)
+#   * RED-on-mutation — for each mutation declared in change.md's `## Mutations`, applying that
+#     patch in a throwaway worktree of the candidate commit makes at least one ac-marked test of
+#     every AC id the mutation names go RED. A mutation nothing kills is exactly the finding an
+#     adversarial pass reports, so a hardening baseline that cannot kill its own mutation is
+#     refused: it would ship the weakness it claims to close.
+#
+# Why this is stronger than redness: "this test fails when the code is wrong in THIS specific
+# way" is a sharper claim than "this test fails when the code is absent". What it costs is the
+# declaration — hence the refusals that are pure declaration hygiene, all checked before a single
+# test runs: a hardening change with no mutations at all, an AC no mutation names (it would have
+# no proof of strength at all — neither redness nor a kill), a mutation naming an AC that is not
+# in criteria.md, a mutation patching anything but `src/**` (a "mutation" that deletes an
+# assertion makes any test fail and proves nothing), and a patch that does not apply.
+
+
+@dataclass
+class GreenResult:
+    """GREEN-on-clean: the AC coverage + pass state of this change's ac-marked tests."""
+
+    ac_ids: list[str]
+    ac_to_tests: dict[str, list[str]]
+    missing_acs: list[str] = field(default_factory=list)
+    passed_tests: list[str] = field(default_factory=list)
+    not_green: list[tuple[str, str]] = field(default_factory=list)  # (node-id, outcome)
+
+    @property
+    def ok(self) -> bool:
+        return not self.missing_acs and not self.not_green
+
+
+def analyze_green(ac_ids: list[str], inventory: dict) -> GreenResult:
+    """Coverage as in `analyze`, but the expected outcome of a marked test is PASSED."""
+    outcomes: dict[str, str] = inventory.get("outcomes", {})
+    ac_to_tests = map_ac_to_tests(ac_ids, inventory.get("markers", {}))
+    result = GreenResult(ac_ids=ac_ids, ac_to_tests=ac_to_tests)
+    result.missing_acs = [ac for ac in ac_ids if not ac_to_tests.get(ac)]
+    for nodeid in sorted({n for ac in ac_ids for n in ac_to_tests.get(ac, [])}):
+        outcome = outcomes.get(nodeid, "missing")
+        if outcome == "passed":
+            result.passed_tests.append(nodeid)
+        else:  # failed / error / skipped / xfail / uncollected — not a green witness
+            result.not_green.append((nodeid, outcome))
+    return result
+
+
+@dataclass
+class MutationOutcome:
+    """What one mutation did to the suite: which ACs it killed, and which survived it."""
+
+    mutation: Mutation
+    error: str | None = None  # the patch could not be applied, or the mutated tree not tested
+    killed: dict[str, list[str]] = field(default_factory=dict)  # AC -> the node-ids that went RED
+    survived: list[str] = field(default_factory=list)  # AC ids no marked test caught it for
+
+    @property
+    def ok(self) -> bool:
+        return not self.error and not self.survived
+
+
+@dataclass
+class HardeningResult:
+    ac_ids: list[str]
+    mutations: list[Mutation]
+    declaration_defects: list[str] = field(default_factory=list)
+    clean: GreenResult | None = None  # None when the declaration was already refused
+    lint_failures: list[str] | None = None
+    outcomes: list[MutationOutcome] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return (
+            not self.declaration_defects
+            and self.clean is not None
+            and self.clean.ok
+            and not self.lint_failures
+            and bool(self.outcomes)
+            and all(outcome.ok for outcome in self.outcomes)
+        )
+
+
+def mutation_declaration_defects(ac_ids: list[str], mutations: list[Mutation]) -> list[str]:
+    """Everything wrong with the DECLARATION, decided without running a test."""
+    defects: list[str] = []
+    if not mutations:
+        return [
+            "a `hardening` change must declare at least one mutation in change.md's `## Mutations` "
+            "section — the mutation IS this class's baseline proof, and without one the change has "
+            "neither a red phase nor a kill to show for its new tests (spec §3.1)"
+        ]
+    for mutation in mutations:
+        if "@@" not in mutation.diff:
+            defects.append(
+                f"{mutation.mid}: not a unified diff (no `@@` hunk header) — red_check applies it with git apply"
+            )
+        if not mutation.ac_ids:
+            defects.append(f"{mutation.mid}: names no AC id — a mutation must state which criteria it must kill")
+        for ac in mutation.ac_ids:
+            if ac not in ac_ids:
+                defects.append(f"{mutation.mid}: names {ac}, which is not in criteria.md")
+        if not mutation.paths:
+            defects.append(f"{mutation.mid}: no file paths in the diff — name them as `--- a/src/… / +++ b/src/…`")
+        for path in mutation.paths:
+            # `..` is checked, not assumed away: `src/../tests/test_x.py` starts with `src/` and
+            # lands in the test tree, which is precisely the one thing this rule exists to stop.
+            if not path.startswith("src/") or ".." in Path(path).parts:
+                defects.append(
+                    f"{mutation.mid}: patches {path} — a mutation may only patch `src/**`; mutating a "
+                    "test (or the spec) makes the suite fail for a reason that proves nothing"
+                )
+    covered = {ac for mutation in mutations for ac in mutation.ac_ids}
+    defects += [
+        f"{ac} is named by no mutation — every AC of a hardening change needs one (it is the only "
+        "proof of strength this class has)"
+        for ac in ac_ids
+        if ac not in covered
+    ]
+    return defects
+
+
+def apply_mutation(worktree: Path, diff: str) -> str | None:
+    """`git apply` the diff inside `worktree`; None on success, else git's own complaint."""
+    patch = diff if diff.endswith("\n") else diff + "\n"
+    proc = subprocess.run(
+        ["git", "-C", str(worktree), "apply", "--whitespace=nowarn", "-"],
+        input=patch,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode == 0:
+        return None
+    return (proc.stderr or proc.stdout).strip() or f"git apply exited {proc.returncode}"
+
+
+def judge_mutation(tree: Path, mutation: Mutation, ref: str) -> MutationOutcome:
+    """Run the suite with `mutation` applied in a throwaway worktree of `ref`.
+
+    An AC counts as KILLED only by a test that actually ran and went failed/errored. A skipped
+    or uncollected test is not a kill: a mutation that merely breaks an import makes everything
+    disappear, which says nothing about the strength of any assertion.
+    """
+    with worktree_at(tree, ref) as wt:
+        error = apply_mutation(wt, mutation.diff)
+        if error:
+            return MutationOutcome(mutation, error=f"the patch does not apply at {ref[:8]}: {error}")
+        try:
+            inventory = run_tests(wt)
+        except RedCheckError as exc:
+            return MutationOutcome(mutation, error=f"the mutated tree could not be tested: {exc}")
+    outcomes: dict[str, str] = inventory.get("outcomes", {})
+    ac_to_tests = map_ac_to_tests(list(mutation.ac_ids), inventory.get("markers", {}))
+    result = MutationOutcome(mutation)
+    for ac in mutation.ac_ids:
+        red = [nodeid for nodeid in ac_to_tests.get(ac, []) if outcomes.get(nodeid) in RED_OUTCOMES]
+        if red:
+            result.killed[ac] = red
+        else:
+            result.survived.append(ac)
+    return result
+
+
+def run_hardening_checks(
+    tree: Path, ac_ids: list[str], mutations: list[Mutation], ref: str = "HEAD"
+) -> HardeningResult:
+    """The `hardening` baseline: declaration hygiene, then GREEN-on-clean, then RED-on-mutation.
+
+    Every test run happens in a throwaway worktree of `ref` — the live work tree is never
+    patched, and no mutation can leak into another's world or into the repo.
+    """
+    result = HardeningResult(ac_ids=ac_ids, mutations=mutations)
+    result.declaration_defects = mutation_declaration_defects(ac_ids, mutations)
+    if result.declaration_defects:
+        return result  # nothing to run: the proof is not even declared
+
+    with worktree_at(tree, ref) as wt:
+        result.clean = analyze_green(ac_ids, run_tests(wt))
+        result.lint_failures = lint_tests(wt) if result.clean.ok else None
+    if not result.clean.ok or result.lint_failures:
+        return result  # a suite that is not green on clean code cannot prove anything by mutation
+
+    result.outcomes = [judge_mutation(tree, mutation, ref) for mutation in mutations]
+    return result
+
+
+def format_hardening_report(change_id: str, result: HardeningResult) -> str:
+    lines = [f"red_check (Class: {HARDENING_CLASS}): {change_id}", ""]
+    lines.append(f"criteria: {len(result.ac_ids)} AC ({', '.join(result.ac_ids) or 'none'})")
+    by_ac = {ac: [m.mid for m in result.mutations if ac in m.ac_ids] for ac in result.ac_ids}
+    for ac in result.ac_ids:
+        mutations = ", ".join(by_ac[ac]) or "none"
+        if result.clean is None:  # the declaration was refused — no test ever ran, so say so
+            lines.append(f"  [ -- ] {ac}: not run, mutations: {mutations}")
+            continue
+        tests = result.clean.ac_to_tests.get(ac) or []
+        mark = "OK  " if tests and by_ac[ac] else "MISS"
+        lines.append(f"  [{mark}] {ac}: {len(tests)} marked test(s), mutations: {mutations}")
+    if result.declaration_defects:
+        lines.append("MUTATION DECLARATION (change.md `## Mutations`) — FAILED:")
+        lines.extend(f"    {defect}" for defect in result.declaration_defects)
+    if result.clean is not None:
+        if result.clean.missing_acs:
+            lines.append(f"MISSING MARKER: {', '.join(result.clean.missing_acs)} — every AC needs an ac-marked test")
+        if result.clean.not_green:
+            lines.append("NOT GREEN ON CLEAN (a hardening change changes no behaviour, so its tests must PASS")
+            lines.append("against the unmutated code — a failure here is a real defect, not a red baseline):")
+            lines.extend(f"    {nodeid} [{outcome}]" for nodeid, outcome in result.clean.not_green)
+        else:
+            lines.append(
+                f"GREEN ON CLEAN: {len(result.clean.passed_tests)} ac-marked test(s) pass at the candidate commit"
+            )
+    for outcome in result.outcomes:
+        named = ", ".join(outcome.mutation.ac_ids)
+        if outcome.error:
+            lines.append(f"  [ERROR   ] {outcome.mutation.mid} ({named}): {outcome.error}")
+            continue
+        for ac, nodeids in outcome.killed.items():
+            lines.append(f"  [KILLED  ] {outcome.mutation.mid} {ac}: {', '.join(nodeids)}")
+        for ac in outcome.survived:
+            lines.append(
+                f"  [SURVIVED] {outcome.mutation.mid} {ac}: no ac-marked test went RED under this mutation — "
+                "the criterion's tests do not catch the wrong code this patch describes"
+            )
+    lines.append("")
+    lines.append(f"HARDENING-CHECK: {'MUTATION-CONFIRMED' if result.ok else 'FAILED'}")
+    if result.lint_failures is not None:
+        if result.lint_failures:
+            lines.append("")
+            lines.append("BASELINE LINT: FAILED — tests/** must be lint-clean before tagging (T09f):")
+            for block in result.lint_failures:
+                lines.extend(f"    {ln}" for ln in block.splitlines())
+        else:
+            lines.append("BASELINE LINT: clean (ruff-check + ruff-format over tests/)")
+    return "\n".join(lines)
+
+
+def rebaseline(
+    tree: Path, change_id: str, ac_ids: list[str], *, hardening_mutations: list[Mutation] | None = None
+) -> int:
+    """Move `baseline/<ctx>-NNN` onto HEAD after a TESTS-HANDBACK. Return a process exit code.
+
+    `hardening_mutations` is not None for a `Class: hardening` change: step (c) then asks that
+    class's question (GREEN-on-clean + RED-on-mutation) instead of redness — the same route the
+    first baseline takes, so a handback on a hardening change needs no hand `git tag -f` either.
+    """
     tag = "baseline/" + change_id.replace("/", "-")
     resolved = subprocess.run(["git", "-C", str(tree), "rev-parse", "--verify", tag], capture_output=True, text=True)
     if resolved.returncode != 0:
@@ -688,15 +1058,26 @@ def rebaseline(tree: Path, change_id: str, ac_ids: list[str]) -> int:
             + "\n".join(f"    {nodeid}" for nodeid in dropped)
         )
 
-    # (c) redness + AC coverage + lint, judged where `src/` is ABSENT: a worktree of HEAD
-    with worktree_at(tree, head) as wt:
-        inventory = apply_greenfield_fallback(wt, run_tests(wt), project_package(wt))
-        result = analyze(ac_ids, inventory)
-        lint_failures = lint_tests(wt) if result.ok else None
-    print(format_report(change_id, result, lint_failures))
-    print()
-    if not result.ok:
-        failures.append("the corrected tests are no longer a valid RED baseline (see above)")
+    # (c) the class's baseline property + AC coverage + lint, judged in a worktree of HEAD:
+    #     redness needs `src/` ABSENT there; the hardening pair needs the committed `src/` and
+    #     nothing else — either way the live tree (with the implementer's uncommitted src/) is
+    #     the wrong world to judge in, and both are judged in the same one.
+    if hardening_mutations is not None:
+        hardening = run_hardening_checks(tree, ac_ids, hardening_mutations, ref=head)
+        print(format_hardening_report(change_id, hardening))
+        print()
+        lint_failures = hardening.lint_failures
+        if not hardening.ok:
+            failures.append("the corrected tests are not a valid mutation-proved baseline (see above)")
+    else:
+        with worktree_at(tree, head) as wt:
+            inventory = apply_greenfield_fallback(wt, run_tests(wt), project_package(wt))
+            result = analyze(ac_ids, inventory)
+            lint_failures = lint_tests(wt) if result.ok else None
+        print(format_report(change_id, result, lint_failures))
+        print()
+        if not result.ok:
+            failures.append("the corrected tests are no longer a valid RED baseline (see above)")
     if lint_failures:
         failures.append("tests/** is still lint-dirty (see above)")
 
@@ -871,6 +1252,28 @@ def clear_escalate(tree: Path, change_id: str) -> int:
     return 0
 
 
+def finish_tagging(tree: Path, change_id: str, *, no_tag: bool, force: bool) -> int:
+    """The tail both baseline paths share: the tests-only screen, then the tag.
+
+    Class-independent on purpose — whatever proved the baseline (redness or mutation), the
+    commit being tagged must still touch `tests/**` only (anti-collusion, §4/D3)."""
+    if no_tag:
+        return 0
+    offenders = non_tests_paths(baseline_commit_paths(tree))
+    if offenders:
+        print(
+            "red_check: FAILED — the baseline commit wrote code — anti-collusion, §4/D3.\n"
+            "the baseline commit must touch tests/** only; these paths do not:",
+            file=sys.stderr,
+        )
+        for path in offenders:
+            print(f"    {path}", file=sys.stderr)
+        return 1
+    tag = tag_baseline(tree, change_id, force=force)
+    print(f"tagged baseline: {tag} -> HEAD")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Confirm the red baseline and tag it.")
     parser.add_argument("tree", nargs="?", default=".")
@@ -906,49 +1309,46 @@ def main(argv: list[str] | None = None) -> int:
         ac_ids = parse_ac_ids(criteria_path.read_text(encoding="utf-8"))
         if not ac_ids:
             raise RedCheckError(f"no AC-n items found in {criteria_path}")
+
+        # Which baseline property applies is the change's CLASS, read from change.md — the same
+        # file gate.py freezes at the baseline, so the declaration is attested (E-12).
+        change_md_path = change_dir / "change.md"
+        change_md = change_md_path.read_text(encoding="utf-8") if change_md_path.is_file() else ""
+        hardening = parse_change_class(change_md) == HARDENING_CLASS
+
         preflight_toolchain(tree, rebaseline=args.rebaseline)
         if args.rebaseline:
-            return rebaseline(tree, change_id, ac_ids)
+            return rebaseline(
+                tree,
+                change_id,
+                ac_ids,
+                hardening_mutations=parse_mutations(change_md) if hardening else None,
+            )
+        if hardening:
+            # No red phase: GREEN-on-clean + RED-on-mutation, judged in throwaway worktrees of
+            # HEAD (the candidate commit), then the same tests-only screen and tag as the red path.
+            result = run_hardening_checks(tree, ac_ids, parse_mutations(change_md))
+            print(format_hardening_report(change_id, result))
+            if not result.ok:
+                return 1
+            return finish_tagging(tree, change_id, no_tag=args.no_tag, force=args.force_tag)
+
         inventory = run_tests(tree)
         inventory = apply_greenfield_fallback(tree, inventory, project_package(tree))
+
+        red = analyze(ac_ids, inventory)
+
+        # The lint screen runs only after redness is confirmed (a not-yet-red baseline already
+        # fails); it is reported alongside the RED-CHECK verdict and blocks the tag on any finding.
+        lint_failures = lint_tests(tree) if red.ok else None
+        print(format_report(change_id, red, lint_failures))
+
+        if not red.ok or lint_failures:
+            return 1
+        return finish_tagging(tree, change_id, no_tag=args.no_tag, force=args.force_tag)
     except RedCheckError as exc:
         print(f"red_check: ERROR — {exc}", file=sys.stderr)
         return 2
-
-    result = analyze(ac_ids, inventory)
-
-    # The lint screen runs only after redness is confirmed (a not-yet-red baseline already
-    # fails); it is reported alongside the RED-CHECK verdict and blocks the tag on any finding.
-    lint_failures = lint_tests(tree) if result.ok else None
-    print(format_report(change_id, result, lint_failures))
-
-    if not result.ok:
-        return 1
-    if lint_failures:
-        return 1
-
-    if not args.no_tag:
-        try:
-            offenders = non_tests_paths(baseline_commit_paths(tree))
-        except RedCheckError as exc:
-            print(f"red_check: ERROR — {exc}", file=sys.stderr)
-            return 2
-        if offenders:
-            print(
-                "red_check: FAILED — the red-tests commit wrote code — anti-collusion, §4/D3.\n"
-                "the baseline commit must touch tests/** only; these paths do not:",
-                file=sys.stderr,
-            )
-            for path in offenders:
-                print(f"    {path}", file=sys.stderr)
-            return 1
-        try:
-            tag = tag_baseline(tree, change_id, force=args.force_tag)
-        except RedCheckError as exc:
-            print(f"red_check: ERROR — {exc}", file=sys.stderr)
-            return 2
-        print(f"tagged baseline: {tag} -> HEAD")
-    return 0
 
 
 if __name__ == "__main__":
