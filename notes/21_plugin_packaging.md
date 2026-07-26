@@ -231,7 +231,8 @@ forbidden outright.
   **T18** — a trust-model decision about which files are anchors, not a packaging one.
   **ANSWERED 2026-07-26 (T18):** `check_self_hash` now anchors the whole enforcement layer —
   `tools/*.py`, `hooks/*.py|json`, `bin/*.py`, `.claude-plugin/*.json`, `settings.json` (12 files
-  here), as globs so a new tool or hook is covered by construction. The other two protections are
+  when T18 landed, 13 since `tools/drift.py` — T17), as globs so a new tool or hook is covered by
+  construction, which is exactly what happened when the next tool arrived. The other two protections are
   unchanged and still blind in a consumer; what closes the chain is that `accept.py` re-runs the gate
   in-process, so **nothing merges while an anchor differs from HEAD**. The anchor set, the two hooks
   that have *no* post-hoc backstop (`subagent_stop`, `session_stop`) and the local-`HEAD` limit are

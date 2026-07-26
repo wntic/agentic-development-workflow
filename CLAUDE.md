@@ -162,7 +162,9 @@ path canonicalisation, SubagentStop blocking the implementer while the gate is r
 **hook-written and hook-committed** `ESCALATE` file at the iteration ceiling (`accept.py` denies
 while it exists *and* after a committed one disappears; only the human clears it, through
 `red_check --clear-escalate`). Hotfixes past the workflow are legal but not silent: `/spec --retro`
-+ the drift-check in `accept.py`/`/orient` (§5.5).
++ the drift-check `drift.py` runs for `/orient`, whose hotfix half `accept.py` prints after every
+`--execute` (§5.5). It **surfaces** and never denies — the one deterministic check in this workflow
+that is deliberately not a gate.
 
 ## v2 — archived
 
@@ -192,6 +194,8 @@ notes/21_plugin_packaging.md      # what ships, the release procedure, the measu
   tools/
     gate.py                       # "is it green" — the trust anchor            (planned, T04)
     accept.py                     # "may it merge" — acceptance preconditions   (planned, T05)
+    drift.py                      # "has anything drifted" — §5.5, surfaces, never denies (T17);
+                                  #   run by /orient, its hotfix half is accept.py's own
   hooks/                          # criteria-guard, bash-guard, stop-gates      (planned, T06)
     hooks.json                    #   the same wiring for an INSTALLED load; settings.json is the
                                   #   checked-out twin (a plugin cannot ship hooks in settings.json)

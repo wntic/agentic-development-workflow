@@ -1400,24 +1400,66 @@ def execute(actx: AcceptContext, plan: MergePlan) -> str:
     return drift_report(actx.tree, actx.base)
 
 
-def drift_report(tree: Path, base: str) -> str:
-    out = [f"drift-check on {base} (spec §5.5):"]
-    _, tags = _git(tree, "tag", "--list", "change/*")
+@dataclass
+class HotfixDrift:
+    """The hotfix half's answer: `determined` says whether the question was answered at all."""
+
+    status: str  # PASS | FLAG
+    determined: bool
+    lines: list[str]
+
+
+def hotfix_drift_lines(tree: Path, base: str) -> HotfixDrift:
+    """The hotfix half of §5.5: src commits on `base` reachable from no `change/*` tag.
+
+    Returns the status, whether it was determined, and the indented report lines, so both readers
+    use ONE implementation (C7): `drift_report` prints the lines after an `--execute`, and
+    `drift.py` — which owns the OpenAPI half because that half needs a constructed app, which this
+    script never builds — invokes this function instead of restating it.
+
+    The status is PASS or FLAG, never FAIL: a hotfix past the workflow is legal, it is only not
+    silent (`/adw:spec --retro` legalises it, §5.5). And nothing here raises — `drift_report` runs
+    AFTER the merge has already happened, so an unanswerable git question must degrade into a
+    reported unknown rather than a traceback over a completed acceptance.
+
+    Both git calls are therefore guarded rather than trusted: an unresolvable base or an unreadable
+    tag list yields an EMPTY commit list, which read as "every src commit is attached" — notes/19's
+    fail-open sentence in §5.5 clothes. The honest answer is that the question was not answered.
+    """
+    rc_tags, tags = _git(tree, "tag", "--list", "change/*")
+    rc_log, log = _git(tree, "log", base, "--format=%H", "--", "src")
+    if rc_tags != 0 or rc_log != 0:
+        failed = "git tag --list 'change/*'" if rc_tags != 0 else f"git log {base} -- src"
+        return HotfixDrift(
+            FLAG,
+            False,
+            [
+                f"  UNDETERMINED — {failed} failed in {tree}: the src-commit vs change-tag comparison",
+                "  did not run, which is NOT the same as 'no drift' (name the base with --base)",
+            ],
+        )
     tag_list = [t for t in tags.split() if t]
-    _, log = _git(tree, "log", base, "--format=%H", "--", "src")
     commits = [c for c in log.split() if c]
     unlinked = []
     for c in commits:
         if not any(_git(tree, "merge-base", "--is-ancestor", c, t)[0] == 0 for t in tag_list):
             unlinked.append(c)
-    if unlinked:
-        out.append(
-            f"  {len(unlinked)} src commit(s) not reachable from any change/* tag — possible hotfix drift (L-02/O-08):"
-        )
-        out += [f"    {c[:12]}" for c in unlinked[:20]]
-    else:
-        out.append("  every src commit is attached to a change/* tag")
-    out.append("  OpenAPI route⊆operation drift is surfaced by /orient (needs a constructed app); not re-run here")
+    if not unlinked:
+        return HotfixDrift(PASS, True, ["  every src commit is attached to a change/* tag"])
+    return HotfixDrift(
+        FLAG,
+        True,
+        [
+            f"  {len(unlinked)} src commit(s) not reachable from any change/* tag — possible hotfix drift (L-02/O-08):",
+            *[f"    {c[:12]}" for c in unlinked[:20]],
+        ],
+    )
+
+
+def drift_report(tree: Path, base: str) -> str:
+    out = [f"drift-check on {base} (spec §5.5):"]
+    out += hotfix_drift_lines(tree, base).lines
+    out.append("  OpenAPI route⊆operation drift needs a constructed app: `adw.py drift` (/adw:orient runs it)")
     return "\n".join(out)
 
 

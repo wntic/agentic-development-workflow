@@ -356,6 +356,41 @@ def _module_name(py_file: Path, src_root: Path) -> str:
     return ".".join(parts)
 
 
+def capability_files(tree: Path) -> list[Path]:
+    """The CANONICAL spec files of the tree: capability files + context overviews.
+
+    Excluded: `use-cases/` (BA sources, verbatim input material) and `changes/` (a delta living
+    on its own branch, deleted at acceptance). One home for the corpus rule (C7) — this gate's
+    invariant-provenance check and the §5.5 drift check must not disagree about which files are
+    the living spec.
+    """
+    specs = tree / "specs"
+    if not specs.is_dir():
+        return []
+    return [p for p in sorted(specs.rglob("*.md")) if "use-cases" not in p.parts and "changes" not in p.parts]
+
+
+def app_import_env(tree: Path) -> dict[str, str]:
+    """The environment under which the app's own modules are importable in a subprocess.
+
+    ONE home for the import conditions the tools give the app (C7): `resolve_context` builds the
+    gate's full env on top of this (it adds the injected pytest plugin + inventory path), and
+    `drift.py` reuses it to construct the app for its §5.5 route inventory. See the A4 note above
+    `plan_package_import` for why the `PYTHONPATH=src` injection stays and how the import claim is
+    checked with it stripped.
+    """
+    env = os.environ.copy()
+    for var in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "MYPYPATH"):  # E-05 class: caller-side suppression
+        env.pop(var, None)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    path_parts = [str(tree / "src")] if (tree / "src").is_dir() else []
+    if os.environ.get("PYTHONPATH"):
+        path_parts.append(os.environ["PYTHONPATH"])
+    if path_parts:
+        env["PYTHONPATH"] = os.pathsep.join(path_parts)
+    return env
+
+
 # ---------------------------------------------------------------------------------------
 # Context resolution: tree, change dir, baseline ref
 # ---------------------------------------------------------------------------------------
@@ -409,15 +444,10 @@ def resolve_context(tree: Path, change_arg: str | None, baseline_arg: str | None
         # a leftover artifact from a previous run must never back THIS run (E-07 freshness)
         (gate_dir / stale).unlink(missing_ok=True)
 
-    env = os.environ.copy()
-    for var in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "MYPYPATH"):  # E-05 class: caller-side suppression
-        env.pop(var, None)
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env = app_import_env(tree)
     path_parts = [str(plugin_dir)]
-    if (tree / "src").is_dir():
-        path_parts.append(str(tree / "src"))
-    if os.environ.get("PYTHONPATH"):
-        path_parts.append(os.environ["PYTHONPATH"])
+    if env.get("PYTHONPATH"):
+        path_parts.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = os.pathsep.join(path_parts)
     env["GATE_INVENTORY_PATH"] = str(gate_dir / INVENTORY_NAME)
 
@@ -1007,14 +1037,11 @@ def check_criteria(ctx: GateContext) -> list[Check]:
 
 
 def check_invariant_tests(ctx: GateContext) -> Check:
-    specs = ctx.tree / "specs"
-    if not specs.is_dir():
+    if not (ctx.tree / "specs").is_dir():
         return Check("spec.invariant-tests", "SKIP", "no specs/ in tree")
     lint = _criteria_lint()
     refs: list[tuple[Path, str]] = []
-    for path in sorted(specs.rglob("*.md")):
-        if "use-cases" in path.parts or "changes" in path.parts:
-            continue
+    for path in capability_files(ctx.tree):
         # A comment is not content (T10j). The criteria check strips HTML comments before
         # parsing; this one did not, so accept.py's capability birth — which copies the
         # template's own comment documenting the provenance form — handed the BASE branch a

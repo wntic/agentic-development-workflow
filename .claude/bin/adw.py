@@ -38,7 +38,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-DESCRIBE = "adw.py: locates and runs one of the workflow's tools (gate | accept | red-check | criteria-lint)."
+DESCRIBE = "adw.py: locates and runs one of the workflow's tools (gate | accept | red-check | criteria-lint | drift)."
 
 # Sub-command -> the tool it runs. The names are the vocabulary the commands/agents use; the
 # file names stay the tools' own (gate.py's identity is load-bearing for its self-hash, E-02).
@@ -47,6 +47,7 @@ TOOLS = {
     "accept": "accept.py",
     "red-check": "red_check.py",
     "criteria-lint": "criteria_lint.py",
+    "drift": "drift.py",
 }
 
 

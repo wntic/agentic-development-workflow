@@ -1152,8 +1152,13 @@ def test_anchor_globs_pick_the_deciders_and_leave_the_rest(tmp_path: Path) -> No
     ]
 
 
-def test_this_repos_own_plugin_tree_anchors_all_twelve_files() -> None:
-    """The live set, so that adding a tool/hook without anchoring it cannot pass unnoticed."""
+def test_this_repos_own_plugin_tree_anchors_every_decider() -> None:
+    """The live set, so that adding a tool/hook without anchoring it cannot pass unnoticed.
+
+    It fired as designed when `tools/drift.py` landed (T17): the glob anchored the new tool by
+    construction and this list had to be told about it, which is the review moment the set exists
+    to force. Keep the count out of the test NAME — it drifts, the list does not.
+    """
     root = gate.plugin_root()
     assert root == TOOLS_DIR.parent
     anchors = set(gate.self_integrity_anchors(gate._worktree_anchor_candidates(root)))
@@ -1162,6 +1167,7 @@ def test_this_repos_own_plugin_tree_anchors_all_twelve_files() -> None:
         "tools/criteria_lint.py",
         "tools/accept.py",
         "tools/red_check.py",
+        "tools/drift.py",
         "hooks/bash_guard.py",
         "hooks/criteria_guard.py",
         "hooks/subagent_stop.py",
