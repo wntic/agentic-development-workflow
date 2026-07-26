@@ -282,7 +282,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   precondition failure must be legible to whoever can act on it** — a swallowed diagnostic is the
   same defect as none, and worse here because the agent retries. From T12b findings 1–2.
   Depends: T12b, T06, T09f, T06c.
-- [ ] T17 — `/orient` still defers its §5.5 drift-check as *planned (T05/T10)* and says "skip that
+- [x] T17 — `/orient` still defers its §5.5 drift-check as *planned (T05/T10)* and says "skip that
   step" — but both shipped. Worse, the two sides point at each other: `accept.py`'s `--execute`
   report ends with *"OpenAPI route⊆operation drift is surfaced by /orient"*, while `/orient` waits
   for `accept.py` to arrive. **Nobody runs the OpenAPI half.** The hotfix half (base src-commits with
