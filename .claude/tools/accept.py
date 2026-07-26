@@ -13,6 +13,8 @@ Usage:
 
   check mode (default): run every gate, print the results AND the prepared merge diff for
                         the human. Touches nothing.
+  --base <branch>:      the S9 base branch. Omitted, it is DERIVED from the branch graph
+                        (derive_base below) — never defaulted to a guessed name (T10g).
   --execute:            perform the post-approval actions (§5.4) ONLY when no gate FAILs —
                         merge criteria into capability invariants, merge the branch to the
                         base, tag, delete the change dir, then run and print the §5.5 drift
@@ -57,6 +59,11 @@ determine its input now says so in its return type — `Targets.known`, `Provena
 loud `AcceptError` for an unusable git result — and `GATES` below registers each gate's
 direction, walked by `test_no_gate_passes_on_undetermined_input` so a gate added later is
 covered by construction.
+
+The S9 base branch is the same kind of input, one level up: it feeds EVERY `base...HEAD` diff,
+so a guessed base is a wrong answer to every gate that reads one. It is therefore derived from
+the branch graph and never defaulted to a name (T10g, derive_base) — an underivable base is a
+loud `AcceptError`, not a fallback.
 
 Stdlib-only. gate.py and criteria_lint.py are imported from this directory — the criteria
 grammar and the junit-backing checker have exactly one home (C7).
@@ -713,9 +720,73 @@ class AcceptContext:
     change_md: str
     criteria_text: str
     verdict_text: str | None
+    base_derived: bool = False
 
 
-def resolve(tree: Path, change_id: str, base: str) -> AcceptContext:
+# `change/<context>-NNN` is the workflow's own branch name (S9). A change branch is never the
+# thing another change merges INTO, so it is never a base candidate — and the acceptance run
+# itself is usually detached at, or standing on, exactly such a branch.
+CHANGE_BRANCH_PREFIX = "change/"
+
+
+def _is_ancestor(tree: Path, older: str, newer: str) -> bool:
+    rc, _ = _git(tree, "merge-base", "--is-ancestor", older, newer)
+    if rc > 1:  # 0 = yes, 1 = no, anything else = git could not answer (undetermined input)
+        raise AcceptError(f"git merge-base --is-ancestor {older} {newer} failed in {tree}")
+    return rc == 0
+
+
+def derive_base(tree: Path) -> str:
+    """The S9 base branch of whatever is checked out at HEAD, read off the branch graph.
+
+    There is no default base name to fall back on: `main` is right for most projects and wrong
+    for this one (its S9 base is `markdown-specs`; `main` is the v2 archive), a consumer project
+    may be on `master` or `trunk`, and `origin/HEAD` records the *repo's* default branch, not the
+    branch this change was cut from — this repo is the counterexample to both (T10g). Hardcoding
+    any of them is the C6 scope-overclaim, and a wrong base silently re-answers every
+    `base...HEAD` gate.
+
+    What IS knowable is what S9 actually says: a change branch is cut from its base and merges
+    back into it, so the base is the branch whose fork point with HEAD is the most recent —
+    every other branch's history joins HEAD's further back. Ambiguity (two branches equally
+    close, or nothing sharing history) is reported, never guessed: the human passes --base.
+    """
+    rc, out = _git(tree, "symbolic-ref", "--quiet", "--short", "HEAD")
+    current = out.strip() if rc == 0 else ""  # empty on a detached HEAD (a worktree acceptance)
+    rc, out = _git(tree, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    if rc != 0:
+        raise AcceptError(f"git for-each-ref refs/heads failed in {tree} — cannot derive the S9 base branch")
+    candidates = [
+        name
+        for name in (line.strip() for line in out.splitlines())
+        if name and name != current and not name.startswith(CHANGE_BRANCH_PREFIX)
+    ]
+    forks: dict[str, str] = {}
+    for name in candidates:
+        rc, out = _git(tree, "merge-base", "HEAD", name)
+        if rc == 0 and out.strip():
+            forks[name] = out.strip()
+    if not forks:
+        raise AcceptError(
+            f"the S9 base branch could not be derived in {tree}: no local branch outside "
+            f"'{CHANGE_BRANCH_PREFIX}*' shares history with HEAD — name it with --base <branch>"
+        )
+    # Keep the branches whose fork point nothing else's fork point descends from.
+    nearest = sorted(
+        name
+        for name, fork in forks.items()
+        if not any(other != fork and _is_ancestor(tree, fork, other) for other in forks.values())
+    )
+    if len(nearest) != 1:
+        detail = ", ".join(f"{name} (forked at {forks[name][:12]})" for name in nearest)
+        raise AcceptError(
+            f"the S9 base branch could not be derived in {tree}: {detail} are equally close to "
+            "HEAD — name the one to accept into with --base <branch>"
+        )
+    return nearest[0]
+
+
+def resolve(tree: Path, change_id: str, base: str | None) -> AcceptContext:
     m = re.fullmatch(r"([A-Za-z0-9_-]+)/(\d+)", change_id)
     if not m:
         raise AcceptError(f"change id must look like <context>/NNN, got {change_id!r}")
@@ -731,8 +802,11 @@ def resolve(tree: Path, change_id: str, base: str) -> AcceptContext:
     verdict_path = change_dir / VERDICT_BASENAME
     # The base must resolve BEFORE any gate runs: every `base...HEAD` diff below is a gate's
     # EVIDENCE, and an unresolvable base used to yield an empty diff that read as "nothing
-    # intersects" — one CLI typo turning an L-04 deny into ACCEPTABLE (T10f F-01). The default
-    # is `main`; a repo whose S9 base is named otherwise must be told with --base.
+    # intersects" — one CLI typo turning an L-04 deny into ACCEPTABLE (T10f F-01). With no
+    # --base the base is derived from the branch graph, loudly (T10g) — never guessed by name.
+    base_derived = base is None
+    if base is None:
+        base = derive_base(tree)
     if _git(tree, "rev-parse", "--verify", f"{base}^{{commit}}")[0] != 0:
         raise AcceptError(
             f"base branch {base!r} does not resolve to a commit in {tree} — pass the S9 base with "
@@ -752,6 +826,7 @@ def resolve(tree: Path, change_id: str, base: str) -> AcceptContext:
         change_md=change_md_path.read_text(encoding="utf-8"),
         criteria_text=criteria_path.read_text(encoding="utf-8"),
         verdict_text=verdict_path.read_text(encoding="utf-8") if verdict_path.exists() else None,
+        base_derived=base_derived,
     )
 
 
@@ -1254,13 +1329,14 @@ def drift_report(tree: Path, base: str) -> str:
 # ---------------------------------------------------------------------------------------
 
 
-def run(tree: Path, change_id: str, base: str, do_execute: bool, placement: dict[str, str] | None = None) -> int:
+def run(tree: Path, change_id: str, base: str | None, do_execute: bool, placement: dict[str, str] | None = None) -> int:
     actx = resolve(tree, change_id, base)
     results = prechecks(actx)
     plan: MergePlan | None = None
     gate_blocked = any(r.status == FAIL for r in results)
 
-    print(f"accept.py — {actx.change_id} on branch {actx.branch} (base {actx.base}, HEAD {actx.head[:12]})")
+    how = " (derived)" if actx.base_derived else ""
+    print(f"accept.py — {actx.change_id} on branch {actx.branch} (base {actx.base}{how}, HEAD {actx.head[:12]})")
     print()
 
     if gate_blocked:
@@ -1328,7 +1404,13 @@ def main(argv: list[str] | None = None) -> int:
         "(with --execute) merge criteria into capability invariants and the branch into the base.",
     )
     parser.add_argument("change", metavar="CTX/NNN", help="change id, e.g. meetings/003")
-    parser.add_argument("--base", default="main", help="the S9 base branch to merge into (default: main)")
+    parser.add_argument(
+        "--base",
+        default=None,
+        help="the S9 base branch to merge into; omitted, it is derived from the branch graph "
+        "(the branch whose fork point with HEAD is the most recent) and an ambiguous or "
+        "underivable base is an error, never a guess",
+    )
     parser.add_argument("--execute", action="store_true", help="perform the post-approval actions when no gate FAILs")
     parser.add_argument("--tree", default=".", help="work-tree root (default: cwd)")
     parser.add_argument(

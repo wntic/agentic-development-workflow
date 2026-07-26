@@ -13,8 +13,8 @@ relay its verdict; where a gate is not the script's, this command says whose it 
 
 Trust is `accept.py` re-running `gate.py` against the git baseline, not what any prior agent
 reported (S8). You never hand-edit `src/**`, `tests/**`, or the canonical capability files —
-writing invariants into the spec is `accept.py`'s job alone (§5.4), and `main` receives only the
-green merge it performs (S9).
+writing invariants into the spec is `accept.py`'s job alone (§5.4), and the base branch receives
+only the green merge it performs (S9).
 
 ## 0. Orient
 
@@ -27,6 +27,12 @@ If the change is not yet through `/implement` (no `verdict.md`), stop and say so
 ```
 uv run .claude/tools/accept.py <context>/NNN
 ```
+
+No `--base`: `accept.py` derives the S9 base branch from the branch graph (the branch this change
+was cut from) and names it in its header line — `base <branch> (derived)`. **Read that line** — it
+is what every gate judged against. If the derivation is ambiguous or finds nothing, the script
+refuses loudly rather than guessing; then, and only then, ask the human which branch is the base
+and pass `--base <branch>` — here **and** in step 6, identically.
 
 This runs the deterministic §5.4 preconditions and prints the prepared merge diff without
 touching anything: criteria complete + junit-backed, `gate.py` GREEN re-run on the branch,

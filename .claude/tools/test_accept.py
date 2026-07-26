@@ -1231,6 +1231,88 @@ def _spec_lint_result(root: Path):
     return accept._spec_lint(_mini_ctx(root))
 
 
+# ---------------------------------------------------------------------------------------
+# T10g — the S9 base is DERIVED, never a hardcoded name
+#
+# `/accept-change` runs the script with no --base, and the old default `main` is wrong for
+# this very repo (S9 base `markdown-specs`) and for any project on `master`/`trunk`. A wrong
+# base silently re-answers every `base...HEAD` gate — and a wrong base that does not resolve
+# is exactly F-01's path. So: derive it, or say loudly that it could not be derived.
+# ---------------------------------------------------------------------------------------
+
+
+def test_base_is_derived_when_the_flag_is_absent(repo: FixtureRepo) -> None:
+    """The command's documented invocation — no --base — must reach the same verdict as
+    `--base main` did, and say which base it derived."""
+    proc = repo.accept("demo/001")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "base main (derived)" in proc.stdout
+    assert "verdict: ACCEPTABLE" in proc.stdout
+
+
+def test_derivation_follows_the_graph_not_the_name_main(repo: FixtureRepo) -> None:
+    """The load-bearing case: a project whose integration branch is not called `main`. Nothing
+    in the derivation may know that name (C6) — the fork point decides."""
+    repo.git("branch", "-m", "main", "trunk")
+    proc = repo.accept("demo/001")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "base trunk (derived)" in proc.stdout
+    assert "verdict: ACCEPTABLE" in proc.stdout
+
+
+def test_derivation_prefers_the_nearest_fork_over_an_older_base(repo: FixtureRepo) -> None:
+    """This repo's own shape: `main` is behind the live integration branch, which carries the
+    fork the change was actually cut from. Both share history with HEAD; the nearer one wins."""
+    repo.git("checkout", "-q", "main")
+    repo.write("notes.md", "the integration branch moved on after main\n")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "integration branch commit")
+    repo.git("branch", "integration")
+    repo.git("reset", "-q", "--hard", "HEAD~1")  # main stays behind; `integration` keeps the tip
+    repo.git("checkout", "-q", "change/demo-001")
+    repo.git("rebase", "-q", "integration")
+    assert accept.derive_base(repo.root) == "integration"
+
+
+def test_derivation_ignores_change_branches_including_the_detached_one(repo: FixtureRepo) -> None:
+    """The acceptance run usually stands on (or is detached at) a `change/*` branch — whose fork
+    point with HEAD is HEAD itself, so it would win every comparison. S9's own branch name is the
+    one thing the derivation is allowed to know."""
+    repo.git("branch", "change/demo-002")
+    repo.git("checkout", "-q", "--detach")
+    assert accept.derive_base(repo.root) == "main"
+
+
+def test_ambiguous_base_is_an_error_not_a_guess(repo: FixtureRepo) -> None:
+    """Two branches equally close to HEAD: the base is undetermined, and an undetermined input
+    that feeds every gate may not be guessed (the T10f rule, one level up)."""
+    repo.git("branch", "release", "main")
+    proc = repo.accept("demo/001")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "could not be derived" in proc.stderr
+    assert "main" in proc.stderr and "release" in proc.stderr
+    assert "--base" in proc.stderr
+    assert "verdict:" not in proc.stdout
+
+
+def test_no_candidate_branch_is_an_error(repo: FixtureRepo) -> None:
+    """Nothing but the change branch itself: there is no base to accept into, and the run says
+    so instead of judging the change against a branch it invented."""
+    repo.git("branch", "-D", "main")
+    with pytest.raises(accept.AcceptError) as excinfo:
+        accept.derive_base(repo.root)
+    assert "no local branch outside 'change/*' shares history" in str(excinfo.value)
+
+
+def test_explicit_base_still_wins(repo: FixtureRepo) -> None:
+    """--base is not deprecated: it is the remedy the derivation's error messages point at."""
+    repo.git("branch", "release", "main")  # derivation alone would be ambiguous here
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "base main," in proc.stdout and "(derived)" not in proc.stdout
+    assert "verdict: ACCEPTABLE" in proc.stdout
+
+
 def test_help_lists_flags() -> None:
     proc = subprocess.run([sys.executable, str(TOOLS_DIR / "accept.py"), "--help"], capture_output=True, text=True)
     assert proc.returncode == 0
