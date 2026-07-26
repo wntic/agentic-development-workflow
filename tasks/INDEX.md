@@ -152,7 +152,23 @@ theme (thin `SKILL.md` router + one `<topic>.md` per artifact, read on demand). 
 - [ ] T14 — Split the over-threshold skills into router + topic files per T13, losing no paid-for
   line. `test_skill_catalog.py` is the unedited oracle (`rglob("*.md")` already covers bundled
   files). Frontmatter moved verbatim. On-demand-read reliability confirmed only in an e2e probe.
-  Depends: T13.
+  **Threshold ruled by T13: size only, >~500 lines** — so `restapi` 1256, `testing-integration` 1792,
+  `testing-unit` 1045, `infra-persistence` 733, `application` 585, `infra-integration` 537 split and
+  nothing else. T13 deliberately dropped the "> 3 artifacts" half of my suggested threshold because it
+  **contradicted this task's own candidate list**: `domain-model` is 449 lines with 5 artifacts, so that
+  half would have split a skill T14 says to leave alone. Also carries two sweeps T13 found unowned:
+  `CLAUDE.md`'s "every skill follows the four-section body" (and its stale 44→13 line), and the two
+  agent prompts that name `testing-unit` as "the one home" for content that will live in a file
+  auto-invocation does not inject. Depends: T13.
+- [ ] T13b — **the skill-format contract has no gate — by S4's litmus it is prose.** Nothing checks that
+  a topic file lacks frontmatter, that every topic is pointed at, that a pointer resolves, or that a
+  pointer reads as an instruction rather than a summary — the last being the only thing between shape 2
+  and an agent writing an artifact from the router's paraphrase. T14's Verification greps them **once,
+  by hand**, and then never again; `test_skill_catalog.py` cannot host them (it is T07's untouched oracle
+  and asserts content signatures, not format). Carries a second T13 finding: that oracle's `rglob` pulls
+  **`CONVENTIONS.md` itself** into the guarded corpus, so a paid-for needle could be satisfied by the
+  *format document* — prefer documenting over editing the oracle. **Run after T14**, or the guard pins an
+  empty set. Depends: T13, T14, T07.
 
 ### Post-`/implement platform/001` friction fixes (2026-07-24 agent-report analysis)
 
