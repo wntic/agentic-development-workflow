@@ -57,6 +57,15 @@ implementer is tool-blocked from `pyproject.toml`). Before you commit the tests-
    `pyproject.toml` is unchanged from baseline through evaluation and the gate's frozen-tree
    integrity check never bites.
 
+**`red_check` screens every commit before the baseline, not just the one it tags (T09i).** From the
+commit that created the change directory up to and including the baseline, each commit may touch only
+`tests/**`, `pyproject.toml`/`uv.lock`, or `specs/**` — and the **tagged** commit may touch `tests/**`
+alone. So the sanctioned shape is exactly three commits: `/adw:spec`'s change-dir commit, your `deps:`
+commit, then your tests-only commit. **Anything else committed on the branch before the baseline is
+refused, and the refusal names the path** — a `README`, a `.gitignore`, a stray script or a
+`src/**` file will stop the tagging rather than sliding through. If you genuinely need one of those,
+that is a stop-and-surface, not something to fold into a commit that will be refused.
+
 A dependency the change genuinely turns out to need but you missed is surfaced later by the
 implementer as a **CONTRACT-CHANGE** (it cannot `uv add`), which routes back to you.
 - The relevant skills auto-load by topic. For unit tests read **`testing-unit`** (assert

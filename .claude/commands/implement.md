@@ -78,7 +78,14 @@ the not-yet-written package counts as RED via the fallback), then tags `baseline
 on the tests-only red commit — the integrity baseline the whole cycle checks against (spec §5.1).
 The `deps:` commit is earlier, so `pyproject.toml` is unchanged from baseline through evaluation
 and the gate's frozen-tree check never bites. Do not proceed until `red_check` is green and the
-baseline tag exists. If the test-author reports an **`[m]`-candidate** (an AC no test can
+baseline tag exists.
+
+It also screens **every commit from the change dir's creation up to the baseline**, not only the one
+it tags (T09i): each may touch `tests/**`, `pyproject.toml`/`uv.lock` or `specs/**`, and the tagged
+one `tests/**` alone. So the sanctioned shape is three commits — `/adw:spec`'s, the `deps:` one, the
+tests-only one — and anything else committed on the branch beforehand is **refused with the path
+named**. If that fires, it is a genuine finding about what the test-author committed, not a
+`red_check` defect: route it back to step 1, do not work around it. If the test-author reports an **`[m]`-candidate** (an AC no test can
 cover), carry it forward: the evaluator will mark it MANUAL-candidate and only the human sets
 `[m]`.
 
