@@ -350,7 +350,35 @@ What it surfaced is below. Every claim re-derived from source before filing.
   lives (today it is not packaging-faithful to a consumer project — which is how T12b's A4 hole
   survived), and the rule for what is excluded from the shipped plugin. Escalate with a layout
   before writing code. Depends: T12b; coordinate with T11. Supersedes the `plugin-packaging-plan`
-  note. Depends: T12b.
+  note.
+  **ESCALATED then RESOLVED (2026-07-26).** Layout C approved: **`.claude/` *is* the plugin root and
+  not one file moves**, so the gate's `PROTECTED_PATHS` and the guard's fragments stay literally true
+  and unedited. Five decisions settled in the task file: **D1** the namespaced `agent_type` fix folds
+  in (see below — it is the reason this escalation paid for itself); **D2** plugin name `adw`, rename
+  sweep scoped to `.claude/**` only, since by ship-by-location a consumer reads nothing outside it;
+  **D3** two homes for hook wiring (a plugin cannot ship hooks in `settings.json`), pinned by an
+  equivalence test rather than a comment (S4); **D4** a `bin/` shim, required to work uninstalled;
+  **D5** deferred to **T18**. Distribution is a *correctness* requirement, measured: release via
+  `git subtree split --prefix=.claude` with a **whole-repo** marketplace source — a `git-subdir`
+  source is a content copy with no `.git`, and `check_self_hash` then FAILs, turning **every gate run
+  in every consumer RED**. The obvious packaging choice was the broken one.
+  **D1, the finding that justifies the whole dispatch:** plugin-shipped agents get a **namespaced**
+  `agent_type` (`adw:implementer`), while `subagent_stop.py:55/173` compares against bare
+  `"implementer"` and `bash_guard.ROLE_OWNED` (`:121-125`) is keyed on bare names. Shipped as-is the
+  implementer would **never be held on a RED gate** (T06c dead) and all three cycle roles would
+  **lose their owned-tree write path** (T06d dead) — silently, and invisible to every test in this
+  repo. Verified in source.
+- [ ] T18 — **Once installed, almost nothing protects the plugin's own files.** Measured across T16
+  F-02 and T15's probes: the plugin lives outside the consumer repo, so `bash_guard` **allows** writes
+  to its `tools/`/`hooks/`/`plugin.json` (targets resolve outside the anchored root — by design,
+  T06e), and `integrity.protected-trees` diffs paths that do not exist in the consumer tree, passing
+  **vacuously**. All that remains is `check_self_hash`, covering `gate.py` + `criteria_lint.py`
+  **alone** — `accept.py`, `red_check.py`, the four hooks and `plugin.json` itself are unprotected,
+  and `plugin.json` names the components, so tampering with it silently unhooks everything. Not a
+  packaging defect (T15's layout is right); an unanswered trust-model question — *which files are
+  anchors, and what does the gate do when it cannot vouch for one?* One sub-question is worth more
+  than the fix: what backstops each hook in a consumer, where the honest answer may be "nothing".
+  Depends: T15, T04, T04e/T06h.
 
 **CANON EDIT LANDED — §9's `uv init` → `uv init --package` (2026-07-26, author-authorised).**
 `workflow_v3_spec.md:591` said a new project is «просто `uv init`… откуда выводится корень пакета

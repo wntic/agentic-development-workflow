@@ -1,5 +1,88 @@
 # T15 — Split the shipped plugin from the trial harness
 
+---
+
+## ESCALATION RESOLVED — author's decisions, 2026-07-26
+
+The first dispatch escalated with a measured layout proposal and five open decisions. **Layout C is
+approved as proposed: `.claude/` *is* the plugin root, and not one file moves** — so `gate.py`'s
+`PROTECTED_PATHS` and `bash_guard`'s `PROTECTED_FRAGMENTS` stay literally true and unedited, and the
+new `hooks/hooks.json` lands inside an already-protected tree for free. Read the first dispatch's
+probe table before starting; it is measured fact (Claude Code 2.1.220), not assumption.
+
+**Distribution is a correctness requirement, not a preference (its finding 4).** Release by
+`git subtree split --prefix=.claude` into a standalone plugin repo, and use a **whole-repo**
+marketplace source (`github`/`url`) — **never `git-subdir`**. Measured: a whole-repo clone keeps
+`.git` in the cache so `check_self_hash` passes; a subdirectory source is a content copy with no
+`.git`, and E-02 then returns *"gate.py is not inside a git repository"* → **every gate run in every
+consumer goes RED**. `check_self_hash` needs no change: it computes `relative_to(top)` at runtime, so
+`tools/gate.py` in the split repo works exactly as `.claude/tools/gate.py` does here — and verifies
+against the *published* commit, a strictly stronger anchor.
+
+**D1 — namespaced `agent_type`: (a), fold into T15, in its own commit.** Verified in source:
+`subagent_stop.py:55` pins `IMPLEMENTER_AGENT = "implementer"` and compares at `:173`; `bash_guard`'s
+`ROLE_OWNED` (`:121-125`) is keyed on bare role names. Shipped as a plugin the payload carries
+`adw:implementer`, so the implementer is **never held on a RED gate** (T06c dead) and all three cycle
+roles **lose their owned-tree write path** (T06d dead) — both silently, invisible to every test here.
+Shipping without this removes two enforcement guarantees, so it is not a follow-up. Fix: compare on
+`agent_type.rsplit(":", 1)[-1]` in **both** hooks, and test **both** the bare and namespaced forms —
+the bare form must keep working, because this repo loads via project config, not as a plugin.
+
+**D2 — plugin name `adw`; the rename sweep is scoped to `.claude/**` and nothing else.** Measured:
+a bare `/probe-cmd` is `Unknown command`; only `/<plugin>:<name>` resolves. So in a consumer the
+commands are `/adw:spec`, `/adw:implement`, `/adw:accept-change`, `/adw:abandon`, `/adw:orient`.
+By the ship-by-location rule below, **a consumer never reads anything outside `.claude/`** — so
+`CLAUDE.md`, `tasks/`, `notes/` and both spec docs stay bare, and only cross-references *inside*
+`.claude/**` (a command naming another command, an agent naming a command) get the namespaced form.
+Where a shipped file must name a command, write it so both forms are legible to a reader
+(`/adw:implement` — bare `/implement` when the workflow is loaded from project config, as in the
+workflow's own repo). Do not attempt to make this repo load via the plugin as well: the first
+dispatch is right that enabling both at once **double-fires every hook**.
+
+**D3 — confirmed: two homes for the hook wiring, pinned by a test.** A plugin cannot ship hooks in
+`settings.json` (it honours only `agent` / `subagentStatusLine`), so `.claude/settings.json` (dev,
+`$CLAUDE_PROJECT_DIR`) and `.claude/hooks/hooks.json` (shipped, `${CLAUDE_PLUGIN_ROOT}`) must both
+exist. The duplication is forced by the platform, so it gets a **guard, not a comment** (S4): a test
+in `.claude/tools/` that maps one form onto the other and FAILs on drift.
+
+**D4 — (b) the `bin/` shim, with one added requirement.** One invocation form, identical in dev and
+installed, and it preserves hat 2 (the *project's* venv, so `sys.executable -m mypy` still sees the
+app). It also sidesteps the unverified question of whether `${CLAUDE_PLUGIN_ROOT}` expands inside
+`commands/*.md`. **Added requirement: the shim must work uninstalled**, i.e. when
+`CLAUDE_PLUGIN_ROOT` is unset it resolves the tools directory from its own location (`$0`), so the
+workflow's own repo keeps working. `subagent_stop.run_gate`'s hardcoded
+`root/".claude"/"tools"/"gate.py"` becomes `CLAUDE_PLUGIN_ROOT`-first with the current path as
+fallback, same rule.
+
+**D5 — (a) filed as a follow-up (T18), not done here.** Once installed, the plugin lives outside the
+consumer repo: `bash_guard` allows writes to it (targets resolve outside the root) and
+`integrity.protected-trees` diffs paths that do not exist there, passing **vacuously**. The only
+protection left is `check_self_hash`, which covers `gate.py` + `criteria_lint.py` **alone** —
+`accept.py`, `red_check.py`, all four hooks and `plugin.json` itself (tamper with it and everything
+unhooks) are unprotected. Extending `SELF_INTEGRITY_FILES` is a trust-model decision about which
+files are anchors, not a packaging one, and this task's Out-of-scope forbids gate changes.
+
+**Deliverable 2 (hat 3):** as proposed — the root `pyproject.toml` **stays** and becomes single-hat,
+with a rewritten header and a **guard test** that FAILs if it grows `[build-system]`, a non-empty
+`dependencies`, or any app-substrate name. The first dispatch is right that the acceptance test
+("delete `src/` → `pytest .claude/tools/` green") passes today *by accident*; the deliverable is
+turning that accident into an enforced rule. Rejecting `.claude/pyproject.toml` is accepted.
+
+**Deliverable 3 (where a trial lives):** as proposed — **out of this repo entirely**, in T16's
+sibling venue. Note honestly (its finding 9) that the rule is not fully honest until
+`change/users-002` and `backup/users-002-prerebase` are accepted or abandoned; **state that in the
+report, do not delete them.**
+
+**Deliverable 4 (exclusion rule):** as proposed — **ship-by-location: the plugin root is `.claude/`,
+a file ships iff it lives under it.** The meta layer's `test_*.py` + `fixtures/` therefore ship
+(~250 KB, accepted: it lets a consumer re-verify the enforcement scripts, and excluding them would
+separate the tests from the code they test). `.claude/settings.json` ships but is inert for a
+consumer.
+
+Also: the manifest must carry an `author` field — `claude plugin validate --strict` fails without it.
+
+---
+
 ## Goal
 `pyproject.toml` at the repo root wears **three hats at once**, and only one of them ever ships:
 
@@ -86,8 +169,11 @@ Shape to be decided as part of the task, but it must answer all four:
 - Do NOT move the toolchain out of the consumer's project (hat 2). It is where it must be; the
   reasoning is in the Goal, and getting this backwards would break every gate run in every consumer.
 - Do NOT change what any gate checks. This moves files and fixes paths; a behavioural change to
-  `gate.py`/`accept.py` riding along in this task would be invisible in the diff noise.
-- **Escalate before writing code** with a proposed layout. This is a repository restructure with
-  several defensible shapes, and it touches the hook paths that every enforcement guarantee rests on
-  — the wrong call is expensive to unwind. Bring the trial-app decision explicitly; it is the one
-  that determines whether future trials test the real artifact.
+  `gate.py`/`accept.py` riding along in this task would be invisible in the diff noise. **The one
+  sanctioned exception is D1** — the namespace-tolerant `agent_type` comparison in the two hooks,
+  which restores existing guarantees rather than adding a new check, and lands in its own commit.
+- ~~**Escalate before writing code** with a proposed layout~~ — **discharged.** The layout and all
+  five decisions are settled above. Do **not** escalate again on shape. Escalate only if a specific
+  decision cannot be implemented as written, and say which and why.
+- Do NOT extend `SELF_INTEGRITY_FILES` (that is T18) and do NOT delete `change/users-002` or
+  `backup/users-002-prerebase` (report the caveat instead).
