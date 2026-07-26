@@ -174,6 +174,32 @@ What it surfaced is below. Every claim re-derived from source before filing.
   dedupe on a repeated ref). **Sequencing:** off the acceptance path — T10f edits the very script that
   must judge `users/002`, and batching it early saves no rebase (after acceptance nothing is in
   flight), so run it AFTER `users/002` merges. Depends: T10e.
+  **ESCALATED then RESOLVED (2026-07-26).** The audit ran and fired this task's own `>~3` stop
+  condition: **7 fail-open paths**, one root cause. Register (deliverable 1) is DONE —
+  `notes/19_accept_gate_audit.md`, commit `d24d51b`. Author's decision: **approach (b)** — a
+  validated-input layer making "input could not be determined" representable, plus the enforced rule
+  *"a gate whose input could not be determined returns FAIL if it guards trust, FLAG if it is a review
+  aid — never PASS, never absent from the report"*, pinned by a parametrised
+  `test_no_gate_passes_on_undetermined_input` that walks the gate list so a future gate is covered by
+  construction. Not (a)/seven patches — the register's finding 11 is the argument: `gate.py` guards
+  every integrity `_git` call, `accept.py` guards neither diff that produces a gate's evidence, and
+  the three sites that do have the reflex got it from whoever wrote them (one added by T10d only
+  after it fell over in production). Directions decided in the task file; the severest is **F-06** —
+  provenance degrading to `(verified by: ?)` makes `--execute` merge spec content that turns the base
+  branch's own gate RED, i.e. the acceptance script breaking S9.
+- [ ] T04e — `ESCALATE` is deletable by an agent, so §5.3's "only the human removes it" is prose, not
+  a rule (S4 litmus: `gate.py` sees nothing). The change dir is not in `gate.py`'s `PROTECTED_PATHS`,
+  so the agent that hit its iteration ceiling can unlock itself. Make the *disappearance* of the file
+  gate-failing against the baseline — NOT by protecting the whole change dir, which would deadlock
+  the cycle (`criteria.md` flips and `verdict.md` writes are legal traffic). From T10f's register,
+  finding 10. Depends: T04, T06, T10f.
+- [ ] T10g — `/accept-change` never passes `--base`, and `accept.py` defaults to `main` — but this
+  repo's S9 base is `markdown-specs` (`main` is the v2 archive), and a consumer project may be on
+  `master`. The `users/002` acceptance only worked because the operator passed `--base` by hand.
+  Distinct from T10f's F-01 (the script failing *open* on an unresolvable base) and compounding with
+  it: a wrong base that fails to resolve is exactly F-01's silent-ACCEPTABLE path. Prefer deriving
+  the default in `accept.py` over patching the command, and never hardcode `markdown-specs` (C6).
+  Depends: T10, T10f.
 - [ ] T12b — The app the cycle ships is not an importable package: `pyproject.toml` has no
   `[build-system]`, and `gate.py` injects `PYTHONPATH=src` itself — so the gate constructs the app
   under an import path only the gate provides, and `uvicorn` by hand fails. An **A4** finding (the
