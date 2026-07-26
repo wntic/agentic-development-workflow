@@ -113,7 +113,7 @@ def test_duplicate_ac_id_rejected() -> None:
 
 def test_html_comments_are_ignored() -> None:
     template = Path(__file__).resolve().parents[1] / "templates" / "criteria.md"
-    lines = cl._strip_html_comments(template.read_text(encoding="utf-8").splitlines())
+    lines = cl.strip_html_comments(template.read_text(encoding="utf-8").splitlines())
     # the commented example line inside the template must not parse as a criterion
     assert all("AC-n" not in c.text for c in cl.iter_criteria(lines))
 

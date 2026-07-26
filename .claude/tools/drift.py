@@ -201,7 +201,7 @@ def capability_corpus(tree: Path) -> Corpus:
         return Corpus(absent=f"no capability files under {tree / 'specs'} — this tree carries no living spec")
     corpus = Corpus(files=[p.relative_to(tree) for p in files])
     for path in files:
-        stripped = lint._strip_html_comments(path.read_text(encoding="utf-8", errors="replace").splitlines())
+        stripped = lint.strip_html_comments(path.read_text(encoding="utf-8", errors="replace").splitlines())
         corpus.lines += [(path.relative_to(tree), line) for line in stripped if line.strip()]
     return corpus
 

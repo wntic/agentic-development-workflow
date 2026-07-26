@@ -1579,6 +1579,122 @@ def test_a_repeated_reference_is_one_finding(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------------------
+# T10k — the LAST reader on raw text: overview.md's Capabilities list
+#
+# Same rule as T10j (gate.py's L-06) and T10i (_spec_lint): a comment is not content. This one
+# matters beyond lint noise, because the token list feeds resolve_targets' capability-BIRTH path
+# — a comment naming a backticked `*.md` could name the file an acceptance CREATES, or fake a
+# "names X more than once" finding. Latent, not firing: the shipped overview template's own
+# `<capability>.md` placeholder does NOT match the token regex (`<`/`>` are outside its character
+# class), so nothing in the templates triggers it today.
+#
+# The contract that must survive the strip: the tokens stay IN ORDER and WITH REPEATS (T10f F-03).
+# ---------------------------------------------------------------------------------------
+
+
+def _with_capabilities_comment(overview: str, comment: str) -> str:
+    return overview.replace("## Capabilities\n", f"## Capabilities\n{comment}\n", 1)
+
+
+def test_a_comment_in_the_capabilities_list_is_not_a_capability(tmp_path: Path) -> None:
+    """The measured pre-fix behaviour: `['ghost.md', 'core.md']` — the comment first, so it also
+    won every "the context declares exactly one capability" comparison downstream."""
+    overview = _with_capabilities_comment(OVERVIEW_MD, "<!-- see `ghost.md` for the shape of an entry -->")
+    root = _mini_tree(tmp_path, overview=overview)
+    assert accept._overview_capability_tokens(root, "demo") == ["core.md"]
+    assert accept._overview_capabilities(root, "demo") == ["core.md"]
+
+
+def test_the_capability_token_list_keeps_order_and_repeats(tmp_path: Path) -> None:
+    """T10f F-03's contract: the raw list is what lets spec-lint see a capability listed twice.
+    Blanking a comment span must not renumber, reorder or de-duplicate anything around it."""
+    overview = OVERVIEW_MD.replace(
+        "- `core.md` — arithmetic core",
+        "- `extra.md` — app construction\n"
+        "<!-- `ghost.md` — a comment, never an entry -->\n"
+        "- `core.md` — arithmetic core\n"
+        "- `extra.md` — listed twice by hand",
+    )
+    root = _mini_tree(tmp_path, overview=overview, caps={"core.md": CAPABILITY_MD, "extra.md": EXTRA_CAPABILITY_MD})
+    assert accept._overview_capability_tokens(root, "demo") == ["extra.md", "core.md", "extra.md"]
+    result = _spec_lint_result(root)
+    assert result.status == accept.FLAG
+    assert "names `extra.md` more than once" in result.detail
+    assert "ghost.md" not in result.detail
+
+
+def test_a_comment_repeating_a_listed_capability_is_not_a_duplicate(tmp_path: Path) -> None:
+    """The false-positive half of the same finding: documentation that mentions the capability it
+    documents is not a human listing it twice."""
+    overview = OVERVIEW_MD.replace(
+        "- `core.md` — arithmetic core",
+        "- `core.md` — arithmetic core\n<!-- `core.md` is the only capability for now -->",
+    )
+    result = _spec_lint_result(_mini_tree(tmp_path, overview=overview))
+    assert result.status == accept.PASS, result.detail
+
+
+def test_a_comment_cannot_hijack_the_capability_birth_target(tmp_path: Path) -> None:
+    """The reason this is not a lint nit. The greenfield shape: no `Affects`, no capability file,
+    an EMPTY Capabilities list carrying an instruction comment. Pre-fix, the comment's `ghost.md`
+    read as "the context declares exactly one capability" and the acceptance would have BORN
+    `specs/demo/ghost.md` instead of the slug-derived `thing.md`."""
+    repo = make_repo(
+        tmp_path / "app",
+        change_md=BIRTH_CHANGE_MD,
+        overview_md=_with_capabilities_comment(
+            OVERVIEW_NO_CAPABILITIES, "<!-- one line per capability file, e.g. `ghost.md` — what it does -->"
+        ),
+        capability_md=None,
+        verdict_md=VERDICT_ADVERSARIAL,
+    )
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "(new) specs/demo/thing.md" in proc.stdout
+    assert "ghost.md" not in proc.stdout
+
+
+def test_the_birth_target_still_comes_from_the_real_capabilities_list(tmp_path: Path) -> None:
+    """The regression that would hurt (the users/002 path): the birth capability is derived from
+    overview.md's list, so the human's chosen name wins over the change-dir slug. Discriminating
+    on purpose — the listed name differs from the slug — and the comment alongside it changes
+    nothing."""
+    overview = _with_capabilities_comment(
+        OVERVIEW_MD.replace("- `core.md` — arithmetic core", "- `renamed.md` — the arithmetic core"),
+        "<!-- see `ghost.md` for the shape of an entry -->",
+    )
+    repo = make_repo(
+        tmp_path / "app",
+        change_md=BIRTH_CHANGE_MD,
+        overview_md=overview,
+        capability_md=None,
+        verdict_md=VERDICT_ADVERSARIAL,
+    )
+    proc = repo.accept("demo/001", "--base", "main")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "(new) specs/demo/renamed.md" in proc.stdout
+    assert "specs/demo/thing.md" not in proc.stdout
+    assert "[PASS] spec.lint" in proc.stdout
+
+
+def test_the_drift_fallback_reads_the_resolved_context_not_the_raw_arguments(
+    repo: FixtureRepo, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """T17 finding 2 — `run()`'s `--execute` tail called `drift_report(tree, base)` with the RAW
+    arguments: `base` is Optional since T10g derives it, so the no-plan branch handed `git log`
+    a `None` ref and died inside subprocess. Unreachable by luck today (`plan is None` implies a
+    FAIL implies the deny above), which is why the branch is driven here directly: the next
+    refactor that makes it reachable must find a clean report, not a traceback."""
+    monkeypatch.setattr(accept, "run_gate", lambda actx: {"result": "GREEN", "sha": "0" * 40, "checks": []})
+    monkeypatch.setattr(accept, "gate_dependent_checks", lambda actx, verdict, placement=None: ([], None))
+    rc = accept.run(repo.root, "demo/001", None, True)  # base=None: derived, as /accept-change runs it
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "drift-check on main (spec §5.5)" in out
+    assert "every src commit is attached to a change/* tag" in out
+
+
+# ---------------------------------------------------------------------------------------
 # T10g — the S9 base is DERIVED, never a hardcoded name
 #
 # `/accept-change` runs the script with no --base, and the old default `main` is wrong for

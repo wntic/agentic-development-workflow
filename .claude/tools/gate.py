@@ -991,7 +991,7 @@ def check_criteria(ctx: GateContext) -> list[Check]:
     if not criteria_path.exists():
         detail = f"{criteria_path.relative_to(ctx.tree)} does not exist"
         return [Check("criteria.junit-backing", "FAIL", detail), Check("criteria.manual-verdict", "FAIL", detail)]
-    lines = lint._strip_html_comments(criteria_path.read_text(encoding="utf-8").splitlines())
+    lines = lint.strip_html_comments(criteria_path.read_text(encoding="utf-8").splitlines())
     criteria = lint.iter_criteria(lines)
     checked = [c.ac_id for c in criteria if c.state == "x"]
     manual = [c.ac_id for c in criteria if c.state == "m"]
@@ -1048,7 +1048,7 @@ def check_invariant_tests(ctx: GateContext) -> Check:
         # rotted reference to a test named `<test-id>`, i.e. the acceptance script breaking S9.
         # Any capability file may legitimately carry a comment; the strip is the real fix, and
         # one grammar keeps one home (C7).
-        text = "\n".join(lint._strip_html_comments(path.read_text(encoding="utf-8", errors="replace").splitlines()))
+        text = "\n".join(lint.strip_html_comments(path.read_text(encoding="utf-8", errors="replace").splitlines()))
         for match in CAPABILITY_REF.finditer(text):
             refs.extend((path, token.strip()) for token in match.group(1).split(",") if token.strip())
     if not refs:

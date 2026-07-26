@@ -353,11 +353,23 @@ def append_invariants(text: str, invariants: list[str]) -> str:
 
 def _overview_capability_tokens(tree: Path, ctx: str) -> list[str]:
     """Every `*.md` token in overview.md's `## Capabilities` list, IN ORDER and WITH repeats —
-    the raw list, so spec-lint can see a capability listed twice (T10f F-03)."""
+    the raw list, so spec-lint can see a capability listed twice (T10f F-03).
+
+    A comment is not content (T10k — the same rule as gate.py's L-06 and _spec_lint, and this was
+    the last reader still on raw text): a `<!-- see `foo.md` for the shape -->` line inside the
+    Capabilities section used to yield `foo.md` as a capability token. Not a lint nit, because
+    this list feeds `_overview_capabilities` -> `resolve_targets` -> the capability-BIRTH path: a
+    comment could name the file an acceptance creates, or fake a "names X more than once" finding.
+
+    Comments are blanked, never dropped, so order and repeats — which the duplicate-capability
+    check reads (T10f F-03) — survive untouched.
+    """
     overview = tree / "specs" / ctx / "overview.md"
     if not overview.exists():
         return []
-    body = _section(overview.read_text(encoding="utf-8"), "Capabilities")
+    _, criteria_lint = _tools()
+    kept = criteria_lint.strip_html_comments(overview.read_text(encoding="utf-8").splitlines())
+    body = _section("\n".join(kept), "Capabilities")
     return [tok for tok in re.findall(r"`?([A-Za-z0-9_.\-]+\.md)`?", body) if tok != "overview.md"]
 
 
@@ -985,7 +997,7 @@ def prechecks(actx: AcceptContext) -> list[Result]:
             results.append(Result("escalate", PASS, f"no ESCALATE file, and none committed since {anchor}"))
 
     # gate 1a: no open [ ] criteria.
-    lines = criteria_lint._strip_html_comments(actx.criteria_text.splitlines())
+    lines = criteria_lint.strip_html_comments(actx.criteria_text.splitlines())
     criteria = criteria_lint.iter_criteria(lines)
     open_ids = [c.ac_id for c in criteria if c.state == " "]
     if not criteria:
@@ -1141,7 +1153,7 @@ def gate_dependent_checks(
             results.append(Result(label, FAIL, c["detail"].splitlines()[0]))
 
     # prepare the merge (needs junit-derived provenance).
-    lines = criteria_lint._strip_html_comments(actx.criteria_text.splitlines())
+    lines = criteria_lint.strip_html_comments(actx.criteria_text.splitlines())
     criteria = criteria_lint.iter_criteria(lines)
     prov = junit_ac_test_ids(actx.tree / GATE_DIR_NAME)
 
@@ -1306,7 +1318,7 @@ def _spec_lint(actx: AcceptContext, born: tuple[str, ...] = ()) -> Result:
 
     A comment is not content (T10i item 4, the same mistake T10j fixed in gate.py's L-06 check
     one function over): both scans below read the file with its HTML comments blanked out, via
-    the single stripper `criteria_lint._strip_html_comments` (C7 — one grammar, one home). Every
+    the single stripper `criteria_lint.strip_html_comments` (C7 — one grammar, one home). Every
     born capability file ships the template's comment block, so an unstripped read counted ~20
     lines of documentation toward the S7 cut threshold and would report a backticked `*.md` named
     in a comment as a dangling reference."""
@@ -1321,7 +1333,7 @@ def _spec_lint(actx: AcceptContext, born: tuple[str, ...] = ()) -> Result:
         if "changes" in path.parts:
             continue
         raw_lines = path.read_text(encoding="utf-8").splitlines()
-        kept_lines = criteria_lint._strip_html_comments(raw_lines)
+        kept_lines = criteria_lint.strip_html_comments(raw_lines)
         # the stripper preserves line count (it blanks spans), so the comment-only lines are the
         # ones that carried text before and none after: subtracting them keeps the S7 threshold a
         # count of the file's own lines, blank ones included, minus its documentation.
@@ -1592,7 +1604,11 @@ def run(tree: Path, change_id: str, base: str | None, do_execute: bool, placemen
                 "every invariant into the first file (spec §5.4)"
             )
             return 1
-        report = execute(actx, plan) if plan is not None else drift_report(tree, base)
+        # `actx.tree` / `actx.base`, never the raw arguments (T10k): `base` is Optional (T10g
+        # derives it) and `tree` is pre-resolution, so the else-branch used to hand `drift_report`
+        # a `None` base and die inside subprocess. Unreachable today — `plan is None` implies a
+        # FAIL implies the deny above — which is exactly why it is fixed rather than relied on.
+        report = execute(actx, plan) if plan is not None else drift_report(actx.tree, actx.base)
         print()
         print("== EXECUTED ==")
         print(

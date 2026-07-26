@@ -184,7 +184,7 @@ def _gate():  # noqa: ANN202 — stdlib-only sibling import
 def parse_ac_ids(criteria_text: str) -> list[str]:
     """Ordered, de-duplicated AC ids declared in criteria.md (HTML comments stripped)."""
     cl = _criteria_lint()
-    lines = cl._strip_html_comments(criteria_text.splitlines())
+    lines = cl.strip_html_comments(criteria_text.splitlines())
     seen: list[str] = []
     for crit in cl.iter_criteria(lines):
         if crit.ac_id not in seen:
