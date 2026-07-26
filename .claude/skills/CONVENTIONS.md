@@ -112,6 +112,8 @@ Deliberately **not** a trigger: the number of artifacts. Five cohesive artifacts
 
 Splitting a theme changes no catalog fact: same themes, same frontmatter, same index entries — only the bodies move.
 
+Three of the shape-2 rules are enforced rather than advised: `.claude/tools/test_skill_format.py` reds when a topic file opens with a frontmatter block, when a topic file is not pointed at by its own `SKILL.md`, or when a pointer names a file that does not exist. What it deliberately cannot check — a router that keeps an imperative pointer *and* re-summarises the topic underneath it — is stated in that file's docstring.
+
 ## Out of scope (intentionally not in this catalog)
 
 - The agent roles live separately under `.claude/agents/`. Skills describe *artifacts*; agents describe *processes*.
