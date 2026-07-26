@@ -1097,6 +1097,48 @@ def test_parse_mutations_is_empty_without_the_section_and_for_the_template() -> 
     assert red_check.parse_mutations(CHANGE_TEMPLATE) == []
 
 
+def test_mutation_parse_uses_the_line_preserving_stripper_not_a_span_deleting_one() -> None:
+    """T09j — this module carried its own `re.sub(r"<!--.*?-->", "", …)` thirty lines below its call
+    to the shared `criteria_lint.strip_html_comments`, and the two grammars are NOT equivalent: the
+    regex deletes the span including its newlines, joining the text before the comment to the text
+    after it, while the shared helper blanks in place and preserves the line count (the contract
+    T10k made public because the layer depends on it).
+
+    Pinned here so nobody "simplifies" one into the other. The divergence needs a multi-line
+    comment whose CLOSER is followed by content on the same line: deleting the span then pulls that
+    content up onto the `## Mutations` heading line, where the heading regex swallows it whole
+    (`[^\\n]*$`) — the declaration `### M-9 — must kill AC-4` disappears, so the mutation is
+    renumbered `M-1` and, worse, names no AC to kill at all. Blanking keeps the two lines two."""
+    prefix = "Class: hardening\n\n"
+    fence = "\n```diff\n--- a/src/app/store.py\n+++ b/src/app/store.py\n@@ -1 +1 @@\n-old\n+new\n```\n"
+    # the ordinary template shape: comment on its own lines, declaration below it
+    plain = (
+        prefix
+        + "## Mutations\n<!-- one fenced diff per mutation,\n     ids above the fence -->\n### M-9 — must kill AC-4\n"
+    )
+    # the shape the two grammars disagree about: the closer shares its line with the declaration
+    joined = (
+        prefix
+        + "## Mutations <!-- one fenced diff per mutation,\n     ids above the fence --> ### M-9 — must kill AC-4\n"
+    )
+    for change_md in (plain + fence, joined + fence):
+        assert [(m.mid, m.ac_ids) for m in red_check.parse_mutations(change_md)] == [("M-9", ("AC-4",))]
+
+
+def test_an_unterminated_comment_hides_the_declarations_it_swallows() -> None:
+    """The second way the two grammars differ, and the reason the shared one is right for a screen
+    that REFUSES a baseline: a malformed `<!--` with no closer blanks the rest of the document, so
+    the mutations below it are not declarations. The deleting regex matches nothing without a
+    closer and would leak them out of the comment — fail-open on the anti-collusion screen."""
+    change_md = (
+        "Class: hardening\n\n"
+        "<!-- the author never closed this comment\n"
+        "## Mutations\n\n"
+        "```diff\n--- a/src/app/store.py\n+++ b/src/app/store.py\n@@ -1 +1 @@\n-old\n+new\n```\n"
+    )
+    assert red_check.parse_mutations(change_md) == []
+
+
 def test_section_body_survives_a_subheading_and_matches_any_depth() -> None:
     text = "## Mutations\nbody\n### M-1\nmore\n## Verification\nout\n"
     assert red_check.section_body(text, "Mutations") == "\nbody\n### M-1\nmore\n"

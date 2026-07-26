@@ -211,11 +211,38 @@ def _section(text: str, heading: str) -> str:
     return "\n".join(out)
 
 
+def _uncomment(text: str, replacement: str = "") -> str:
+    """Delete `<!-- ... -->` spans from a TEXT-shaped read. The line count is NOT preserved.
+
+    The layer's other grammar is `criteria_lint.strip_html_comments`, which BLANKS spans in place
+    and keeps the line count — the contract T10k made public, and the one every caller that
+    reports a line number or subtracts comment lines from a count must use (gate.py's criteria and
+    provenance checks; `_spec_lint` and `_overview_capability_tokens` in this file, whose S7 size
+    check and duplicate-capability check both depend on it).
+
+    The callers of THIS helper ask text-shaped questions — "does this section carry content beyond
+    the template comment", "which tokens does it name", "is the `REMOVED` marker on the `Class:`
+    line", "which `*.md` does `Affects:` name" — and none of them counts or reports a line. It stays
+    a second grammar rather than being routed through the shared helper for one reason, and the
+    reason has a direction: an UNTERMINATED `<!--` blanks the rest of the document under the
+    line-preserving helper, so `classify_removal` would stop seeing a `## Removed` heading below a
+    malformed comment and the orphan sweep would silently not run — notes/19's fail-open direction,
+    on the one gate here whose whole job is to notice something missing. Deleting only well-formed
+    spans leaves the heading visible. C7 is satisfied by ONE implementation per grammar, not one in
+    total — the same ruling the three section parses got (T03c, see the `_REMOVED_HEADING` note);
+    what is forbidden is a fifth copy of either regex.
+
+    `replacement` is a space wherever the result is TOKENISED: `foo<!--c-->bar` must not collapse
+    into the single token `foobar`.
+    """
+    return re.sub(r"<!--.*?-->", replacement, text, flags=re.DOTALL)
+
+
 def _significant_tokens(text: str) -> set[str]:
     """Content-bearing tokens for token-set matching (numbers kept even when short)."""
     toks = set()
     # strip html comments so a placeholder comment never counts as content
-    text = re.sub(r"<!--.*?-->", " ", text, flags=re.DOTALL)
+    text = _uncomment(text, " ")
     for raw in re.findall(r"[A-Za-z0-9_]+", text.lower()):
         if raw.isdigit() or len(raw) >= 3:
             toks.add(raw)
@@ -411,7 +438,7 @@ def resolve_targets(tree: Path, ctx: str, change_md: str, birth_slug: str | None
     m = re.search(r"(?m)^Affects:\s*(.+?)\s*$", change_md)
     files: list[str] = []
     if m:
-        line = re.sub(r"<!--.*?-->", "", m.group(1))
+        line = _uncomment(m.group(1))
         for tok in re.split(r"[,\s]+", line.strip()):
             tok = tok.strip().strip("`")
             if tok.endswith(".md"):
@@ -706,7 +733,7 @@ def classify_removal(change_md: str) -> RemovalFlavour:
     let a `### ` sub-entry truncate its own parent section, so a nested list of removed symbols
     was harvested in part and the sweep under-swept in silence (T10h finding 3).
     """
-    text = re.sub(r"<!--.*?-->", "", change_md, flags=re.DOTALL)  # the template's own comment teaches the marker
+    text = _uncomment(change_md)  # the template's own comment teaches the marker
     by_class = bool(_REMOVED_MARKER.search(text))
     unpinned = ""
     if not by_class and (slip := _UNPINNED_ON_CLASS_LINE.search(text)):
@@ -746,7 +773,7 @@ def orphan_violations(removed_terms: list[str], spec_text: str, src_text: str) -
 
 def _has_real_content(section_body: str) -> bool:
     """True when a section carries content beyond template HTML comments / whitespace."""
-    return bool(re.sub(r"<!--.*?-->", "", section_body, flags=re.DOTALL).strip())
+    return bool(_uncomment(section_body).strip())
 
 
 def adversarial_required(change_md: str, creates_new_capability: bool) -> tuple[bool, str]:
@@ -786,7 +813,7 @@ def adversarial_section_filled(verdict_text: str | None) -> bool:
     Reads either `## Adversarial review` or `## Adversarial pass` (T10c)."""
     if verdict_text is None:
         return False
-    stripped = re.sub(r"<!--.*?-->", "", _adversarial_body(verdict_text), flags=re.DOTALL).strip()
+    stripped = _uncomment(_adversarial_body(verdict_text)).strip()
     if not stripped:
         return False
     return re.match(r"(?i)n/?a\b", stripped) is None
@@ -1476,8 +1503,12 @@ def execute(actx: AcceptContext, plan: MergePlan) -> str:
     # 3. tag.
     tag = "change/" + actx.change_id.replace("/", "-")
     _git(actx.tree, "tag", tag, check=True)
-    # 4. drift check on the base.
-    return drift_report(actx.tree, actx.base)
+    # 4. what happened, said by the code that did it (T09j), then the drift check on the base.
+    # The sentence used to live in `run()`, which printed it unconditionally — including on the
+    # branch where no plan existed and NOTHING was merged. A report of an act belongs to the act:
+    # there is now exactly one place that can claim a merge, and it is reached only by merging.
+    done = f"merged {actx.branch} into {actx.base}, tagged {tag}, deleted the change dir"
+    return done + "\n" + drift_report(actx.tree, actx.base)
 
 
 @dataclass
@@ -1613,18 +1644,27 @@ def run(tree: Path, change_id: str, base: str | None, do_execute: bool, placemen
                 "every invariant into the first file (spec §5.4)"
             )
             return 1
+        # No plan means no merge was ever prepared, so nothing is merged, tagged or deleted here:
+        # the only thing left worth running is the §5.5 drift check on the base. The merge sentence
+        # lives in `execute()` — the code that performs the act — so this branch cannot claim it,
+        # and the two reports cannot drift apart (T09j).
+        #
         # `actx.tree` / `actx.base`, never the raw arguments (T10k): `base` is Optional (T10g
-        # derives it) and `tree` is pre-resolution, so the else-branch used to hand `drift_report`
+        # derives it) and `tree` is pre-resolution, so this branch used to hand `drift_report`
         # a `None` base and die inside subprocess. Unreachable today — `plan is None` implies a
         # FAIL implies the deny above — which is exactly why it is fixed rather than relied on.
-        report = execute(actx, plan) if plan is not None else drift_report(actx.tree, actx.base)
         print()
-        print("== EXECUTED ==")
-        print(
-            f"merged {actx.branch} into {actx.base}, tagged change/{actx.change_id.replace('/', '-')}, "
-            "deleted the change dir"
-        )
-        print(report)
+        if plan is not None:
+            print("== EXECUTED ==")
+            print(execute(actx, plan))
+        else:
+            print("== NOT EXECUTED ==")
+            print(
+                f"no merge plan was produced for {actx.change_id}, so nothing was applied: the "
+                f"branch stays on its own tip, no tag was created, {actx.change_dir.name}/ is "
+                "intact; only the drift check below ran"
+            )
+            print(drift_report(actx.tree, actx.base))
         return 0
 
     return 1 if denied else 0

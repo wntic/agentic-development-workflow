@@ -1714,6 +1714,40 @@ def test_the_drift_fallback_reads_the_resolved_context_not_the_raw_arguments(
     assert "every src commit is attached to a change/* tag" in out
 
 
+def test_the_no_plan_branch_never_claims_a_merge_that_did_not_happen(
+    repo: FixtureRepo, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """T09j — the same branch printed `merged … into …, tagged change/…, deleted the change dir`
+    although it only ran the drift report: the merge sentence sat in `run()`, outside the `if`.
+    Unreachable today, which is the reason to fix it rather than trust it — the next refactor that
+    makes it reachable would produce a confident false statement about a merge, in the one script
+    whose output the human reads to decide whether the base branch is safe. The sentence now lives
+    in `execute()`, so only an actual merge can print it."""
+    monkeypatch.setattr(accept, "run_gate", lambda actx: {"result": "GREEN", "sha": "0" * 40, "checks": []})
+    monkeypatch.setattr(accept, "gate_dependent_checks", lambda actx, verdict, placement=None: ([], None))
+    rc = accept.run(repo.root, "demo/001", None, True)
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    for claim in ("merged ", "tagged ", "deleted the change dir", "== EXECUTED =="):
+        assert claim not in out, f"the no-plan branch claims {claim!r} — nothing was merged"
+    assert "== NOT EXECUTED ==" in out
+    assert "no merge plan was produced for demo/001" in out
+    assert "no tag was created" in out
+    # and the change really is untouched: no tag, the change dir still on disk
+    assert "change/demo-001" not in repo.git("tag", "--list")
+    assert (repo.root / CHANGE_DIR).exists()
+
+
+def test_the_merge_sentence_is_written_by_the_code_that_merges(repo: FixtureRepo) -> None:
+    """The other half of the single-source fix: on a real `--execute` the sentence still appears,
+    and it names the tag `execute()` actually created rather than re-deriving it in the printer."""
+    proc = repo.accept("demo/001", "--base", "main", "--execute")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "== EXECUTED ==" in proc.stdout
+    assert "merged change/demo-001 into main, tagged change/demo-001, deleted the change dir" in proc.stdout
+    assert "change/demo-001" in repo.git("tag", "--list", "change/demo-001")
+
+
 # ---------------------------------------------------------------------------------------
 # T10g — the S9 base is DERIVED, never a hardcoded name
 #

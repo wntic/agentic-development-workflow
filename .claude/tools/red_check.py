@@ -222,6 +222,21 @@ def parse_ac_ids(criteria_text: str) -> list[str]:
 # HTML comments are stripped first, everywhere: the templates carry their own instructions
 # (including an EXAMPLE mutation diff) inside comments, and a change that keeps the comment
 # must not read as a declaration. Same discipline as accept.classify_removal.
+#
+# ONE stripper for this file, and it is the shared `criteria_lint.strip_html_comments` (C7 —
+# T10k made it public precisely because "a comment is not content" is a rule of the whole
+# enforcement layer). This module carried a second, private grammar next to the call below — a
+# `re.sub` that DELETED each comment span; the two disagree in two ways, and the shared one wins
+# both:
+#   * it BLANKS spans in place instead of deleting them, so a multi-line comment does not join
+#     the text before it to the text after it onto one line — a `## Mutations <!-- … -->` whose
+#     closer is followed by `### M-9 …` keeps the M-9 heading on its own line instead of being
+#     swallowed into the heading's `[^\n]*$` tail (which silently renamed the mutation `M-1`);
+#   * an UNTERMINATED `<!--` blanks the rest of the document rather than nothing at all, so a
+#     malformed comment hides the mutation declarations instead of leaking them. For a screen
+#     that REFUSES a baseline when a declaration is missing, that is the fail-closed direction —
+#     and it is the grammar gate.py already applies to the same change.md (its legal-removal
+#     allowance and its capability-provenance check both read it blanked).
 
 HARDENING_CLASS = "hardening"  # spec §3.1: no red phase — proved by mutation instead
 INVISIBLE_CLASS = "invisible"  # spec §3.1: no red phase — the tests pin behaviour that ALREADY holds
@@ -230,10 +245,6 @@ _AC_TOKEN = re.compile(r"\bAC-\d+\b")
 _MUTATION_TOKEN = re.compile(r"\bM-\d+\b")
 _FENCE = re.compile(r"(?ms)^```[ \t]*[A-Za-z0-9_+-]*[ \t]*\n(.*?)^```[ \t]*$")
 _DIFF_PATH = re.compile(r"(?m)^(?:---|\+\+\+)[ \t]+(?:[ab]/)?(\S+)")
-
-
-def _strip_html_comments(text: str) -> str:
-    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
 
 
 def parse_change_class(change_md: str) -> str:
@@ -283,7 +294,8 @@ def parse_mutations(change_md: str) -> list[Mutation]:
     text between the previous fence and this one (a `### M-2 — must kill AC-8, AC-9` heading, or
     a plain sentence). An `M-n` token there names the mutation; else it is numbered by position.
     """
-    body = section_body(_strip_html_comments(change_md), "Mutations")
+    stripped = "\n".join(_criteria_lint().strip_html_comments(change_md.splitlines()))
+    body = section_body(stripped, "Mutations")
     if body is None:
         return []
     mutations: list[Mutation] = []
