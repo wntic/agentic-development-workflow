@@ -1,5 +1,81 @@
 # T09g — A change that only strengthens tests has no red phase, and therefore no home
 
+---
+
+## ESCALATION RESOLVED — author's decisions, 2026-07-26
+
+The first dispatch reproduced all three premises (P1 the `--rebaseline` refusal, P2 the `invisible`
+wall, P3 that F1/F2 are exposure not bugs) and escalated correctly. Its central finding changed the
+question, so read that report first. Decisions:
+
+**Option (b): a new class `hardening`, proved by mutation.** Not (a).
+
+The dispatch's argument against extending `invisible` is decisive and I accept it: for a tests-only
+change `invisible`'s declared proof is **trivially** satisfied — the `src` diff is empty, so the
+OpenAPI diff cannot be non-empty and the gate cannot be non-green. It replaces the anti-collusion
+property with *nothing*, which this task's own Out-of-scope forbids. And its finding 1 answers the
+"which is it" question in an unexpected direction: **`invisible` is not a lane to extend, it is a
+second unrunnable one** — `red_check.py` contains no `Class:` parse at all (verified: zero
+occurrences of `invisible` or `Class:`), so an `invisible` change can never obtain a baseline tag and
+`/implement` step 1 blocks on it. There is nothing there to extend.
+
+**The shape:** `Class: hardening` on the `Class:` line; `change.md` grows a `## Mutations` section —
+one fenced unified diff per mutation, each naming the AC ids it must kill. `red_check` gains a
+class-keyed path that replaces redness with a strictly stronger pair:
+
+- **GREEN-on-clean** — every ac-marked test passes in a worktree of the candidate commit; and
+- **RED-on-mutation** — in a throwaway worktree with the patch applied, the named ACs **fail**.
+
+Then it tags as usual, and `--rebaseline` reuses the same path, so both routes work with no hand
+`git tag -f`. Three facts make this cheaper than "the most work", all from the dispatch: the mutation
+is **attested for free** (E-12 already freezes `change.md`'s hash at baseline, and `change.md` is
+already machine-read for `allowed_removals_text`); the **producing end already exists** (the
+`users/002` adversarial section emits a mutation table in promotable form); and **D3/D4 survive** —
+the mutation is spec content, applied only in a throwaway worktree, and nobody writes `src/**`.
+
+**Sub-decisions the dispatch listed, all settled:**
+
+- **Class name: `hardening`.** Short, matching the existing `behavioral | bugfix | invisible`
+  register. It is a new `Class:` spelling, so **land it consistently with T03c** (which pins that
+  vocabulary) rather than against it — if T03c has not run yet, write the value the way §3.1's
+  register reads and say so in the report.
+- **Who authors the mutation: the human at `/spec`**, lifting the M-table from the verdict of the
+  change that found the weakness. Not the adversarial evaluator writing into the successor's
+  `change.md` — that is the D4 exception this task warns about, and the dispatch found the agents are
+  *currently honouring* the boundary (the `users/002` reviewer wrote "Fix shape (test-author's, not
+  this reviewer's)"), so breaking it would be a live regression.
+- **Scope of the mutation obligation: the new class only.** Generalising "every AC names a mutation it
+  must kill" to all M/L changes is the strongest reading of mutation-as-proof and much the largest
+  scope increase — it has to be earned by this class working first, not assumed.
+- **`invisible`'s phantom proof: filed separately (T20), not folded in.** Its declared "empty
+  before/after OpenAPI diff" is implemented in **no script** (verified: `openapi` appears in
+  `.claude/tools/*.py` only where `gate.py`'s construct-smoke *calls* `app.openapi()`, never diffs it;
+  `accept.py` defers the OpenAPI half to `/orient`, and T17 records that `/orient` defers it back).
+  Same S4 family as T17, but a different class and a different lane.
+
+**Canon edit: authorised, and it is mine to make — do not edit `workflow_v3_spec.md` yourself.**
+§3.1's class register needs `hardening` with its proof obligation. Report the exact wording you need
+and I will land it; write the code against the shape above meanwhile.
+
+**Scope correction from the dispatch's findings 4 and 5 — this changes what "done" means:**
+
+`markdown-specs` has no `specs/`, `src/` or `tests/` at all, `users/002` is unmerged on its branch,
+and a builder subagent cannot dispatch subagents. So verification bullets 2–4 ("F1 lands and bites",
+"F2 lands", "the route runs end to end") **cannot be discharged in this dispatch** — the dispatch was
+right that they sit behind accepting `users/002`, which the task never listed as a dependency.
+Therefore:
+
+> **T09g delivers the *lane*, proved at fixture level.** The `red_check` class-keyed path, the
+> `## Mutations` parse, the template section, `/implement`'s route for a change with an empty `src`
+> diff, and tests that demonstrate GREEN-on-clean + RED-on-mutation against a synthetic repo. **F1
+> and F2 landing as its first real customer is deferred to T11**, where a real cycle runs with real
+> subagents. Say so in the report rather than claiming the lane is exercised.
+
+**Do not escalate again on shape.** Escalate only if a specific piece of the lane cannot be built as
+described — and name which.
+
+---
+
 ## Goal
 `users/002`'s adversarial pass found two surviving mutations:
 
@@ -76,6 +152,10 @@ Depends on the shape. Whatever it is, all of these must hold:
   that skips it must justify what it replaces it with, not simply drop it.
 - Do NOT let the evaluator author tests without settling D4 explicitly. If (c) wins, the ownership
   boundary needs a conscious decision, not a silent exception.
-- **Escalate with the shape before coding.** This adds or redefines a change class, which is spec §3
-  territory — and `workflow_v3_spec.md` is never edited by agents. Expect the outcome to include a
-  canon edit the author makes.
+- ~~**Escalate with the shape before coding.**~~ — **discharged: option (b), `hardening`, decided
+  above.** Escalate only if a specific piece of the lane cannot be built as described.
+- Do NOT edit `workflow_v3_spec.md` — §3.1's class register is the author's edit. **Report the exact
+  wording you need** and write the code against the decided shape meanwhile.
+- Do NOT fix `invisible`'s phantom OpenAPI-diff proof — that is **T20**.
+- Do NOT claim the lane is exercised end to end. Fixture-level proof is this task's ceiling; F1/F2 as
+  its first real customer is **T11**'s, for the reasons in the scope correction above.
