@@ -311,7 +311,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   it: a wrong base that fails to resolve is exactly F-01's silent-ACCEPTABLE path. Prefer deriving
   the default in `accept.py` over patching the command, and never hardcode `markdown-specs` (C6).
   Depends: T10, T10f.
-- [ ] T12b — The app the cycle ships is not an importable package: `pyproject.toml` has no
+- [x] T12b — The app the cycle ships is not an importable package: `pyproject.toml` has no
   `[build-system]`, and `gate.py` injects `PYTHONPATH=src` itself — so the gate constructs the app
   under an import path only the gate provides, and `uvicorn` by hand fails. An **A4** finding (the
   gate isn't exercising the real failure mode, it's papering over it), not the ergonomics annoyance
