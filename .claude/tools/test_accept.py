@@ -269,6 +269,19 @@ class FixtureRepo:
         proc = subprocess.run(["git", "-C", str(self.root), "show", f"{ref}:{rel}"], capture_output=True, text=True)
         return proc.stdout if proc.returncode == 0 else ""
 
+    def gate(self, *args: str) -> subprocess.CompletedProcess[str]:
+        """The gate as the NEXT change would meet it — run on a checked-out branch, not
+        through accept.py. This is the only way an acceptance's own output gets judged (T10j)."""
+        env = os.environ.copy()
+        env["GATE_DOCKER"] = "0"
+        return subprocess.run(
+            [sys.executable, str(self.root / ".claude/tools/gate.py"), *args, str(self.root)],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=self.root,
+        )
+
 
 def make_repo(
     root: Path,
@@ -933,6 +946,33 @@ def test_a_born_capability_named_in_the_overview_is_not_a_dangling_ref(tmp_path:
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "references missing spec file" not in proc.stdout
     assert "[PASS] spec.lint" in proc.stdout
+
+
+def test_executed_capability_birth_leaves_the_base_branch_green(tmp_path: Path) -> None:
+    """T10j — the sequence nobody had ever run: `--execute` a capability-birthing change and
+    then run `gate.py` on the BASE. It was RED, on the acceptance script's own output — the
+    born file carries the template's comment, and L-06 read its `<test-id>` example as a rotted
+    provenance reference. S9 says main is always green; this asserts it of the one script that
+    is allowed to write main."""
+    repo = make_repo(
+        tmp_path / "app",
+        change_md=BIRTH_CHANGE_MD,
+        overview_md=OVERVIEW_BIRTH_LISTED,
+        capability_md=None,
+        verdict_md=VERDICT_ADVERSARIAL,
+    )
+    proc = repo.accept("demo/001", "--base", "main", "--execute")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "EXECUTED" in proc.stdout
+    born = repo.show("main", "specs/demo/thing.md")
+    assert "verified by: tests/test_core.py::test_add" in born
+
+    repo.git("checkout", "-q", "main")
+    gate = repo.gate()
+    assert "GATE: GREEN" in gate.stdout, gate.stdout + gate.stderr
+    assert gate.returncode == 0
+    # …and the second lock: the template ships no data-shaped specimen to be read as one.
+    assert "<test-id>" not in born
 
 
 def test_capability_birth_without_the_template_fails_loudly(tmp_path: Path) -> None:

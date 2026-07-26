@@ -289,7 +289,17 @@ def build_invariants(criteria: list, ac_ids: dict[str, str]) -> list[str]:
 
 def instantiate_capability(ctx: str, capability: str) -> str:
     """A NEW capability file is born from the template — /spec never creates capability
-    files, this script is the template's sole consumer (T03 finding 6)."""
+    files, this script is the template's sole consumer (T03 finding 6).
+
+    The template's HTML comments are copied VERBATIM, on purpose (T10j): this script is the
+    template's only consumer, so a comment stripped here serves nobody, and those comments are
+    the only orientation whoever opens a freshly born file gets ("50–300 lines — cut it", who
+    owns which section). The obligation the birth path carries instead is that the template
+    must hold no data-shaped specimen — a `verified by:` example in parentheses was read by
+    gate.py's L-06 check as a real, rotted provenance reference and turned the base branch RED
+    after every capability birth. gate.py now strips comments before matching (the load-bearing
+    half of the fix); the template's wording is the second lock, not the first.
+    """
     template_path = TEMPLATES_DIR / "capability.md"
     if not template_path.exists():
         raise AcceptError(
