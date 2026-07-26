@@ -287,7 +287,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   helper. Both callers fail closed **by luck** (`_baseline_blob` also fails, giving a misleading
   "created after the baseline commit"), so the fuse is unlit, not absent — F-01's family. Includes a
   sweep for the same pattern and a correction to the register's claim. Depends: T04, T04e, T10f.
-- [ ] T06i — **Six point fixes into the `bash_guard` tokeniser** (T06b quoted `-m` · T06e absolute
+- [x] T06i — **Six point fixes into the `bash_guard` tokeniser** (T06b quoted `-m` · T06e absolute
   paths · T06f relative/`cd` · T06f substring filenames · T06g heredoc bodies · open: `;` glued to a
   quoted word makes `rm`'s target slice swallow a later `cp`'s **source**). Each fix correct, each
   left another variant; every miss trains the bypass reflex the guard exists to prevent and blames
