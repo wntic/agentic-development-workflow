@@ -143,16 +143,22 @@ Provide `add` and the app factory for the gate fixture.
 - AC-2: `create_app()` exposes a non-empty OpenAPI schema.
 """
 
+# The removal vocabulary is spec §3.1's, pinned by T03c: the `REMOVED` marker plus the
+# `## Removed` section the change.md template ships. The gate reads node-ids out of the raw
+# change.md text (any mention counts as the legal-removal allowance), but the fixture writes them
+# where the author is instructed to — one spelling everywhere, so a reader of this fixture learns
+# the real shape.
 CHANGE_MD_REMOVAL = """\
 # demo/001 — fixture removal change
 
-Class: behavioral
+Class: behavioral, REMOVED
 
 ## Task
-Remove the `add` behaviour (removal flavour).
+Remove the `add` behaviour.
 
-Removed tests (obsolete with the removed behaviour):
-- tests/test_core.py::test_add
+## Removed
+- `add` — the operation goes from the app surface.
+- `tests/test_core.py::test_add` — obsolete with it.
 
 ## Acceptance criteria
 - AC-1: `add` operation is gone from the app surface.

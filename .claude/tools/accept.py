@@ -40,9 +40,12 @@ Gates, in the §5.4 order:
   5. spec-lint: dangling refs, duplicate capabilities, >300-line files, a capability missing
      from overview.md (L-07/O-13).
   6. orphan sweep (removal flavour): removed behaviour lingers neither in spec text nor as
-     dead src symbols (V-02/§5.4) — and a change that DECLARES a removal on its `Class:` line
-     without a `## Removed` heading is a FLAG, not silence: the sweep cannot run on free prose,
-     so the human sees that V-02 did not run (S4).
+     dead src symbols (V-02/§5.4). The vocabulary is spec §3.1's — the `REMOVED` marker on the
+     `Class:` line plus the `## Removed` section `.claude/templates/change.md` ships — and every
+     way of missing it is FLAGged rather than silently understood or silently ignored: another
+     wording on the `Class:` line, a declared removal with no filled `## Removed` section, or a
+     section whose body names no harvestable symbol. The sweep never reads free prose, so the
+     human sees when V-02 did not run (S4).
 
 Plus one cross-§ gate on the evaluator↔accept seam T09 opened (spec §6 step 4): the
 `## Adversarial review` section of verdict.md must be filled when the change class demands the
@@ -626,13 +629,18 @@ def rebase_freshness_state(
 class RemovalFlavour:
     """Structural classification of a change as removal-flavour, plus the symbols to sweep.
 
-    `by_class`  — the `Class:` line declares the removal flavour (spec §3.1's `REMOVED`).
-    `sections`  — the body under every real `#+ Removed…` heading (the ONLY place terms
-                  are harvested from).
+    `by_class`  — the `Class:` line carries spec §3.1's pinned marker, `REMOVED`.
+    `unpinned`  — the other removal wording found on the `Class:` line when the marker is
+                  absent ("" otherwise). Not a classification: a reportable authoring slip.
+    `sections`  — the body under every FILLED `#+ Removed…` heading (the ONLY place terms are
+                  harvested from). A heading whose body is nothing but the template's own
+                  instruction comment is not a declaration, so an undeleted skeleton section in
+                  a non-removal change stays silent.
     `terms`     — node-ids / backticked symbol names found in those sections.
     """
 
     by_class: bool
+    unpinned: str
     sections: tuple[str, ...]
     terms: tuple[str, ...]
 
@@ -642,12 +650,23 @@ class RemovalFlavour:
 
 
 # The removal flavour is declared structurally, never grepped out of prose (T10e): either the
-# `Class:` line carries it (spec §3.1: "Removal-вкус (`REMOVED`)") or the change.md has a REAL
-# heading — `#+`, one-or-more, so a wrapped sketch line starting with "removed …" cannot pass
-# for one. The pre-T10e classifier used `#*` (zero-or-more) and matched exactly that.
-_REMOVAL_ON_CLASS_LINE = re.compile(r"(?im)^Class:[^\n]*\bremov(?:al|als|ed|es|ing)\b")
-_REMOVED_HEADING = re.compile(r"(?m)^#+[ \t]*Removed\b[^\n]*$")
-_ANY_HEADING = re.compile(r"(?m)^#+[ \t]")
+# `Class:` line carries the marker or the change.md has a REAL heading — `#+`, one-or-more, so a
+# wrapped sketch line starting with "removed …" cannot pass for one. The pre-T10e classifier used
+# `#*` (zero-or-more) and matched exactly that.
+#
+# ONE spelling, and it is spec §3.1's: «Removal-вкус (`REMOVED`)». `.claude/templates/change.md`
+# teaches that literal marker (`Class: behavioral, REMOVED`) beside the `## Removed` section this
+# harvests, so author and script now read the same rule out of one home (C7). Case-sensitive on
+# purpose — the marker is a tag, not prose, and lowercase "removes the legacy export" on the
+# `Class:` line is authoring drift to report, not a second dialect to support (T03c).
+_REMOVED_MARKER = re.compile(r"(?m)^Class:[^\n]*\bREMOVED\b")
+# Every OTHER removal wording on the `Class:` line: the pre-T03c documents said "removal flavour"
+# and `/spec` said only "listed explicitly", so such change.md files exist. Narrowing the
+# classifier without reporting them would swap T10e's false positive for a silent false negative —
+# the sweep simply not running on a genuine removal, which is the fail-open direction notes/19 is
+# about. So this feeds a FLAG, never a classification.
+_UNPINNED_ON_CLASS_LINE = re.compile(r"(?im)^Class:[^\n]*?\b(remov(?:al|als|ed|es|ing))\b")
+_REMOVED_HEADING = re.compile(r"(?m)^(#+)[ \t]*Removed\b[^\n]*$")
 
 
 def classify_removal(change_md: str) -> RemovalFlavour:
@@ -658,19 +677,29 @@ def classify_removal(change_md: str) -> RemovalFlavour:
     a classifier that fired on any line beginning with "removed", and a term capture anchored
     on the FIRST "removed" anywhere in the file — which harvested half the Interface sketch
     (`id`, `save`, `None`, …) and would drown a genuine removal's real signal too.
+
+    A `Removed` heading is matched at ANY depth and terminated at a SAME-OR-SHALLOWER one, the
+    way `_section` and `red_check.section_body` do it: the naive `#+` terminator this replaced
+    let a `### ` sub-entry truncate its own parent section, so a nested list of removed symbols
+    was harvested in part and the sweep under-swept in silence (T10h finding 3).
     """
-    text = re.sub(r"<!--.*?-->", "", change_md, flags=re.DOTALL)  # the template's own comment says "removal flavour"
-    by_class = bool(_REMOVAL_ON_CLASS_LINE.search(text))
+    text = re.sub(r"<!--.*?-->", "", change_md, flags=re.DOTALL)  # the template's own comment teaches the marker
+    by_class = bool(_REMOVED_MARKER.search(text))
+    unpinned = ""
+    if not by_class and (slip := _UNPINNED_ON_CLASS_LINE.search(text)):
+        unpinned = slip.group(1)
     sections: list[str] = []
     for match in _REMOVED_HEADING.finditer(text):
         rest = text[match.end() :]
-        nxt = _ANY_HEADING.search(rest)
-        sections.append(rest[: nxt.start()] if nxt else rest)
+        nxt = re.search(rf"(?m)^#{{1,{len(match.group(1))}}}[ \t]", rest)
+        body = rest[: nxt.start()] if nxt else rest
+        if body.strip():  # comments are already gone: an unfilled skeleton section declares nothing
+            sections.append(body)
     terms: list[str] = []
     for body in sections:
         terms += re.findall(r"::(\w+)", body)
         terms += re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", body)
-    return RemovalFlavour(by_class=by_class, sections=tuple(sections), terms=tuple(terms))
+    return RemovalFlavour(by_class=by_class, unpinned=unpinned, sections=tuple(sections), terms=tuple(terms))
 
 
 def orphan_violations(removed_terms: list[str], spec_text: str, src_text: str) -> list[str]:
@@ -1321,35 +1350,54 @@ def _spec_lint(actx: AcceptContext, born: tuple[str, ...] = ()) -> Result:
 def _orphan_sweep(actx: AcceptContext) -> Result:
     flavour = classify_removal(actx.change_md)
     if not flavour.fires:
+        if flavour.unpinned:
+            # The `Class:` line talks about removal in a wording the pinned vocabulary does not
+            # include. FLAG, never SKIP: read as a non-removal it would be exactly the silent
+            # false negative narrowing the classifier could have introduced (T03c).
+            return Result(
+                "orphan.sweep",
+                FLAG,
+                f"the `Class:` line says '{flavour.unpinned}' but carries no `REMOVED` marker, and no filled "
+                "`## Removed` section either — V-02 did NOT run. Spec §3.1 pins one spelling: write "
+                "`Class: behavioral, REMOVED` plus the `## Removed` section of "
+                "`.claude/templates/change.md`, listing the removed symbols/node-ids; or, if this change "
+                "removes nothing, drop the removal wording from the `Class:` line",
+            )
         return Result(
             "orphan.sweep",
             SKIP,
-            "not a removal-flavour change (no removal flavour on the `Class:` line, no `Removed` heading)",
+            "not a removal-flavour change (no `REMOVED` marker on the `Class:` line, no filled `Removed` section)",
         )
     if not flavour.sections:
         # FLAG, not SKIP: the change DECLARES a removal, so V-02 is owed — but there is no
-        # structural list to sweep (the sweep never harvests free prose), and no command emits
-        # a `## Removed` heading yet, so blocking here would deadlock every removal change.
-        # Surfaced-but-non-blocking keeps the absent sweep visible in the human's review output
-        # instead of silently not running (S4: a gate that can quietly not-run does not exist).
+        # structural list to sweep (the sweep never harvests free prose). Non-blocking on
+        # purpose: a removal that genuinely has no sweepable symbol must not be deadlocked into
+        # routing around the gate. Surfaced-but-non-blocking keeps the absent sweep visible in
+        # the human's review output instead of silently not running (S4: a gate that can quietly
+        # not-run does not exist).
         return Result(
             "orphan.sweep",
             FLAG,
-            "the `Class:` line declares the removal flavour but change.md carries no `## Removed` heading — "
-            "V-02 did NOT run: there is no structural list of removed behaviour to sweep (the sweep never "
-            "harvests free prose). Add a `## Removed` section listing the removed symbols/node-ids, or "
-            "confirm in review that nothing is orphaned",
+            "the `Class:` line declares `REMOVED` but change.md carries no filled `## Removed` section "
+            "(absent, or still holding only the template's instruction comment) — V-02 did NOT run: there "
+            "is no structural list of removed behaviour to sweep (the sweep never harvests free prose). "
+            "Fill the `## Removed` section of `.claude/templates/change.md` with the removed "
+            "symbols/node-ids, or confirm in review that nothing is orphaned",
         )
     terms = list(flavour.terms)
     if not terms:
-        # FLAG for the same reason the missing-heading case is one (T06f part B): the sweep did
+        # FLAG for the same reason the missing-section case is one (T06f part B): the sweep did
         # not run. The old PASS read as "the sweep ran and found nothing" while a prose-only
         # `## Removed` ("the legacy export endpoint, entirely") left V-02 silently unchecked
-        # (T10f F-05). Non-blocking: no command emits a machine-readable removal list yet.
+        # (T10f F-05). Still FLAG rather than FAIL now that the template ships the skeleton and
+        # says what to list: a removal whose behaviour has no symbol to name (a route string, a
+        # config key) is legitimate, and failing it would train the routing-around T10e's
+        # inversion warns about. What the template changed is that the FLAG is now actionable —
+        # the author was told the grammar, so an empty list is a visible authoring choice.
         return Result(
             "orphan.sweep",
             FLAG,
-            "change.md has a `## Removed` heading but its body names no symbol the sweep can use "
+            "change.md has a `## Removed` section but its body names no symbol the sweep can use "
             "(node-ids or `backticked` names) — V-02 did NOT run: prose is never harvested. List the "
             "removed symbols/node-ids under the heading, or confirm in review that nothing is orphaned",
         )

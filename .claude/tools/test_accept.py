@@ -26,6 +26,7 @@ TOOL_FILES = ("gate.py", "criteria_lint.py", "accept.py")
 # Verbatim snapshots of real change documents used as regression fixtures (T10e).
 FIXTURES_DIR = TOOLS_DIR / "fixtures"
 CAPABILITY_TEMPLATE = (TOOLS_DIR.parent / "templates" / "capability.md").read_text(encoding="utf-8")
+CHANGE_TEMPLATE = (TOOLS_DIR.parent / "templates" / "change.md").read_text(encoding="utf-8")
 
 
 def _load(name: str, filename: str):
@@ -428,7 +429,8 @@ def test_orphan_violations() -> None:
 
 
 # ---------------------------------------------------------------------------------------
-# removal-flavour classification (T10e) — structural, never grepped out of prose
+# removal-flavour classification (T10e) — structural, never grepped out of prose;
+# ONE pinned spelling (T03c) — spec §3.1's `REMOVED` marker + the template's `## Removed`
 # ---------------------------------------------------------------------------------------
 
 USERS_002_CHANGE_MD = (FIXTURES_DIR / "users-002-change-spec.md").read_text(encoding="utf-8")
@@ -436,7 +438,7 @@ USERS_002_CHANGE_MD = (FIXTURES_DIR / "users-002-change-spec.md").read_text(enco
 REMOVAL_CHANGE_MD = """\
 # demo/007 — drop the legacy export
 
-Class: behavioral, removal flavour
+Class: behavioral, REMOVED
 Affects: export.md
 
 ## Interface sketch
@@ -453,6 +455,11 @@ Affects: export.md
 
 - AC-1: `GET /export/legacy` returns 404.
 """
+
+# The same change written with the pre-T03c wording every downstream document used to teach.
+UNPINNED_REMOVAL_CHANGE_MD = REMOVAL_CHANGE_MD.replace(
+    "Class: behavioral, REMOVED", "Class: behavioral, removal flavour"
+)
 
 
 def test_classify_removal_does_not_fire_on_users_002() -> None:
@@ -473,10 +480,75 @@ def test_classify_removal_does_not_fire_on_users_002() -> None:
 def test_classify_removal_fires_on_a_real_heading_and_captures_only_its_terms() -> None:
     flavour = accept.classify_removal(REMOVAL_CHANGE_MD)
     assert flavour.fires is True
-    assert flavour.by_class is True  # the `Class:` line declares the flavour
+    assert flavour.by_class is True  # the `Class:` line carries the pinned `REMOVED` marker
+    assert flavour.unpinned == ""
     # the capture is anchored to the heading, so the sketch's own "removed" prose and its
     # backticked `True` / `False` / `ExportHandler` never enter the term list.
     assert set(flavour.terms) == {"LegacyExportHandler", "test_legacy_export"}
+
+
+def test_classify_removal_reads_only_the_pinned_spelling_but_never_ignores_another(tmp_path: Path) -> None:
+    """T03c: `REMOVED` (spec §3.1) is the one marker; an older wording is VISIBLE, not accepted.
+
+    T10e's classifier tolerated "removal flavour" / "removes" / "removed" on the `Class:` line —
+    a holding pattern, because nothing told an author which to write. Now the template teaches
+    the marker, so the classifier reads only it; the previously-tolerated wordings must not turn
+    into silence, which would be the same fail-open the sweep already had (notes/19).
+    """
+    flavour = accept.classify_removal(UNPINNED_REMOVAL_CHANGE_MD)
+    assert flavour.by_class is False  # the unpinned wording no longer classifies
+    assert flavour.unpinned == "removal"  # but it is captured for the report
+    # this document still has a filled `## Removed` section, so V-02 runs on the symbols anyway.
+    assert flavour.fires is True
+    assert set(flavour.terms) == {"LegacyExportHandler", "test_legacy_export"}
+    # with nothing else to go on, the wording alone produces a FLAG naming the pinned spelling.
+    wording_only = "# demo/007 — drop it\n\nClass: behavioral, removal flavour\n\n## Task\n\nDrop it.\n"
+    result = accept._orphan_sweep(_sweep_context(tmp_path, wording_only))
+    assert result.status == accept.FLAG
+    assert result.status not in (accept.SKIP, accept.PASS)
+    assert "`Class: behavioral, REMOVED`" in result.detail and "did NOT run" in result.detail
+
+
+def test_classify_removal_is_case_sensitive_on_the_marker() -> None:
+    """The marker is a tag, not prose: `removed` in lowercase is drift to report, not a dialect."""
+    lower = REMOVAL_CHANGE_MD.replace("Class: behavioral, REMOVED", "Class: behavioral, removed")
+    flavour = accept.classify_removal(lower)
+    assert flavour.by_class is False and flavour.unpinned == "removed"
+
+
+def test_classify_removal_terminates_the_section_at_same_or_shallower_only() -> None:
+    """T10h finding 3: the naive `#+` terminator truncated a nested `## Removed`.
+
+    `_ANY_HEADING` ended the section at ANY heading depth, so a `### ` sub-entry — the shape a
+    long removal list naturally takes, and the one this task's own template skeleton invites —
+    cut the harvest short and the sweep under-swept in silence. Same rule as `_section` and
+    `red_check.section_body` now: match any depth, terminate at same-or-shallower.
+    """
+    nested = """\
+# demo/009 — drop the whole export subsystem
+
+Class: behavioral, REMOVED
+
+## Removed
+
+### The handler
+- `LegacyExportHandler` — gone with its route.
+
+### Its tests
+- `tests/test_export.py::test_legacy_export` — obsolete.
+
+## Acceptance criteria
+- AC-1: `GET /export/legacy` returns 404.
+"""
+    flavour = accept.classify_removal(nested)
+    assert flavour.fires is True
+    assert set(flavour.terms) == {"LegacyExportHandler", "test_legacy_export"}
+    # and the terminator still stops at the sibling `## ` heading — the AC section is not harvested.
+    assert "Acceptance criteria" not in "".join(flavour.sections)
+    # a `### Removed` nested under another section is found too (matched at any depth) — and
+    # terminated by its own siblings, `### ` included, which is what same-or-shallower means.
+    deeper = "## Out of scope\n\n### Removed\n- `Ghost` — gone.\n\n### Kept\n- `Keeper` — stays.\n"
+    assert accept.classify_removal(deeper).terms == ("Ghost",)
 
 
 def test_classify_removal_ignores_prose_without_a_heading() -> None:
@@ -491,11 +563,32 @@ def test_classify_removal_ignores_prose_without_a_heading() -> None:
 
 def test_classify_removal_ignores_the_template_comment_vocabulary() -> None:
     """The change.md template's own HTML comment on the `Class:` line explains the removal
-    flavour ("behavioral, removal flavour: list the removed behaviour explicitly"). A change
-    that kept the comment must not classify as a removal."""
-    template = (TOOLS_DIR.parent / "templates" / "change.md").read_text(encoding="utf-8")
-    assert "removal flavour" in template  # the trap is really in the template
-    assert accept.classify_removal(template).fires is False
+    flavour, quoting the wordings that are NOT the marker. A change that kept the comment — and
+    an un-deleted `## Removed` skeleton whose body is still only that instruction comment — must
+    not classify as a removal."""
+    assert "removal flavour" in CHANGE_TEMPLATE  # the trap is really in the template
+    assert re.search(r"(?m)^## Removed$", CHANGE_TEMPLATE)  # ...and so is the empty section
+    assert accept.classify_removal(CHANGE_TEMPLATE).fires is False
+
+
+def test_the_template_teaches_exactly_the_spelling_the_classifier_reads() -> None:
+    """T03c's whole point: the author's instructions and the script's grammar are one rule (C7).
+
+    Before this, four documents said four different things and the sweep keyed on a heading
+    nobody was told to write — so V-02's coverage on a genuine removal rested on luck. This test
+    fails if either side drifts from the other.
+    """
+    assert "Class: behavioral, REMOVED" in CHANGE_TEMPLATE  # the marker, verbatim
+    # a change filled in exactly as the template instructs classifies, and the sweep gets terms.
+    filled = CHANGE_TEMPLATE.replace("Class: behavioral ", "Class: behavioral, REMOVED ", 1).replace(
+        "## Removed\n",
+        "## Removed\n\n- `LegacyExportHandler` — gone with its `/export/legacy` route.\n"
+        "- `tests/test_export.py::test_legacy_export` — obsolete.\n",
+        1,
+    )
+    flavour = accept.classify_removal(filled)
+    assert flavour.by_class is True and flavour.unpinned == ""
+    assert set(flavour.terms) == {"LegacyExportHandler", "test_legacy_export"}
 
 
 def _sweep_context(tmp_path: Path, change_md: str, *, spec_text: str = "", src_text: str = "") -> object:
@@ -525,23 +618,38 @@ def test_orphan_sweep_skips_a_non_removal_change(tmp_path: Path) -> None:
 
 
 CLASS_DECLARED_NO_HEADING = (
-    "# demo/007 — drop it\n\nClass: behavioral, removal flavour\n\n## Task\n\nDrop `LegacyExportHandler`.\n"
+    "# demo/007 — drop it\n\nClass: behavioral, REMOVED\n\n## Task\n\nDrop `LegacyExportHandler`.\n"
 )
 
 
 def test_orphan_sweep_flags_when_class_declares_removal_but_no_heading_lists_it(tmp_path: Path) -> None:
     """T06f part B: a DECLARED removal with nothing structural to sweep is FLAG, not SKIP.
 
-    The sweep never falls back to free prose (T10e), and no command emits a `## Removed`
-    heading yet — so SKIP here let a genuine removal reach acceptance with V-02 never running
-    and nothing said about it. A gate that can silently not-run does not exist (S4); FLAG is
-    surfaced-but-non-blocking, so the human sees the absent sweep without a deadlock."""
+    The sweep never falls back to free prose (T10e) — so SKIP here let a genuine removal reach
+    acceptance with V-02 never running and nothing said about it. A gate that can silently
+    not-run does not exist (S4); FLAG is surfaced-but-non-blocking, so the human sees the absent
+    sweep without a deadlock. Since T03c the template ships the section, so the FLAG's remedy is
+    a sentence the author can act on rather than an instruction that existed nowhere."""
     result = accept._orphan_sweep(
         _sweep_context(tmp_path, CLASS_DECLARED_NO_HEADING, src_text="class LegacyExportHandler: ...\n")
     )
     assert result.status == accept.FLAG
     assert result.status not in (accept.SKIP, accept.PASS)
     assert "## Removed" in result.detail and "did NOT run" in result.detail
+
+
+def test_orphan_sweep_flags_an_undeleted_template_skeleton_as_unfilled(tmp_path: Path) -> None:
+    """A `## Removed` heading whose body is still only the template's instruction comment is not
+    a list. It must read as "the declared removal lists nothing" (FLAG) for a change that carries
+    the marker — and, for a change that does not, as no declaration at all (SKIP), so an author
+    who forgot to delete the skeleton is not accused of a removal they did not make."""
+    skeleton = "## Removed\n<!-- `Class: behavioral, REMOVED` ONLY — delete this section otherwise. -->\n"
+    declared = accept._orphan_sweep(_sweep_context(tmp_path, CLASS_DECLARED_NO_HEADING + "\n" + skeleton))
+    assert declared.status == accept.FLAG
+    assert "no filled `## Removed` section" in declared.detail
+    not_a_removal = "# demo/008 — add a thing\n\nClass: behavioral\n\n## Task\n\nAdd it.\n\n" + skeleton
+    result = accept._orphan_sweep(_sweep_context(tmp_path, not_a_removal))
+    assert result.status == accept.SKIP
 
 
 def test_orphan_sweep_flags_when_the_heading_lists_no_sweepable_symbol(tmp_path: Path) -> None:
@@ -551,7 +659,12 @@ def test_orphan_sweep_flags_when_the_heading_lists_no_sweepable_symbol(tmp_path:
     there the sweep ran". It isn't: a prose-only `## Removed` ("the legacy export endpoint,
     entirely") harvests no term, so V-02 checks nothing while the PASS string reads as "the
     sweep ran and found nothing" — with `LegacyExportHandler` still in src/. Same direction as
-    the missing-heading case, and still non-blocking."""
+    the missing-heading case.
+
+    T03c closed F-05 by making the FLAG actionable (the template now teaches the grammar), NOT by
+    promoting it to FAIL: a removal whose behaviour has no symbol to name — a route string, a
+    feature flag — is legitimate, and denying it would train exactly the routing-around T10e's
+    inversion warns against (the task's own out-of-scope line)."""
     change_md = CLASS_DECLARED_NO_HEADING + "\n## Removed\n\nThe legacy export endpoint, entirely.\n"
     result = accept._orphan_sweep(_sweep_context(tmp_path, change_md, src_text="class LegacyExportHandler: ...\n"))
     assert result.status == accept.FLAG
