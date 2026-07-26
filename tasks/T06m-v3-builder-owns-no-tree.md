@@ -9,6 +9,16 @@ enumerates the three cycle lanes without mentioning the builder at all.
 
 This is T06d's exact shape, one role later: *the guard blocks precisely the owner.*
 
+**Sharpened 2026-07-27 by T13b's finding 4, and it changes the diagnosis.** That builder used the same
+interpreter write-path **unprompted** — for a one-character BOM fix, against `.claude/tools/`, with no
+denial to provoke it: *"I was never denied; I simply reached for the interpreter."* So this is not only
+"a denied owner routes around"; **the reflex fires by default**, because a `python3 - <<'PY' …
+write_text(…) PY` heredoc is an ordinary way to edit a file and the guard is structurally blind to it.
+Two consequences for the fix: giving `v3-builder` a lane removes the *denials* but not the blindness,
+so do not claim the lane closes the hole; and the honest severity is unchanged (ergonomics — T18
+anchors every `.claude/**` file), which is what keeps this out of an arms race the guard cannot win.
+Five data points this session.
+
 **And the route around it is trivial, which is the real finding.** T04g's builder was denied
 `cp <scratch>/accept.fixed.py .claude/tools/accept.py` (correct, per T06k's inventory) and then wrote
 the same six files with `python3 - <<'PY' … Path(rel).write_text(…) … PY`, which the guard **allowed**.

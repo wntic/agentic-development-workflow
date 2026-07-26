@@ -61,6 +61,10 @@ Still owed, and only the operator can do it: a real `claude plugin marketplace a
 whole-repo-source plugin keeping `.git`, which is strong — but it is not adw. Note the clone is
 **shallow** and carries **no tags**, which is independently why T19 rejected its release-tag option.
 
+**The meta suite outgrew the default Bash timeout.** `uv run pytest .claude/tools` is ~670 tests and
+runs about **3.5 minutes** — past the 120 s default. Give it an explicit timeout or run it in the
+background; a timeout misread as a hang is the failure mode. (T13b finding 9.)
+
 **`/adw:orient` in *this* repo ends on `verdict: DRIFT`, and that is a true positive.** T17's drift
 check reports 8 `src`-touching commits reachable from no `change/*` tag — all v2-era or the T02 purge,
 and this repo has no `change/*` tag at all. It is real §5.5 output about real unlegalised history, not
