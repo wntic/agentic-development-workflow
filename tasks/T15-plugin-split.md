@@ -11,8 +11,16 @@
    own project: `gate.py` invokes `sys.executable -m mypy|ruff|pytest`, so the tools must live in the
    environment that can see the project's code. A plugin with an isolated env could not type-check
    or test the app it is installed next to. Already declared in `conventions` block D;
-3. **the meta layer's own test environment** — `pytest` for the 297 tests under `.claude/tools/`,
+3. **the meta layer's own test environment** — `pytest` for the 300+ tests under `.claude/tools/`,
    which test `gate.py`/`accept.py`/`red_check.py` themselves and ship nowhere.
+
+**A concrete symptom, measured (T12b finding 10):** this repo's `.venv` still carries the entire
+`users/002` substrate — `fastapi`, `sqlalchemy`, `asyncpg`, `alembic`, `testcontainers` — even though
+`markdown-specs`' `pyproject.toml` declares none of it (the deps commit lives on the change branch).
+That leftover is the *only* reason a `users/002` worktree can be gated from here at all. So the
+verification everyone has been running silently depends on stale environment state that no file
+records. Any layout this task proposes has to say where a trial's runtime deps live, or the next
+`uv sync` quietly breaks the ability to gate a change branch.
 
 Hat 3 is the one with no home: the workflow's own dependencies live outside the workflow, mixed into
 a file that also serves a disposable trial app. And there is **no `.claude-plugin/plugin.json`** yet

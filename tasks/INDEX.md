@@ -242,6 +242,16 @@ What it surfaced is below. Every claim re-derived from source before filing.
   the symlink. Harness discovery, not hand-fed payloads. The same run reproduced F-01 unchanged and
   surfaced two further findings → **T17** (`/orient`'s drift-check) and the empty `## Behaviour`
   question, now folded into T10j.
+- [ ] T06j — **The toolchain preflight T12b built never reaches the one who must act on it.** Two
+  entry points throw the sentence away: `subagent_stop.run_gate` discards the gate's stdout and reads
+  only `.gate/verdict.json`, so an exit-2 abort surfaces to the implementer as `gate produced no
+  verdict.json` **three times** and then writes ESCALATE — the T09f deadlock shape a third time, an
+  implementer burning its whole ceiling on something no `src/**` edit can fix; and `red_check.py` has
+  no preflight at all, so a consumer missing `ruff` hits a raw error at *baseline* time, which on a
+  first change is the very first script the workflow runs. Underlying rule worth stating once: **a
+  precondition failure must be legible to whoever can act on it** — a swallowed diagnostic is the
+  same defect as none, and worse here because the agent retries. From T12b findings 1–2.
+  Depends: T12b, T06, T09f, T06c.
 - [ ] T17 — `/orient` still defers its §5.5 drift-check as *planned (T05/T10)* and says "skip that
   step" — but both shipped. Worse, the two sides point at each other: `accept.py`'s `--execute`
   report ends with *"OpenAPI route⊆operation drift is surfaced by /orient"*, while `/orient` waits
