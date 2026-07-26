@@ -316,6 +316,15 @@ What it surfaced is below. Every claim re-derived from source before filing.
   placeholder) and repair the venue's `main` **with** the fix as the end-to-end proof — a unit test
   alone does not discharge this, since the defect existed precisely because nobody ran the sequence.
   **Blocks the next trial.** Depends: T10, T04, T16.
+- [x] T10k — the last reader that treats HTML comments as content, plus the helper three tools share.
+  `_overview_capability_tokens` matched over the raw `## Capabilities` body, so a comment naming a
+  backticked `*.md` became a capability token — and that list feeds `resolve_targets`' capability-BIRTH
+  path, so a comment could name the file an acceptance CREATES. Latent (the overview template's
+  `<capability>.md` placeholder does not match the regex — T10i finding 5's second half does not
+  reproduce), fixed because the birth path is downstream. Also promotes
+  `criteria_lint._strip_html_comments` to `strip_html_comments` — **seven** external call sites, not
+  the three filed — and fixes T17 finding 2's one-token latent crash in `run()`'s `--execute` tail.
+  Depends: T10j, T10i, T10f.
 - [x] T10h — `accept.py`'s `_section()` matches only `"## "`, so a `### Interface sketch` is found as
   **nothing** → empty section → reads as S depth → `adversarial.presence` PASSes for an M/L change.
   The existing-capability half of T10f's F-02 (which fixed only the birth path); left unfixed there
