@@ -1495,6 +1495,25 @@ def test_no_gate_passes_on_undetermined_input(gate_id: str, tmp_path: Path) -> N
     assert status == expected, f"{gate_id} returned {status}, expected {expected}: {reported[0].detail}"
 
 
+def test_execute_refuses_when_git_cannot_report_the_work_tree_state(tmp_path: Path) -> None:
+    """T04g — the same rule, applied to `execute()`'s cleanliness precondition.
+
+    `execute()` did `rc, status = _git(tree, "status", "--porcelain")` and discarded `rc`. `_git`
+    returns stdout only, so a `git status` that could not run yields `""` and `status.strip()`
+    reads it as "the tree is clean" — after which the destructive sequence starts and the change
+    directory is deleted before the first `check=True` call notices anything. Undetermined input
+    on the one gate that mutates the base branch, found by ruff's RUF059 on the unused `rc` (the
+    linter's own report of a discarded git return code — notes/19's family, unaided).
+    """
+    root = _mini_tree(tmp_path)  # a spec tree with NO git repository
+    actx = _mini_ctx(root)
+    plan = accept.MergePlan(infos=[], diff_text="", invariants=[], error="")
+    with pytest.raises(accept.AcceptError, match="git status --porcelain"):
+        accept.execute(actx, plan)
+    # ...and it refused BEFORE touching anything: pre-fix this call deleted the change dir.
+    assert actx.change_dir.is_dir(), "execute() destroyed the change dir on an undetermined work-tree state"
+
+
 def test_spec_lint_sees_the_inputs_it_used_to_be_blind_to(tmp_path: Path) -> None:
     """F-03 a+b — a missing overview.md DISABLED the coverage check by its own `if overview_text`
     guard and reported "clean"; and the duplicate check compared filesystem names, which are

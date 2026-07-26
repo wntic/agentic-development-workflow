@@ -1443,7 +1443,13 @@ def _orphan_sweep(actx: AcceptContext) -> Result:
 
 
 def execute(actx: AcceptContext, plan: MergePlan) -> str:
-    rc, status = _git(actx.tree, "status", "--porcelain")
+    # `check=True`, not a discarded rc: this is the last precondition before a DESTRUCTIVE
+    # sequence (write invariants, rmtree the change dir, commit, checkout, merge, tag), and
+    # `_git` returns stdout only — so a `git status` that could not run yields `""`, which the
+    # emptiness test below reads as "clean". That is the undetermined-input rule's fail-open
+    # (module docstring / notes/19) on the one gate that cannot be re-run: it decides whether to
+    # mutate the base branch. Found by ruff's RUF059 on the unused `rc` (T04g).
+    _, status = _git(actx.tree, "status", "--porcelain", check=True)
     if status.strip():
         raise AcceptError("work tree is not clean — commit or stash before --execute")
     # 1. apply invariants on the branch, delete the change dir, commit.
