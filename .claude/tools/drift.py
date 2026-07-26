@@ -78,7 +78,7 @@ TOOLS_DIR = Path(__file__).resolve().parent
 _MODULES: dict[str, object] = {}
 
 
-def _gate_module():  # noqa: ANN202 — stdlib-only sibling import
+def _gate_module():  # stdlib-only sibling import
     """`gate.py` from this directory: app construction, the route inventory, the corpus rule (C7).
 
     Split from the accept import on purpose: the surface half needs only the gate, and a caller
@@ -86,17 +86,17 @@ def _gate_module():  # noqa: ANN202 — stdlib-only sibling import
     """
     if "gate" not in _MODULES:
         sys.path.insert(0, str(TOOLS_DIR))
-        import gate  # noqa: PLC0415 — stdlib-sibling import, path just set
+        import gate  # stdlib-sibling import, path just set
 
         _MODULES["gate"] = gate
     return _MODULES["gate"]
 
 
-def _accept_module():  # noqa: ANN202 — stdlib-only sibling import
+def _accept_module():  # stdlib-only sibling import
     """`accept.py` from this directory: the hotfix half of §5.5 is ITS implementation (C7)."""
     if "accept" not in _MODULES:
         sys.path.insert(0, str(TOOLS_DIR))
-        import accept  # noqa: PLC0415 — stdlib-sibling import, path just set
+        import accept  # stdlib-sibling import, path just set
 
         _MODULES["accept"] = accept
     return _MODULES["accept"]

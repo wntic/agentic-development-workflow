@@ -156,8 +156,8 @@ def _tools() -> tuple[object, object]:
     """Import gate.py + criteria_lint.py from this directory (one home for the grammar)."""
     if not _MODULES:
         sys.path.insert(0, str(TOOLS_DIR))
-        import criteria_lint  # noqa: PLC0415 — stdlib-sibling import, path just set
-        import gate  # noqa: PLC0415
+        import criteria_lint  # stdlib-sibling import, path just set
+        import gate
 
         _MODULES["gate"] = gate
         _MODULES["criteria_lint"] = criteria_lint
@@ -263,7 +263,7 @@ def junit_ac_test_ids(gate_dir: Path) -> Provenance:
     invariant to whichever node-id sorted first, i.e. to the wrong file (T10f F-06). A junit
     without usable classnames still correlates when exactly ONE passed node-id carries the
     name; anything ambiguous is reported as uncorrelated instead of guessed."""
-    import json  # noqa: PLC0415
+    import json
 
     junit = gate_dir / "last-run.xml"
     inventory = gate_dir / "inventory.json"
@@ -923,7 +923,7 @@ def resolve(tree: Path, change_id: str, base: str | None) -> AcceptContext:
 def run_gate(actx: AcceptContext) -> dict:
     """Run gate.py --criteria in-process at HEAD; return its verdict.json (the fresh
     GREEN/RED authority + junit backing this run leans on — one implementation, imported)."""
-    import json  # noqa: PLC0415
+    import json
 
     gate, _ = _tools()
     gate.run_gate(actx.tree, criteria=True, baseline_arg=None, change_arg=actx.change_id)
@@ -1659,7 +1659,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     placement: dict[str, str] | None = None
     if args.placement is not None:
-        import json  # noqa: PLC0415
+        import json
 
         raw = args.placement
         try:

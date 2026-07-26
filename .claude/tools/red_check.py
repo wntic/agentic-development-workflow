@@ -177,14 +177,14 @@ class RedCheckError(Exception):
 # ---------------------------------------------------------------------------------------
 
 
-def _criteria_lint():  # noqa: ANN202 — stdlib-only sibling import
+def _criteria_lint():  # stdlib-only sibling import
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import criteria_lint
 
     return criteria_lint
 
 
-def _gate():  # noqa: ANN202 — stdlib-only sibling import
+def _gate():  # stdlib-only sibling import
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import gate
 

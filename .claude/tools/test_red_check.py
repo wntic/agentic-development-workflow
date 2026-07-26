@@ -909,7 +909,7 @@ def test_analyze_green_ignores_tests_of_other_changes_acs() -> None:
     assert red_check.analyze_green(["AC-1"], inv).ok
 
 
-def _mutation(diff: str, *, mid: str = "M-1", acs: tuple[str, ...] = ("AC-1",)):  # noqa: ANN202
+def _mutation(diff: str, *, mid: str = "M-1", acs: tuple[str, ...] = ("AC-1",)):
     return red_check.Mutation(mid, acs, diff)
 
 

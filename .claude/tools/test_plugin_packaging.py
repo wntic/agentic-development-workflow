@@ -173,7 +173,7 @@ def test_every_command_states_its_namespaced_name(command: Path) -> None:
     assert f"/{PLUGIN_NAME}:{command.stem}" in text, f"{command}: state the /{PLUGIN_NAME}: form of its own name"
 
 
-def _shim():  # noqa: ANN202 — the shim module, imported for its pure helpers
+def _shim():  # the shim module, imported for its pure helpers
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("adw_shim", SHIM)

@@ -50,7 +50,7 @@ def run_hook(
     )
 
 
-def _load_hook(name: str):  # noqa: ANN202 — the hook module, imported for its pure helpers
+def _load_hook(name: str):  # the hook module, imported for its pure helpers
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(f"{name}_mod", HOOKS_DIR / f"{name}.py")
