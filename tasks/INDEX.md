@@ -149,7 +149,7 @@ theme (thin `SKILL.md` router + one `<topic>.md` per artifact, read on demand). 
   nothing under 500 does — no ambiguity left for T14 to escalate. The contract names the shape's one
   failure mode (a soft "see also" pointer: only `SKILL.md` is injected, so a topic file reaches the
   agent only if it opens it) and forbids frontmatter in a topic file.
-- [ ] T14 — Split the over-threshold skills into router + topic files per T13, losing no paid-for
+- [x] T14 — Split the over-threshold skills into router + topic files per T13, losing no paid-for
   line. `test_skill_catalog.py` is the unedited oracle (`rglob("*.md")` already covers bundled
   files). Frontmatter moved verbatim. On-demand-read reliability confirmed only in an e2e probe.
   **Threshold ruled by T13: size only, >~500 lines** — so `restapi` 1256, `testing-integration` 1792,
