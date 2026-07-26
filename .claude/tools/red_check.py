@@ -25,6 +25,11 @@ conftest/pyproject does not work, E-05 class), then asserts:
      baseline time, so the test-author fixes it at author time (S4). NOT mypy — a greenfield
      first change imports a not-yet-written package, which is the intended redness.
 
+Before any of that it runs a toolchain preflight (pytest + ruff; mypy too under `--rebaseline`,
+where it is invoked): on a project's first change this is the very first script the workflow
+runs, so an environment missing a tool must meet the actionable sentence here — in gate.py's own
+words (C7) — and not a raw `No module named ruff` from a subprocess (T06j).
+
 On a project's FIRST-EVER change there is no app shell yet, so the tests fail to *collect*
 (their module-level import of the not-yet-written package raises `ModuleNotFoundError`) and the
 marked items never register. A narrow greenfield fallback (`apply_greenfield_fallback`) then
@@ -170,6 +175,45 @@ def parse_ac_ids(criteria_text: str) -> list[str]:
         if crit.ac_id not in seen:
             seen.append(crit.ac_id)
     return seen
+
+
+# ---------------------------------------------------------------------------------------
+# Toolchain preflight — the same precondition gate.py applies, scoped to what THIS runs (T06j)
+# ---------------------------------------------------------------------------------------
+#
+# red_check invokes its tools as `sys.executable -m <tool>` inside the PROJECT's interpreter,
+# exactly as gate.py does. On a project's first change red_check is the very first script the
+# workflow runs, so a consumer whose environment lacks the toolchain used to meet it as a raw
+# `No module named ruff` (or a "pytest produced no inventory" misattribution) at baseline time,
+# before the gate's sentence could ever be reached. Ask the same question here, in the same
+# words (gate.toolchain_missing_message — one home, C7), and abort with the fix.
+#
+# The required set is NOT the gate's. red_check runs pytest + ruff; it deliberately does not run
+# mypy at baseline time (a greenfield first change imports a not-yet-written package — that is
+# the intended redness, T09f), so demanding mypy here would resurrect the deadlock that screen
+# exists to prevent. Only --rebaseline runs mypy, and only where mypy_tests() itself would: a
+# live tree with src/ present. Each entry is conditioned exactly like the call that needs it.
+
+
+def required_toolchain(tree: Path, *, rebaseline: bool = False) -> list[str]:
+    """The modules THIS run is about to invoke — the preflight's scope."""
+    needed: list[str] = []
+    if (tree / "tests").is_dir():
+        needed += ["pytest", "ruff"]  # run_tests / lint_tests
+    if rebaseline and (tree / "src").is_dir():
+        needed.append("mypy")  # mypy_tests, which itself skips when src/ is absent
+    return needed
+
+
+def preflight_toolchain(tree: Path, *, rebaseline: bool = False) -> None:
+    """Raise RedCheckError naming what to install; return silently when the tools are there."""
+    gate = _gate()
+    try:
+        missing = gate.missing_toolchain(required_toolchain(tree, rebaseline=rebaseline), os.environ.copy(), tree)
+    except gate.GateError as exc:  # "could not ask" must never read as "nothing missing"
+        raise RedCheckError(str(exc)) from None
+    if missing:
+        raise RedCheckError(gate.toolchain_missing_message(missing))
 
 
 # ---------------------------------------------------------------------------------------
@@ -698,6 +742,7 @@ def main(argv: list[str] | None = None) -> int:
         ac_ids = parse_ac_ids(criteria_path.read_text(encoding="utf-8"))
         if not ac_ids:
             raise RedCheckError(f"no AC-n items found in {criteria_path}")
+        preflight_toolchain(tree, rebaseline=args.rebaseline)
         if args.rebaseline:
             return rebaseline(tree, change_id, ac_ids)
         inventory = run_tests(tree)

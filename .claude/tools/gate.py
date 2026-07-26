@@ -448,7 +448,8 @@ def resolve_context(tree: Path, change_arg: str | None, baseline_arg: str | None
 # resolve_context() has already deleted any stale .gate/verdict.json, so no downstream consumer
 # (SubagentStop, accept.py) can read a previous run's answer as this one's.
 TOOLCHAIN_FIX = (
-    "gate.py runs each of them as `<python> -m <tool>` in the project's own interpreter, so they must be "
+    # "the workflow's scripts", not "gate.py": red_check.py prints this same sentence (T06j).
+    "the workflow's scripts run each of them as `<python> -m <tool>` in the project's own interpreter, so they must be "
     'installed in the project\'s environment: add them to `[dependency-groups] dev` ("Dev (always present)" '
     "in the `conventions` skill, block D) and run `uv sync`."
 )
@@ -496,15 +497,24 @@ def missing_toolchain(modules: list[str], env: dict[str, str], cwd: Path) -> lis
     return [str(name) for name in result]
 
 
+def toolchain_missing_message(missing: list[str]) -> str:
+    """The one actionable sentence for an absent toolchain — one home for it (C7).
+
+    red_check.py runs the same preflight before its baseline lint (T06j) and reuses this
+    wording rather than restating it, so the consumer reads the same sentence whichever of
+    the two scripts the workflow happens to run first."""
+    return (
+        f"toolchain missing from this project's environment ({sys.executable}): "
+        + ", ".join(missing)
+        + "\n"
+        + TOOLCHAIN_FIX
+    )
+
+
 def preflight_toolchain(ctx: GateContext, *, docker_available: bool) -> None:
     missing = missing_toolchain(required_toolchain(ctx.tree, docker_available=docker_available), ctx.env, ctx.tree)
     if missing:
-        raise GateError(
-            f"toolchain missing from this project's environment ({sys.executable}): "
-            + ", ".join(missing)
-            + "\n"
-            + TOOLCHAIN_FIX
-        )
+        raise GateError(toolchain_missing_message(missing))
 
 
 # ---------------------------------------------------------------------------------------

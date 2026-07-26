@@ -595,3 +595,62 @@ def test_resolve_change_autodetects_single_change_dir(tmp_path: Path) -> None:
 def test_resolve_change_rejects_bad_id(tmp_path: Path) -> None:
     with pytest.raises(red_check.RedCheckError):
         red_check.resolve_change(tmp_path, "not-a-change-id")
+
+
+# --- toolchain preflight (T06j) --------------------------------------------------------
+
+
+def test_required_toolchain_is_what_red_check_invokes_not_the_gate_set(tmp_path: Path) -> None:
+    # Deliberately NOT the gate's set: mypy is absent at baseline time (T09f — a greenfield
+    # first change imports a not-yet-written package, which is the intended redness), and only
+    # --rebaseline runs it, only where mypy_tests() would (a live tree with src/).
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert red_check.required_toolchain(bare) == []
+
+    app = tmp_path / "app"
+    (app / "tests").mkdir(parents=True)
+    assert red_check.required_toolchain(app) == ["pytest", "ruff"]
+    assert red_check.required_toolchain(app, rebaseline=True) == ["pytest", "ruff"]  # no src/ → no mypy
+
+    (app / "src").mkdir()
+    assert red_check.required_toolchain(app) == ["pytest", "ruff"]  # a normal run never runs mypy
+    assert red_check.required_toolchain(app, rebaseline=True) == ["pytest", "ruff", "mypy"]
+
+
+def test_preflight_is_silent_when_the_toolchain_is_present(tmp_path: Path) -> None:
+    (tmp_path / "tests").mkdir()
+    red_check.preflight_toolchain(tmp_path)  # this interpreter has pytest + ruff — no raise
+
+
+def test_e2e_missing_toolchain_is_a_sentence_not_a_traceback(tmp_path: Path) -> None:
+    # A consumer's very first change: red_check is the first script the workflow runs, in an
+    # environment that has no ruff/pytest yet. Before T06j that surfaced as a raw
+    # `No module named ruff` (or a misattributed "pytest produced no inventory"); now the same
+    # sentence gate.py would give — naming the tools and how to install them — comes out first.
+    repo = _base_repo(tmp_path / "app")
+    repo.write("tests/test_health.py", RED_TESTS)
+    repo.git("add", "-A")
+    repo.git("commit", "-qm", "red tests")
+
+    bare = tmp_path / "bare-venv"
+    made = subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(bare)], capture_output=True)
+    if made.returncode != 0:  # pragma: no cover — environment without ensurepip/venv
+        pytest.skip("python -m venv unavailable")
+    python = bare / "bin" / "python"
+    if not python.exists():  # pragma: no cover — Windows layout
+        python = bare / "Scripts" / "python.exe"
+
+    proc = subprocess.run(
+        [str(python), str(TOOLS_DIR / "red_check.py"), str(repo.root), "--change", "demo/001"],
+        capture_output=True,
+        text=True,
+    )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 2, output  # 2 = could not run, distinct from a failed check's 1
+    assert "toolchain missing from this project's environment" in output
+    assert "pytest" in output and "ruff" in output
+    assert "mypy" not in output  # red_check does not run mypy at baseline time (T09f)
+    assert "[dependency-groups]" in output and "uv sync" in output
+    assert "Traceback" not in output
+    assert "baseline/demo-001" not in repo.tags()  # nothing tagged off an unrunnable check
