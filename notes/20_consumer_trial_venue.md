@@ -110,7 +110,7 @@ Cause, two halves that only meet on the birth path:
    including its HTML comment block, which contains the literal example
    `- <invariant> (verified by: <test-id>)`;
 2. `gate.py:check_invariant_tests` runs `CAPABILITY_REF` over the file's **raw** text — it does not
-   strip HTML comments (unlike `criteria_lint._strip_html_comments`) — so the template's own
+   strip HTML comments (unlike `criteria_lint.strip_html_comments`) — so the template's own
    placeholder is read as a rotted invariant reference.
 
 So every context's first acceptance hands the base branch a RED gate, and it stays RED until a human
@@ -127,7 +127,7 @@ ship a comment-free template).
 **FIXED 2026-07-26 by T10j**, both halves, plus a decision the finding did not raise:
 
 1. *(load-bearing)* `gate.py:check_invariant_tests` now runs `CAPABILITY_REF` over
-   `criteria_lint._strip_html_comments(...)` output, exactly as the criteria check already did — a
+   `criteria_lint.strip_html_comments(...)` output, exactly as the criteria check already did — a
    comment is not content, and **any** capability file may legitimately carry one. Rot beside a
    comment still FAILs (`test_a_rotted_reference_still_fails_beside_a_comment`).
 2. The birth path keeps copying the template's comments **verbatim** and the *template* was

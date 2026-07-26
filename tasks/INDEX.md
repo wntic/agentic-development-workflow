@@ -488,6 +488,67 @@ What it surfaced is below. Every claim re-derived from source before filing.
   again. From T06i finding 6, deliberately left there because the inventory is policy and the parser
   was not yet trustworthy. Depends: T06i.
 
+### Filed but previously missing from this list (bookkeeping fix, 2026-07-26)
+
+T10k's builder found that this status list had stopped being a complete index of `tasks/` — seven task
+files existed with no line here, which makes `/build-task`'s "every *Depends on* entry is `[x]`"
+**uncheckable** for them. That is a protocol break, not a cosmetic gap. The entries:
+
+- [ ] T04g — the repo lints its own tooling with a rule set narrower than the gate imposes on the app:
+  pre-commit runs ruff with `pyproject.toml`'s config, which sets **no `select`**, so only ruff's
+  default `E4,E7,E9,F` applies. That is why `RUF103`/`RUF100` sat in `gate.py` itself until T04f. The
+  finding that makes it more than hygiene: among the 21 remaining is `RUF059 "Unpacked variable rc is
+  never used"` in `accept.py` — **ruff finds a discarded git return code unaided**, i.e. part of the
+  `notes/19` defect class a whole audit dispatch was spent enumerating. Treat `RUF059` and `B905`
+  (`zip` without `strict=` in `criteria_guard`, which silently truncates) as bug reports, not nits.
+  Depends: T04, T04f.
+- [ ] T04h — the legal-removal allowance is a **raw substring match over the whole `change.md`**
+  (`gate.py:1322`, comments **not** stripped), one function away from the `CAPABILITY_REF` path T10j
+  fixed with the stripper already imported in that file. So a node-id in an instruction comment would
+  authorise deleting a baseline test for every change that keeps the comment. Third instance of "a
+  comment is not content" and the only one that **widens a permission** — the fail-open direction.
+  Latent only because T03c's builder wrote the template placeholders as non-node-ids on purpose.
+  Depends: T10j, T03c, T04, T10k.
+- [ ] T06l — `git rm` is not in `bash_guard`'s write-op inventory, so it deletes protected files where
+  plain `rm` is denied — and it is a **documented instruction**
+  (`tasks/T02-harvest-and-purge.md:40`, "Use `git rm` so the commit is reviewable"), so it has actually
+  been used that way. No read-direction to get wrong. `--cached` is ruled a write (tracked state is
+  what every integrity check compares). Also consolidates the twelve family pins into
+  `RECORDED_FALSE_POSITIVES`, which currently holds 7 of 12 while its name promises the family.
+  Depends: T06i, T06k.
+- [ ] T09h — **AC ids collide across changes, so the second change in any repo cannot get a baseline**
+  and the gate's `--criteria` half **fails open** (a change with zero tests reads
+  `criteria.junit-backing PASS`). Blocks brownfield, the primary mode (F1). Decided: the marker carries
+  the change (`@pytest.mark.ac("users/002:AC-8")`), bare = a previously accepted change's test.
+  **BLOCKED** on `users/002` being accepted or abandoned — see the fixture note at the top of this file.
+  Depends: T09b, T09f, T09g, T04.
+- [ ] T09i — the tests-only baseline screen inspects **HEAD only**, so with T12's pre-baseline `deps:`
+  commit any earlier commit goes unscreened: a test-author committing `conftest.py` or `src/` first
+  gets that commit unexamined, and the gate's protected trees do not cover `src/**` (it is the
+  implementer's lane after the baseline). The screen's stated property holds; the property it exists to
+  buy does not. `rebaseline`'s range walk is already the right shape to reuse, merge-commit refusal
+  included. Depends: T09b, T12, T09f, T09h.
+- [ ] T19 — `check_self_hash` anchors against a HEAD **the agent can rewrite**: `bash_guard` allows
+  writes to the plugin directory by design (T06e), so an agent can tamper an anchor and
+  `git -C <plugin> commit -a` until the tree matches. T18 made this strictly larger by anchoring the
+  whole enforcement layer. **May not be fixable** in the sense the other tasks were — a precise written
+  statement of the limit is a legitimate outcome; the cheap middle option is comparing against the
+  release tag when one resolves. No network call. Depends: T18, T15, T04.
+- [ ] T09j — `red_check.py` calls the shared `criteria_lint.strip_html_comments` **and** carries its own
+  `_strip_html_comments` regex thirty lines below, and the two are **not** equivalent: the regex deletes
+  the span including newlines (shifting every later line number) while the shared helper blanks in
+  place, which is the contract T10k made public because the layer depends on it. One rule, two grammars,
+  one file, no note. Precedent says either outcome is fine but an unexplained duplicate is not (the
+  three `_section` parses were ruled on and *kept*, with the reason beside the code). Also: after T10k
+  fixed its arguments, `accept.run()`'s no-plan branch still **prints a merge that did not happen** —
+  unreachable today, which is why it should be fixed rather than trusted. From T10k findings 2 and 5.
+  Depends: T10k, T17, T09f.
+- [ ] T20 — the `invisible` class **cannot be run and has no implemented proof**: `red_check.py` has no
+  `Class:` parse at all (so it can never obtain a baseline tag, and `/implement` step 1 blocks), and its
+  declared "empty before/after OpenAPI diff" exists in no script. T09g settled that it is not a lane to
+  extend for test-strengthening; it still needs to either work or go. Building the diff also gives T17's
+  OpenAPI half its implementation — share one, do not duplicate (C7). Depends: T09g, T17, T03/T03c.
+
 **T06i's decision paid for itself, recorded because it is the strongest available argument against
 point-fixing:** the builder re-measured before coding and found the family is **7 filed, 12
 measured** — differential-testing old against new over ~120 commands surfaced five more false
