@@ -346,12 +346,24 @@ What it surfaced is below. Every claim re-derived from source before filing.
   may be near drop-in), or shrink what the guard claims to prevent (S8 permits it). The 113 existing
   cases are the specification — they must all survive. Escalate the comparison before rewriting.
   Depends: T06, T06b, T06e, T06f, T06g.
-- [ ] T03c — **Pin the removal-flavour vocabulary.** Four documents say four different things (spec
+- [x] T03c — **Pin the removal-flavour vocabulary.** Four documents say four different things (spec
   §3.1 `REMOVED` · the template comment "removal flavour" · `/spec` "listed explicitly" ·
   `test-author.md`'s "Removed tests block", a section that exists in **no template**), and the V-02
   sweep now keys on a `#+ Removed` heading nobody is instructed to emit. T10e's tolerant classifier
   and T06f Part B's FLAG are holding patterns, not the fix. Ship a `## Removed` skeleton, narrow the
   classifier, close T10f's F-05 (an empty heading still PASSes). Depends: T03, T10e, T06f, T10f.
+  **BUILT 2026-07-26.** One spelling everywhere: `Class: behavioral, REMOVED` (case-sensitive — the
+  marker is a tag) plus the `## Removed` skeleton the `change.md` template now ships, which states
+  the grammar the sweep actually harvests (backticked identifiers, `::node_id` tails) and the second
+  reader nobody had documented — the gate's legal-removal allowance (E-05) is read out of change.md,
+  so an obsolete test deleted without its node-id listed there is RED for the whole cycle. The
+  classifier reads only the marker, but **never ignores** another wording: an unpinned `Class:` line
+  is FLAGged, because narrowing without reporting trades T10e's false positive for a silent false
+  negative. **F-05 stays FLAG, not FAIL** (argument recorded in code): the template made the message
+  actionable, but a removal whose behaviour has no symbol to name — a route string, a feature flag —
+  is legitimate, and denying it trains routing-around. Also fixed T10h finding 3's terminator (all
+  three section parses now end at same-or-shallower) and ruled on the three-grammar C7 smell:
+  **stay three**, deliberately, with the reason next to the regex.
 - [x] T09g — **A test-strengthening change has no red phase, so it has no home.**
   `red_check.rebaseline` refuses unless the tests are still a valid RED baseline; strengthened tests
   over already-correct code are green on arrival. So `users/002`'s F1/F2 cannot be acted on, which
@@ -490,6 +502,10 @@ marker (`REMOVED`) *and* the obligation ("change явно перечисляет
 disagreement is entirely downstream: the `change.md` template comment, `/spec`, and `test-author.md`'s
 "Removed tests block". So T03c is a **conform-to-§3.1** task, not a canon question — which is C7
 exactly: the derivation has one home, and the home was correct all along.
+
+**RESOLVED 2026-07-26 by T03c — option (a).** The block below is kept for the reasoning; the pinned
+spelling is §3.1's `REMOVED` marker plus the template's `## Removed` section, the classifier reads
+only that, and an unpinned wording is a FLAG rather than silence.
 
 **OPEN DECISION the author owes T03 (from T10e findings #1/#2):** the removal-flavour vocabulary is
 not pinned anywhere. `workflow_v3_spec.md §3.1` says `REMOVED`, the `change.md` template comment says
