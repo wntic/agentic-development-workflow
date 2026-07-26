@@ -368,7 +368,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   implementer would **never be held on a RED gate** (T06c dead) and all three cycle roles would
   **lose their owned-tree write path** (T06d dead) — silently, and invisible to every test in this
   repo. Verified in source.
-- [ ] T18 — **Once installed, almost nothing protects the plugin's own files.** Measured across T16
+- [x] T18 — **Once installed, almost nothing protects the plugin's own files.** Measured across T16
   F-02 and T15's probes: the plugin lives outside the consumer repo, so `bash_guard` **allows** writes
   to its `tools/`/`hooks/`/`plugin.json` (targets resolve outside the anchored root — by design,
   T06e), and `integrity.protected-trees` diffs paths that do not exist in the consumer tree, passing
@@ -379,6 +379,20 @@ What it surfaced is below. Every claim re-derived from source before filing.
   anchors, and what does the gate do when it cannot vouch for one?* One sub-question is worth more
   than the fix: what backstops each hook in a consumer, where the honest answer may be "nothing".
   Depends: T15, T04, T04e/T06h.
+  **BUILT 2026-07-26.** (1) Anchors = plugin-root-relative **globs** (`tools/*.py`, `hooks/*.py`,
+  `hooks/*.json`, `bin/*.py`, `.claude-plugin/*.json`, `settings.json` — 12 files here), so a new tool
+  or hook is anchored by construction; `tools/test_*.py` and the knowledge layer stay out (no decision
+  reads them). Cost, as predicted: every edit to a tool/hook/manifest must be committed before a gate
+  run passes. (2) A non-git plugin keeps **FAIL**ing — message now names the directory and the remedy.
+  (3) The walk is in `notes/20` F-02: `criteria_guard` → criteria-flips (real); `bash_guard` → partial
+  (protected-trees vacuous in a consumer, but test-inventory + the tests-only baseline keep
+  anti-collusion); **`subagent_stop` → nothing, `session_stop` → nothing** — a post-hoc check judges a
+  tree, those two judge a *moment*, so a missing ceiling costs iterations, not correctness. Verified in
+  T16's venue against a `git subtree split` clone outside it: GREEN → tamper `tools/accept.py` +
+  `plugin.json` → RED naming both → delete `hooks/subagent_stop.py` → RED → restored → GREEN.
+  Two limits left open, stated in the note: self-hash compares against the plugin's **local** HEAD (an
+  agent that can write the plugin dir can commit there), and in the symlink venue the plugin's
+  `settings.json` *is* the project's.
 - [ ] T06k — `cp`, `install`, `dd of=`, `truncate` are **not** in `bash_guard`'s write-op inventory,
   so `cp /tmp/evil.py .claude/tools/gate.py` is ALLOWED for any role. Severity is **ergonomics, not
   trust** — under S8 the gate backstops, and `integrity.self-hash` (E-02) catches a modified
