@@ -187,7 +187,7 @@ What it surfaced is below. Every claim re-derived from source before filing.
   after it fell over in production). Directions decided in the task file; the severest is **F-06** —
   provenance degrading to `(verified by: ?)` makes `--execute` merge spec content that turns the base
   branch's own gate RED, i.e. the acceptance script breaking S9.
-- [ ] T04e — `ESCALATE` is deletable by an agent, so §5.3's "only the human removes it" is prose, not
+- [x] T04e — `ESCALATE` is deletable by an agent, so §5.3's "only the human removes it" is prose, not
   a rule (S4 litmus: `gate.py` sees nothing). The change dir is not in `gate.py`'s `PROTECTED_PATHS`,
   so the agent that hit its iteration ceiling can unlock itself. Make the *disappearance* of the file
   gate-failing against the baseline — NOT by protecting the whole change dir, which would deadlock
