@@ -435,6 +435,34 @@ because the audit asked the question and this is where the answer will be looked
 > `red_check --rebaseline` refuses a non-`tests/` commit) is filed as **T06h**. This row stays
 > **OPEN**.
 
+> **CLOSED (2026-07-26, T06h).** All three parts landed. `subagent_stop` now writes **and commits**
+> the ESCALATE (`git add -- <p>` then `git commit -- <p>`, never `-A`; a failing commit never unwrites
+> the file and its reason reaches the `systemMessage`). `gate.py`'s `escalate_state()` asks the
+> **branch-history** question — ls-tree at the anchor ∪ `git log anchor..HEAD`, both rc-guarded — and
+> `accept.py`'s precheck asks the same question through that helper (C7), so the worktree blindness
+> above is gone: a tracked file is carried by a fresh checkout. The sanctioned clearing step is
+> `red_check.py --change <ctx>/NNN --clear-escalate`, which makes true the promise `gate.py`'s own
+> comment had been making since T04e. Measured both directions: pre-fix the delete-and-commit bypass
+> gave `GATE: GREEN` / `verdict: ACCEPTABLE`; post-fix `GATE: RED` / `verdict: DENIED` naming the
+> flag.
+>
+> Two things this row's own history is worth remembering for:
+>
+> - **T04e's ls-tree half is not dead code**, contrary to its own builder's conclusion. A
+>   baseline-carried ESCALATE *is* reachable: after a lock is committed, a TESTS-HANDBACK plus
+>   `--rebaseline` moves the tag onto a tests commit that **descends** from the ESCALATE commit, so
+>   the new baseline tree carries it. Both halves are load-bearing and are now one union.
+> - **A third instance of this register's own defect class, found while implementing the fix:**
+>   `git diff-tree -r <merge>` prints **no** path names, so a merge commit inside
+>   `old-baseline..HEAD` would have read as "touches nothing" and let an arbitrary tree into the new
+>   baseline. `--clear-escalate` now refuses any merge commit in the range. Degenerate input again —
+>   this time a *shape* of commit rather than an unresolvable ref.
+>
+> Accepted knowingly (S8): the clearing path cannot distinguish a human from an agent, so an agent at
+> its ceiling can run it. The deliverable is that the act is **recorded** — a commit plus a tag move —
+> not that it is prevented. Not yet exercised in a live session; that needs a real `/implement`
+> reaching its ceiling in the T16 venue.
+
 ---
 
 ## Proposed structural answer (the escalation)
