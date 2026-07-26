@@ -818,6 +818,42 @@ def test_rotted_invariant_reference_is_red(repo: FixtureRepo) -> None:
     assert "L-06" in proc.stdout
 
 
+# The shape accept.py's capability birth produces: an instructional HTML comment that spells
+# out the provenance form, above the real invariants (T10j).
+CAPABILITY_WITH_COMMENT_MD = (
+    "# demo — core capability\n"
+    "\n"
+    "## Invariants\n"
+    "<!-- EVERY invariant carries its provenance mark:\n"
+    "       - <invariant> (verified by: <test-id>)\n"
+    "       - <invariant> (MANUAL) -->\n"
+) + CAPABILITY_MD.split("\n", 2)[2]
+
+
+def test_provenance_inside_an_html_comment_is_not_a_reference(repo: FixtureRepo) -> None:
+    """T10j — matching raw text read the template's own `<test-id>` example as a real
+    provenance reference, so a successful `accept.py --execute` of a capability-birthing
+    change left the BASE branch RED: the acceptance script breaking S9."""
+    repo.write("specs/demo/core.md", CAPABILITY_WITH_COMMENT_MD)
+    proc = repo.gate()
+    assert proc.returncode == 0, proc.stdout
+    assert repo.statuses()["spec.invariant-tests"] == "PASS"
+    assert "<test-id>" not in proc.stdout
+
+
+def test_a_rotted_reference_still_fails_beside_a_comment(repo: FixtureRepo) -> None:
+    """The strip must not become a hiding place: the same commented file, real rot below it,
+    is still RED — L-06 is what keeps provenance honest."""
+    repo.write(
+        "specs/demo/core.md",
+        CAPABILITY_WITH_COMMENT_MD.replace("tests/test_core.py::test_add", "tests/test_core.py::test_vanished"),
+    )
+    proc = repo.gate()
+    assert proc.returncode == 1
+    assert repo.statuses()["spec.invariant-tests"] == "FAIL"
+    assert "test_vanished" in proc.stdout
+
+
 # ---------------------------------------------------------------------------------------
 # Pure-function units
 # ---------------------------------------------------------------------------------------

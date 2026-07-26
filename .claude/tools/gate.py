@@ -801,11 +801,19 @@ def check_invariant_tests(ctx: GateContext) -> Check:
     specs = ctx.tree / "specs"
     if not specs.is_dir():
         return Check("spec.invariant-tests", "SKIP", "no specs/ in tree")
+    lint = _criteria_lint()
     refs: list[tuple[Path, str]] = []
     for path in sorted(specs.rglob("*.md")):
         if "use-cases" in path.parts or "changes" in path.parts:
             continue
-        for match in CAPABILITY_REF.finditer(path.read_text(encoding="utf-8", errors="replace")):
+        # A comment is not content (T10j). The criteria check strips HTML comments before
+        # parsing; this one did not, so accept.py's capability birth — which copies the
+        # template's own comment documenting the provenance form — handed the BASE branch a
+        # rotted reference to a test named `<test-id>`, i.e. the acceptance script breaking S9.
+        # Any capability file may legitimately carry a comment; the strip is the real fix, and
+        # one grammar keeps one home (C7).
+        text = "\n".join(lint._strip_html_comments(path.read_text(encoding="utf-8", errors="replace").splitlines()))
+        for match in CAPABILITY_REF.finditer(text):
             refs.extend((path, token.strip()) for token in match.group(1).split(",") if token.strip())
     if not refs:
         return Check("spec.invariant-tests", "PASS", "no (verified by: ...) references in specs (L-06)")
