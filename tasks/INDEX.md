@@ -379,6 +379,28 @@ What it surfaced is below. Every claim re-derived from source before filing.
   anchors, and what does the gate do when it cannot vouch for one?* One sub-question is worth more
   than the fix: what backstops each hook in a consumer, where the honest answer may be "nothing".
   Depends: T15, T04, T04e/T06h.
+- [ ] T06k — `cp`, `install`, `dd of=`, `truncate` are **not** in `bash_guard`'s write-op inventory,
+  so `cp /tmp/evil.py .claude/tools/gate.py` is ALLOWED for any role. Severity is **ergonomics, not
+  trust** — under S8 the gate backstops, and `integrity.self-hash` (E-02) catches a modified
+  `gate.py` post-hoc; what the miss costs is the early legible denial. The reason it is a task and
+  not a one-liner: **applying `mv`'s "every non-flag arg" rule to `cp` would recreate variant 6** —
+  `cp .claude/tools/gate.py /tmp/backup.py` reads a protected file and writes nothing protected, so
+  it would become a fresh false positive blaming a path the command only reads. `cp`/`install` take
+  the **last non-flag argument only**; `dd` takes `of=`; `truncate` takes the file operands. Each
+  addition needs a **read-direction** test as well as a write-direction one, or the task is variant 6
+  again. From T06i finding 6, deliberately left there because the inventory is policy and the parser
+  was not yet trustworthy. Depends: T06i.
+
+**T06i's decision paid for itself, recorded because it is the strongest available argument against
+point-fixing:** the builder re-measured before coding and found the family is **7 filed, 12
+measured** — differential-testing old against new over ~120 commands surfaced five more false
+positives nobody had filed (leading `~` joined onto the repo root; the `${VAR}` brace form; a
+*quoted* `>` read as a redirect and blaming the file being read; a trailing `# comment` read as a
+command; an **input** redirect's operand read as a write). Fixing only variants 6 and 7 would have
+shipped with 8–12 live. It also closed three **misses** — `>|`, `&>`/`&>>` were never recognised as
+redirects, and `echo x > $'tests/x.py'` (ANSI-C quoting) bypassed the guard **entirely**. All twelve
+are now pinned in one `RECORDED_FALSE_POSITIVES` list, so the next rewrite is measured against the
+family rather than against the fix at hand.
 
 **CANON EDIT LANDED — §9's `uv init` → `uv init --package` (2026-07-26, author-authorised).**
 `workflow_v3_spec.md:591` said a new project is «просто `uv init`… откуда выводится корень пакета
