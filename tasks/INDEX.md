@@ -543,12 +543,13 @@ files existed with no line here, which makes `/build-task`'s "every *Depends on*
   the change (`@pytest.mark.ac("users/002:AC-8")`), bare = a previously accepted change's test.
   **BLOCKED** on `users/002` being accepted or abandoned — see the fixture note at the top of this file.
   Depends: T09b, T09f, T09g, T04.
-- [ ] T09i — the tests-only baseline screen inspects **HEAD only**, so with T12's pre-baseline `deps:`
+- [x] T09i — the tests-only baseline screen inspects **HEAD only**, so with T12's pre-baseline `deps:`
   commit any earlier commit goes unscreened: a test-author committing `conftest.py` or `src/` first
   gets that commit unexamined, and the gate's protected trees do not cover `src/**` (it is the
   implementer's lane after the baseline). The screen's stated property holds; the property it exists to
   buy does not. `rebaseline`'s range walk is already the right shape to reuse, merge-commit refusal
-  included. Depends: T09b, T12, T09f, T09h.
+  included. Depends: T09b, T12, T09f — **not T09h** (corrected 2026-07-27 in the task file: T09h only
+  *found* this, and blocking on it would be an invented dependency).
 - [x] T19 — `check_self_hash` anchors against a HEAD **the agent can rewrite**: `bash_guard` allows
   writes to the plugin directory by design (T06e), so an agent can tamper an anchor and
   `git -C <plugin> commit -a` until the tree matches. T18 made this strictly larger by anchoring the
