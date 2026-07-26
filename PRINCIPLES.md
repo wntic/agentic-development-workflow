@@ -65,7 +65,13 @@ closing one form and leaving another (T06b → T06e → T06f → T06g → T06i �
 absolute-path variant and never checked the relative one; and **T06i, a correct fix, silently deleted a
 deny it had — pre-T06i `git rm tests/x.py` was DENIED, after it was ALLOWED** — because its acceptance
 criterion was "all 116 cases still pass" and its differential ran allow-direction only. Same shape in
-the specs: T10e's classifier fixed one variant of its own defect and opened another. `notes/19`
+the specs: T10e's classifier fixed one variant of its own defect and opened another.
+*Corollary — do not prescribe the fixture, prescribe the property and demand the pre-fix failure.* A
+plausible-sounding specimen often passes under **both** behaviours: T09j's task asked for "a multi-line
+comment followed by content", which is identical under the deleting and the blanking grammar (deletion
+only joins lines when the closer is not at end-of-line, and the template puts `-->` at EOL) — the
+builder had to *measure* to find a case that discriminates. A pin nobody proved red beforehand is
+decoration. `notes/19`
 
 ---
 

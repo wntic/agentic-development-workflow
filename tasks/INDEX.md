@@ -365,9 +365,12 @@ What it surfaced is below. Every claim re-derived from source before filing.
   degrade loudly by design — `rev-parse HEAD` → `sha: UNKNOWN`, `status --porcelain` → the `dirty`
   flag nothing reads; both recorded in the `notes/19` correction. Also fixed the misattribution that
   hid the defect: an unreadable blob for a path the baseline tree *lists* can no longer be reported
-  as "created after the baseline commit". Lint debris cleared in `gate.py` only — the pinned
-  `RUFF_SELECT` still flags **21** findings across the rest of `.claude/tools|hooks` (accept.py 11,
-  red_check 2, hooks 2, test files 6), a separate cleanup with a separate argument.
+  as "created after the baseline commit". Lint debris cleared in `gate.py` only — ~~the pinned
+  `RUFF_SELECT` still flags 21 findings across the rest of `.claude/tools|hooks`~~ **superseded by
+  T04g** (2026-07-27), which cleared them all (26 by then, not 21 — the layer accrued about one per
+  task while nobody was looking) and added `test_self_lint.py`, so the gate's own selection plus
+  `ruff format --check` now runs over **every** `*.py` under `.claude/`. Consequence for every later
+  task: new tool code must be gate-lint-clean immediately.
 - [x] T06i — **Six point fixes into the `bash_guard` tokeniser** (T06b quoted `-m` · T06e absolute
   paths · T06f relative/`cd` · T06f substring filenames · T06g heredoc bodies · open: `;` glued to a
   quoted word makes `rm`'s target slice swallow a later `cp`'s **source**). Each fix correct, each
