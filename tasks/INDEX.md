@@ -31,6 +31,11 @@ git worktree remove --force <scratch>/u002
 a task; it is the shared regression fixture. **T09h is blocked on it being accepted or abandoned** —
 that decision is the author's.
 
+**Commit your tool edits BEFORE running this regression.** Since T18 the gate anchors 12 enforcement
+files against git HEAD, so an uncommitted `.claude/tools/*.py` or `.claude/hooks/*` makes the run
+return `DENIED` on `[FAIL] integrity.self-hash` — a **spurious** red that has nothing to do with your
+change. It bit T10h's builder on its first attempt. This is T18's stated cost, not a defect.
+
 ## Task file format (all tasks follow it)
 
 - **Goal** — one paragraph.

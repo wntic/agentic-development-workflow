@@ -53,6 +53,19 @@ T03 (the templates + `/spec`), T10e (the classifier), T06f (Part B's FLAG), T10f
   name).
 - **Narrow the tolerant classifier** in `accept.py` to the pinned spelling, and **update T06f Part
   B's FLAG reason text** to name the section the template now ships.
+- **Also fix the naive terminator in `classify_removal` (T10h finding 3, verified).**
+  `accept.py:650` has `_ANY_HEADING = re.compile(r"(?m)^#+[ \t]")` and terminates the `Removed`
+  section at **any** heading depth — precisely the trap T10h's task called out and fixed in
+  `_section`. So a `## Removed` whose entries sit under `### ` subheadings has its symbol harvest
+  **truncated**, and the orphan sweep under-sweeps **silently**. Since this task ships the `## Removed`
+  skeleton, it decides what a nested one looks like, so it owns the terminator: match any depth,
+  terminate at **same-or-shallower**, exactly as `_section` now does.
+  Related, from the same finding: this parse now has **three implementations with three grammars** —
+  `accept._section` (full-name match, any depth, same-or-shallower), `red_check.section_body`
+  (name-*prefix* match tolerating trailing text) and this `_REMOVED_HEADING`/`_ANY_HEADING` pair. A C7
+  smell nobody has ruled on. Unifying them changes *which* headings match (`## Context of the change`
+  would start matching "Context"), so **do not** unify silently — either make the case and do it, or
+  record the divergence deliberately.
 - **Close F-05**: a `## Removed` heading whose body lists no sweepable symbol should not PASS. With
   the template shipping a skeleton, an empty one is now an authoring error the human can see — FLAG
   it (consistent with Part B), or FAIL it if you argue removals must always name symbols; state
