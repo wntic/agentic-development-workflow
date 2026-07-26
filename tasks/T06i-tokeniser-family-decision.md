@@ -1,7 +1,7 @@
-# T06i — Six point fixes into the `bash_guard` tokeniser: decide whether to keep patching
+# T06i — Seven point fixes into the `bash_guard` tokeniser: decide whether to keep patching
 
 ## Goal
-`bash_guard`'s command tokeniser has now produced **six** distinct false positives, each found by an
+`bash_guard`'s command tokeniser has now produced **seven** distinct false positives, each found by an
 agent it blocked, each closed by a point fix that left another variant open:
 
 | # | Task | The variant |
@@ -12,6 +12,7 @@ agent it blocked, each closed by a point fix that left another variant open:
 | 4 | T06f A | filename fragments matched as bare substrings (`change.md` ⊂ `users-002-change.md`) |
 | 5 | T06g | heredoc **bodies** tokenised — prose in a commit message read as a redirect |
 | 6 | open | `rm -rf "$S"; mkdir …` — the `;` glues onto the quoted word, `_slice_until_control` never sees a CONTROL token, and `rm`'s target slice swallows **the rest of the command**, including a later `cp`'s *source* path. A single space before the `;` flips the verdict, and the reason string blames a path the command only reads. (Found building T04e; cost that builder two denied commands.) |
+| 7 | open | **Unexpanded shell variables resolve against the repo root.** `rm -f "$CD/specs/…/ESCALATE"`, where `$CD` is a scratchpad path *outside* the repo, was DENIED for role `v3-builder`: the guard does not expand `$CD`, so the token is not absolute, `_repo_relative` joins it onto the repo root, and `specs/` then matches as whole components. **Every** out-of-repo path referenced through a variable is mis-attributed to the repo tree. Found building T06j, and it trained the bypass reflex on that builder — it re-ran with literal absolute paths. Cheap fix in the family's own idiom: a token containing an unexpanded `$` is *indeterminate*, so return `None`, exactly like T06f's unknown-cwd case. |
 
 Each fix was individually correct and cheap. The pattern is the problem: we are hand-parsing shell
 with regex and slices, discovering the grammar one denial at a time, and every miss trains the
@@ -37,8 +38,10 @@ replace it).
 ## Deliverables
 First, a short written comparison (in the report, or `notes/` if it runs long) of:
 
-- **(a) a seventh point fix** for variant 6 — `;` / `&&` / `||` splitting that survives quoted words.
-  Cheapest, keeps every test, leaves variant 7 to be discovered by whoever it blocks next.
+- **(a) two more point fixes** — for variant 6, `;` / `&&` / `||` splitting that survives quoted
+  words; for variant 7, treat a token containing an unexpanded `$` as indeterminate. Cheapest, keeps
+  every test, leaves variant 8 to be discovered by whoever it blocks next. Note that variant 7
+  appeared *after* this task was filed, which is itself evidence about (a)'s trajectory.
 - **(b) a real tokeniser** — split the command into segments on unquoted control operators first,
   then parse each segment's redirects and mutator arguments. Python's stdlib `shlex` already has
   `punctuation_chars=True`, which tokenises `;`, `&&`, `||` as separate tokens — this may be far
@@ -46,14 +49,17 @@ First, a short written comparison (in the report, or `notes/` if it runs long) o
 - **(c) shrink the guard's job** — if precision keeps costing this much, argue for guarding fewer
   constructs and leaning harder on the gate. S8 permits this; it is not defeat.
 
-Then **implement the choice.** If (b), the 113 existing cases must all still pass unchanged — that
+Then **implement the choice.** If (b), the 116 existing cases must all still pass unchanged — that
 is the acceptance criterion, not a nice-to-have.
 
 ## Verification
-- `uv run pytest .claude/tools/test_enforcement.py` green — **all 113 existing cases unmodified**,
-  plus a case for variant 6 (`rm -rf "$S"; cp .claude/tools/x.py "$S/x.py"` → allowed; the same
-  command writing genuinely into a protected tree → still denied).
-- Replay the recorded false positives from all six variants through the live hook: none fire.
+- `uv run pytest .claude/tools/test_enforcement.py` green — **all 116 existing cases unmodified**
+  (count as of T06j; re-check before starting), plus:
+  - variant 6: `rm -rf "$S"; cp .claude/tools/x.py "$S/x.py"` → allowed; the same command writing
+    genuinely into a protected tree → still denied;
+  - variant 7: `rm -f "$CD/specs/x/ESCALATE"` with `$CD` unexpanded → allowed; a *literal*
+    `specs/x/ESCALATE` write by a non-owner → still denied.
+- Replay the recorded false positives from all seven variants through the live hook: none fire.
 - The in-repo denials still deny: non-owner `cat > tests/x.py`, `cd .. && cat > <repo>/tests/x.py`,
   a real `specs/**/change.md` write.
 - `uv run pytest .claude/tools` — whole meta suite green.

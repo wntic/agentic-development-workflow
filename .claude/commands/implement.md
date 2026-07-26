@@ -87,6 +87,8 @@ behaviour. It stays tool-blocked from `pyproject.toml` — an unforeseen depende
 CONTRACT-CHANGE back to the test-author, never a `uv add`. The
 SubagentStop hook holds it while the gate is red and, at the internal ceiling (**3 blocks per
 red test**), the hook itself writes `changes/NNN-<slug>/ESCALATE` and releases it (spec §5.3).
+That ceiling is reached only by a gate that **answered** RED — a gate that could not *run* at all
+never blocks and never counts (see ENV-BLOCKED below).
 
 On green the implementer **commits its own `src/**` (and Alembic revision)** as the code
 commit and reports the SHA — you do **not** commit `src/` for it. If it reports green but an
@@ -106,6 +108,15 @@ own commit.
   (e.g. re-type `conftest` fixtures against the now-existing package, re-sort own-package
   imports). It consumes one of the 3 full-cycle passes, so a change that keeps bouncing between
   the two lanes still ESCALATEs rather than looping forever.
+- **ENV-BLOCKED**: if the gate **could not run** at all — it exits 2 and writes no
+  `.gate/verdict.json`, in practice because the project's environment is missing the toolchain
+  (`mypy` / `ruff` / `pytest` / `alembic`) — the SubagentStop hook releases the implementer with
+  the gate's own sentence in a systemMessage and spends **no** block and **no** pass (T06j). This
+  is **not** an ESCALATE and **not** a code defect: nothing in `src/**` can fix it, and an
+  `ESCALATE` file would record an environment fault as a change fault in the change directory.
+  **Stop the cycle and surface the message to the human** — the fix is theirs (declare the dev
+  group per `conventions` block D, then `uv sync`); the workflow never installs anything itself
+  (F1). Resume the cycle unchanged afterwards: the block counter was left exactly as found.
 
   The handback's test-author commits `tests/**` only — **leave the implementer's uncommitted
   `src/` in place, do not stash it**. Then re-anchor the baseline onto that corrected commit:
