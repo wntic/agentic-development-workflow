@@ -193,6 +193,9 @@ notes/15_v3_design_review.md      # the 5-probe adversarial review register — 
 codegen_workflow_spec.md          # v2 rationale — archive, kept for the "why" of what survived
 tasks/                            # v3 build-out: INDEX.md (status) + one file per task (T01–T11)
 notes/21_plugin_packaging.md      # what ships, the release procedure, the measured platform facts
+.claude-plugin/marketplace.json   # the RELEASE CATALOG — does not ship; names the split plugin repo
+                                  #   as a WHOLE-REPO source (a subdirectory source has no .git in
+                                  #   the plugin cache → self-hash unverifiable → gate RED, §5a)
 .claude/                          # THE PLUGIN ROOT (`adw`) — everything here ships, nothing else does
   .claude-plugin/plugin.json      # the manifest
   bin/adw.py                      # the one invocation form: `${CLAUDE_PLUGIN_ROOT}/bin/adw.py <tool>`

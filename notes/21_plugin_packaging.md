@@ -44,8 +44,8 @@ decision: a new file lands on the right side by where its author puts it.
 Consequences, accepted deliberately:
 
 - `tasks/`, `notes/`, `workflow_v3_spec.md`, `codegen_workflow_spec.md`, `CLAUDE.md`,
-  `PRINCIPLES.md`, `README.md`, `pyproject.toml`, and any trial app in `src/`/`tests/` do **not**
-  ship. A consumer reads nothing outside `.claude/` — which is why the `/adw:` rename sweep is
+  `PRINCIPLES.md`, `README.md`, `pyproject.toml`, the release catalog
+  `.claude-plugin/marketplace.json` (§5a), and any trial app in `src/`/`tests/` do **not** ship. A consumer reads nothing outside `.claude/` — which is why the `/adw:` rename sweep is
   scoped to `.claude/**` and every document outside it keeps the bare command names.
 - the meta layer's own `test_*.py` and `fixtures/` **do** ship (~250 KB). Accepted: it lets a
   consumer re-verify the enforcement scripts, and excluding them would separate the tests from the
@@ -150,6 +150,69 @@ are measured:
 
 The obvious packaging choice is the broken one. It is also the failure with the worst shape: the
 gate is red for a reason that has nothing to do with the consumer's code.
+
+### 5a. The marketplace catalog (2026-07-27)
+
+The plugin is distributed through a marketplace of one plugin, so it updates in one place and
+installs on every machine. The catalog lives at **`<repo>/.claude-plugin/marketplace.json` — the
+dev repo's root, outside the plugin** (so it does not ship), and names the split repo as the
+plugin's source:
+
+```json
+{ "name": "wntic-adw", "owner": { "name": "…" },
+  "plugins": [ { "name": "adw", "source": { "source": "github", "repo": "wntic/adw-plugin" } } ] }
+```
+
+Consumer side: `claude plugin marketplace add wntic/agentic-development-workflow` →
+`claude plugin install adw@wntic-adw` → `/reload-plugins`.
+
+Three facts decided that layout, each measured on Claude Code 2.1.220 by installing a probe
+plugin three ways and listing the cache directory:
+
+| plugin `source` form | cache copy holds | consequence |
+|---|---|---|
+| `"./sub"` (relative path) | no `.git` | `integrity.self-hash` unverifiable → **GATE RED** |
+| `"./"` (the marketplace root itself) | no `.git` | same — and note the source dir *had* a `.git` |
+| `{"source":"url"\|"github", …}` | `.git`, `.in_use` | a real clone → **self-hash PASS** |
+
+So §5's rule extends further than `git-subdir`: **every relative-path source is a content copy**,
+including `./` pointing at the marketplace root. That kills the one-repo shape where the marketplace
+repo *is* the plugin — the catalog cannot ship inside the plugin and point at itself relatively.
+
+Second: **a catalog next to `plugin.json` shadows the plugin's own validation.** Given a directory
+holding both manifests, `claude plugin validate` validates the *marketplace* and reports nothing
+about the plugin — so the plugin-manifest and skill-frontmatter warnings (§8's nine unparseable
+`SKILL.md` files) stop being reported, with a green exit code. Hence the catalog at the repo root:
+`claude plugin validate .` checks the catalog, `claude plugin validate .claude` checks the plugin.
+Pinned by `test_the_catalog_never_moves_into_the_plugin_root`.
+
+Third: **`version` is gone from `plugin.json`.** Version resolution is `plugin.json` → marketplace
+entry → the source's commit SHA; a version *string* pins the plugin, so pushing commits leaves
+installed copies stale and `/plugin update` answers *"already at the latest version"*. Bump-on-release
+is a rule with nothing enforcing it and a silent failure (S4), so the workflow versions by commit SHA
+— the cache directory is then the short SHA (`…/adw/0e50b724513a`). Cost, accepted: `claude plugin
+validate .claude --strict` fails on the lone *"No version specified"* warning, so the release check
+is the non-strict form, read for its warnings.
+
+Auto-update is **off by default for third-party marketplaces** (only Anthropic's are on), so each
+machine needs `/plugin` → *Marketplaces* → *Enable auto-update* once, or a periodic
+`/plugin marketplace update wntic-adw && /plugin update adw`. Updates land after session start with
+a random delay of up to 10 minutes and prompt for `/reload-plugins`.
+
+### The marketplace rehearsal, end to end (2026-07-27)
+
+1. `git subtree split --prefix=.claude` → clone the split branch into a standalone repo → a
+   rehearsal catalog whose plugin source is `file://<that clone>` (a whole-repo `url` source).
+2. `claude plugin marketplace add <catalog dir>` → `claude plugin install adw@adw-rehearsal` →
+   installed at `~/.claude/plugins/cache/adw-rehearsal/adw/0e50b724513a`, **`.git` present**.
+3. `CLAUDE_PLUGIN_ROOT=<that dir> uv run "<that dir>/bin/adw.py" gate` →
+   **`[PASS] integrity.self-hash — all 13 enforcement anchor(s) match git HEAD (E-02)`**, GATE: GREEN.
+4. Both manifests validate independently; the catalog passes `--strict`.
+
+Not yet exercised, because it needs the published remotes: `add wntic/agentic-development-workflow`
+over the network, and the `github` source resolving `wntic/adw-plugin` (which does not exist yet).
+`file://` is accepted as a *plugin* source but **rejected as a marketplace source**, so the
+marketplace-add half cannot be rehearsed locally against a git URL.
 
 ### The release rehearsal, end to end (2026-07-26)
 

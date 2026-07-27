@@ -108,7 +108,8 @@ WHOLE_REPO_SOURCES = frozenset({"github", "url"})
 
 def test_marketplace_catalog_exists_and_lists_this_plugin() -> None:
     data = _marketplace()
-    assert data["name"] and data["name"] != PLUGIN_NAME, "marketplace and plugin names both appear in plugin@marketplace"
+    # Both names show up in `plugin@marketplace`, so they must not be the same word.
+    assert data["name"] and data["name"] != PLUGIN_NAME, data["name"]
     assert data["owner"]["name"].strip()
     assert _entry()["source"], "an entry without a source cannot be installed"
 
@@ -128,7 +129,7 @@ def test_the_catalog_never_moves_into_the_plugin_root() -> None:
     _marketplace()  # ... and it exists where it belongs (or this is not the workflow's repo)
 
 
-def test_marketplace_fetches_the_plugin_as_a_WHOLE_repository() -> None:
+def test_marketplace_fetches_the_plugin_as_a_whole_repository() -> None:
     """The load-bearing one: a subdirectory source makes the gate RED in every consumer.
 
     Measured on Claude Code 2.1.220 (2026-07-27) by installing the same plugin three ways and
