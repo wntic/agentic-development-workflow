@@ -6,30 +6,27 @@ Each task is one file in this directory, executed by the `v3-builder` agent via
 spec sections, they do not restate them; on any conflict the spec wins and the builder
 escalates instead of improvising.
 
-## The `users/002` reproduction fixture — read this before concluding it is gone
+## The in-repo regression fixture is GONE — read this before following an old recipe
 
-Many task files ask you to confirm that `users/002` still reproduces. **The worktree is not
-persistent — you create it.** A builder once looked for an existing `git worktree`, found none, and
-concluded the change had been accepted; it had not. The facts, as of 2026-07-26:
+The `users/002` trial was **abandoned on 2026-07-27**: its branches (`change/users-002`,
+`backup/users-002-prerebase`) and its `baseline/users-002` tag were deleted, per T15's rule that this
+repo carries no trials. **Any task file telling you to `git worktree add … a931ee6` and run
+`accept.py users/002` is describing something that no longer exists** — do not go looking for it, and
+do not treat its absence as a defect.
 
-- branch `change/users-002` → `a931ee6` (7 commits), tag `baseline/users-002` → `dd3a64b`, plus
-  `backup/users-002-prerebase` → `201cff8`;
-- there is **no** `change/users-002` *tag*, so the acceptance has **not** happened — it was executed
-  once and deliberately reset, because this repo is a trial harness and T15 evicted trials from it;
-- `markdown-specs` itself carries no `specs/`, `src/` or `tests/`, so an empty `specs/` in the work
-  tree is **expected** and is not evidence about the branch.
+What replaces it, in order of preference:
 
-Reproduce with:
+1. **The meta suite** — `uv run pytest .claude/tools` (~670 tests). Every behaviour the old recipe
+   guarded is pinned there; the acceptance path in particular has fixture-level coverage in
+   `test_accept.py`, including the classifier regression that used to need the real branch (now
+   `.claude/tools/fixtures/change-spec-with-removal-prose.md`, a committed snapshot with no branch
+   behind it).
+2. **The consumer venue** — `~/Projects/adw-consumer-probe`, where `health/001` is accepted and the
+   gate runs GREEN. That is the only *live* accepted change left, and it is packaging-faithful
+   (`notes/20_consumer_trial_venue.md`).
 
-```
-git worktree add --detach <scratch>/u002 a931ee6
-GATE_DOCKER=0 uv run .claude/tools/accept.py users/002 --tree <scratch>/u002   # → ACCEPTABLE
-git worktree remove --force <scratch>/u002
-```
-
-`--base` is no longer needed (T10g derives it). Never commit to, rebase, or delete that branch inside
-a task; it is the shared regression fixture. **T09h is blocked on it being accepted or abandoned** —
-that decision is the author's.
+If a task's Verification still names `users/002`, substitute one of those and **say which in your
+report** rather than skipping the check.
 
 **Commit your tool edits BEFORE running this regression.** Since T18 the gate anchors the whole
 enforcement layer against git HEAD — every `tools/*.py`, `hooks/*.py`, `hooks/*.json`, `bin/*.py`,

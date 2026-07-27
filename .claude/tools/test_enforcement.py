@@ -415,20 +415,20 @@ def test_bash_guard_owned_tree_under_repo_still_allowed(repo: FixtureRepo) -> No
 # T06e anchored the ABSOLUTE variant; the relative one stayed broken because the payload's
 # `cwd` is the SESSION cwd and the tokeniser had no `cd` awareness — so a write into a scratch
 # copy of the tree (`cd /tmp/mut && cat > tests/...`) resolved under the repo root and fired.
-# It denied the users/002 adversarial mutation pass twice; the evaluator rerouted and finished
+# It denied an adversarial mutation pass twice; the evaluator rerouted and finished
 # anyway, i.e. the guard trained the bypass reflex it exists to prevent. A relative target is
 # now resolved against the command's EFFECTIVE cwd; when that cannot be determined with
 # confidence the target is dropped, never guessed (T06b precision bias, S8 backstop).
 
 
 def test_bash_guard_cd_into_scratch_then_relative_write_allowed(repo: FixtureRepo, tmp_path: Path) -> None:
-    # users/002 denial #1, replayed: a probe test written into a throwaway mutation copy.
+    # recorded denial #1, replayed: a probe test written into a throwaway mutation copy.
     cmd = f"cd {tmp_path / 'mut'} && cat > tests/integration/x_test.py"
     assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) is None
 
 
 def test_bash_guard_cd_into_scratch_dissolves_the_compound_veto(repo: FixtureRepo, tmp_path: Path) -> None:
-    # users/002 denial #2, replayed: the real mutations are in src/, and the command died only
+    # recorded denial #2, replayed: the real mutations are in src/, and the command died only
     # because a leading `rm -f tests/...` shared the line. A PreToolUse hook can only allow or
     # deny the whole call, so the fix is that BOTH targets now resolve into the /tmp copy.
     cmd = f"cd {tmp_path / 'mut'} && rm -f tests/x.py && cat > src/y.py"
@@ -496,7 +496,7 @@ def test_bash_guard_cd_preserves_the_owned_tree_allowance(repo: FixtureRepo) -> 
 # =======================================================================================
 #
 # `change.md` is a filename relative to the repo root, so a file whose name merely CONTAINS
-# it is not it. Found building T10e: `git show … > .claude/tools/fixtures/users-002-change.md`
+# it is not it. Found building T10e: `git show … > .claude/tools/fixtures/a-change.md`
 # was reported as a write to `change.md`, which sent the builder renaming the fixture. That
 # path is in fact protected — it lives under `.claude/tools` — and the denial now says so.
 
@@ -504,7 +504,7 @@ def test_bash_guard_cd_preserves_the_owned_tree_allowance(repo: FixtureRepo) -> 
 @pytest.mark.parametrize(
     "command",
     [
-        "echo x > notes/users-002-change.md",  # not a change.md
+        "echo x > notes/a-change.md",  # not a change.md
         "echo x > notes/verdict.md.draft",  # not a verdict.md
         "sed -i '' 's/a/b/' pyproject.toml.bak",  # not pyproject.toml
         "echo x > notes/mycriteria.md",  # not a criteria.md
@@ -522,7 +522,7 @@ def test_bash_guard_real_change_md_still_denied(repo: FixtureRepo) -> None:
 def test_bash_guard_protected_dir_denial_names_the_directory(repo: FixtureRepo) -> None:
     # The T10e write: still denied — `.claude/tools` is a protected tree whoever the fixture
     # is named for — but the reported fragment is now the real reason, not the filename.
-    cmd = "git show HEAD:x > .claude/tools/fixtures/users-002-change.md"
+    cmd = "git show HEAD:x > .claude/tools/fixtures/a-change.md"
     proc = _run_anchored(cmd, agent_type="test-author", root=repo.root)
     assert decision(proc) == "deny"
     assert ".claude/tools" in proc.stdout and "(change.md)" not in proc.stdout, proc.stdout
@@ -708,7 +708,7 @@ RECORDED_FALSE_POSITIVES = [
     # 3 · T06f A — a relative target inside a scratch tree reached by `cd`
     ("cd /tmp/mut && cat > tests/integration/x_test.py", "evaluator"),
     # 4 · T06f A — a filename that merely CONTAINS a protected filename
-    ("echo x > notes/users-002-change.md", "test-author"),
+    ("echo x > notes/a-change.md", "test-author"),
     # 5 · T06g — a heredoc BODY read as command
     (COMMIT_HEREDOC, "evaluator"),
     # 6 · T06i variant 6 — `;` glued to a quoted word; the reason blamed the `cp`'s source

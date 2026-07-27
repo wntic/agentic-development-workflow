@@ -1,4 +1,4 @@
-# users/002 — user CRUD over HTTP
+# demo/002 — user CRUD over HTTP
 
 Class: behavioral
 Affects: user-management.md

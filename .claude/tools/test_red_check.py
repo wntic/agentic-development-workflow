@@ -431,7 +431,7 @@ def test_change_dir_birth_is_the_oldest_add_of_the_change_dir(tmp_path: Path) ->
 
 
 def test_e2e_sanctioned_pre_baseline_sequence_is_screened_and_still_tags(tmp_path: Path, capsys) -> None:
-    # THE regression that matters: /implement §1's real commit shape, as change/users-002 carries
+    # THE regression that matters: /implement §1's real commit shape, as a real change branch carries it
     # it — the /adw:spec commit (change dir + a new context's overview), then the `deps:` commit,
     # then the tests-only baseline commit. If this refuses, every future first change is blocked.
     repo = _base_repo(tmp_path)
@@ -1044,7 +1044,7 @@ def test_clear_escalate_and_rebaseline_are_not_combinable(tmp_path: Path) -> Non
 # The change shape the cycle had no lane for: the tests get stronger while behaviour stays
 # identical (a prior adversarial pass found a mutation the suite did not kill). Such tests are
 # green on arrival, so redness cannot be their baseline property; this class replaces it with
-# GREEN-on-clean + RED-on-mutation. The fixtures below are the users/002 **F1** shape verbatim,
+# GREEN-on-clean + RED-on-mutation. The fixtures below are a real adversarial pass's **F1** shape verbatim,
 # reduced to one function: a `save` that filters by key, a weak suite that a filter-dropping
 # mutation walks straight through, and the strengthened suite that kills it.
 
@@ -1236,7 +1236,7 @@ def save(rows: dict[str, str], key: str, value: str) -> dict[str, str]:
     return {k: (value if k == key else v) for k, v in rows.items()}
 '''
 
-# users/002's F1 verbatim, one function down: the row filter is gone, so a "single-row update"
+# a recorded F1 mutation verbatim, one function down: the row filter is gone, so a "single-row update"
 # rewrites EVERY row. The shipped code is correct; this is the wrong code the tests must catch.
 STORE_SRC_MUTATED = '''\
 def save(rows: dict[str, str], key: str, value: str) -> dict[str, str]:

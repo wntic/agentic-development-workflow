@@ -1346,7 +1346,7 @@ def test_anchor_globs_pick_the_deciders_and_leave_the_rest(tmp_path: Path) -> No
             "settings.json",
             # NOT anchored, each for its own reason (see SELF_INTEGRITY_GLOBS):
             "tools/test_gate.py",  # ships, but no decision reads it
-            "tools/fixtures/users-002-change-spec.md",  # nested: `tools/*.py` is one level
+            "tools/fixtures/change-spec-with-removal-prose.md",  # nested: `tools/*.py` is one level
             "skills/conventions/SKILL.md",  # knowledge, not a decider
             "agents/implementer.md",
             "commands/spec.md",

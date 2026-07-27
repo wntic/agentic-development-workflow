@@ -187,7 +187,7 @@ def _section(text: str, heading: str) -> str:
     `### Interface sketch` as NOTHING, and an empty Interface sketch reads as S depth — so the
     mandatory adversarial pass was skipped for an M/L change (T10h; the existing-capability half
     of T10f's F-02). Termination is same-or-shallower, never any `#+`: a `### F1 …` subheading
-    inside `## Adversarial review` (the users/002 verdict's own shape) must stay part of its
+    inside `## Adversarial review` (a real verdict's own shape) must stay part of its
     parent section instead of ending it.
 
     Heading TEXT still has to match in full, case-insensitively. The tolerant `#+ <name>…` form
@@ -723,7 +723,7 @@ def classify_removal(change_md: str) -> RemovalFlavour:
     """Classify a change's removal flavour from STRUCTURE and harvest the removed symbols
     from the matched heading's own section only.
 
-    Two defects this replaces (both blocked `users/002`, a change that removes nothing):
+    Two defects this replaces (both blocked a real change that removes nothing):
     a classifier that fired on any line beginning with "removed", and a term capture anchored
     on the FIRST "removed" anywhere in the file — which harvested half the Interface sketch
     (`id`, `save`, `None`, …) and would drown a genuine removal's real signal too.

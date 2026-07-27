@@ -65,7 +65,9 @@ allowance reads).
   run` with the removed test silently inside N; after, the grant is named. Assert on the message.
 - Item 1's chosen behaviour differs from pre-fix in a fixture with **two** change dirs, one authorising
   the other's deletion.
-- `users/002` reproduces unchanged (INDEX recipe; it removes nothing, so both halves are inert for it).
+- The **meta suite** is the regression check — `uv run pytest .claude/tools` (~3.5 min, give it a
+  timeout). The old `users/002` recipe is gone (the trial was abandoned 2026-07-27; see the INDEX
+  header), so do not go looking for that branch.
   Commit tool edits first (T18).
 
 ## Out of scope / Escalate if

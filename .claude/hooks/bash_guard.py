@@ -51,7 +51,7 @@ different construct, and is left alone.
 
 Fragments match on **component boundaries**, never as bare substrings (T06f). A fragment is
 a path relative to the repo root, so `change.md` matches `…/change.md` but not
-`fixtures/users-002-change.md`, and `pyproject.toml` does not match `pyproject.toml.bak` —
+`fixtures/a-change-spec.md`, and `pyproject.toml` does not match `pyproject.toml.bak` —
 otherwise the guard dictates filenames, and its explanation misnames the real reason for a
 denial (that misnaming is what sent a builder renaming a fixture that was in fact denied for
 living under `.claude/tools`).
@@ -672,7 +672,7 @@ def _matches(frag: str, candidate: str) -> bool:
 
     A fragment is a path relative to the repo root, so it matches on component boundaries and
     never as a bare substring (T06f): `change.md` matches `specs/x/changes/001-y/change.md`
-    but not `fixtures/users-002-change.md`; `pyproject.toml` does not match `pyproject.toml.bak`.
+    but not `fixtures/a-change-spec.md`; `pyproject.toml` does not match `pyproject.toml.bak`.
     A trailing slash marks a DIRECTORY fragment — it matches only with something below it, so
     `tests/` fires on `tests/x.py` at any depth but not on a file merely named `tests`.
     """

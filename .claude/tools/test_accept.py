@@ -230,7 +230,7 @@ VERDICT_NO_SHA = VERDICT_MD.replace("· SHA: {sha} ·", "· SHA: (pending) ·")
 # makes the adversarial pass mandatory for.
 BIRTH_CHANGE_MD = CHANGE_MD.replace("Affects: core.md\n", "")
 OVERVIEW_NO_CAPABILITIES = OVERVIEW_MD.replace("- `core.md` — arithmetic core\n", "")
-# The users/002 shape: the overview DOES name the capability this acceptance births — once in
+# The birth shape: the overview DOES name the capability this acceptance births — once in
 # the Capabilities list and once in prose (F-03c/F-10).
 OVERVIEW_BIRTH_LISTED = OVERVIEW_MD.replace(
     "- `core.md` — arithmetic core",
@@ -434,7 +434,7 @@ def test_orphan_violations() -> None:
 # ONE pinned spelling (T03c) — spec §3.1's `REMOVED` marker + the template's `## Removed`
 # ---------------------------------------------------------------------------------------
 
-USERS_002_CHANGE_MD = (FIXTURES_DIR / "users-002-change-spec.md").read_text(encoding="utf-8")
+REMOVAL_PROSE_CHANGE_MD = (FIXTURES_DIR / "change-spec-with-removal-prose.md").read_text(encoding="utf-8")
 
 REMOVAL_CHANGE_MD = """\
 # demo/007 — drop the legacy export
@@ -463,19 +463,19 @@ UNPINNED_REMOVAL_CHANGE_MD = REMOVAL_CHANGE_MD.replace(
 )
 
 
-def test_classify_removal_does_not_fire_on_users_002() -> None:
-    """Regression (T10e): the verbatim users/002 change.md — `Class: behavioral`, no `Removed`
+def test_classify_removal_does_not_fire_on_removal_prose() -> None:
+    """Regression (T10e): a real `Class: behavioral` change.md whose sketch prose says "removed", no `Removed`
     heading, but two prose spots saying "removed" — must NOT read as a removal-flavour change.
     The pre-T10e classifier fired on the wrapped sketch line and then harvested 19 generic
     identifiers (`id`, `save`, `None`, …), denying acceptance of a change that removes nothing."""
-    flavour = accept.classify_removal(USERS_002_CHANGE_MD)
+    flavour = accept.classify_removal(REMOVAL_PROSE_CHANGE_MD)
     assert flavour.fires is False
     assert flavour.by_class is False
     assert flavour.sections == ()
     assert flavour.terms == ()
     # the fixture is the real document, not a sanitised one: both triggering spots are present.
-    assert "removed id, or `None` when no user held it." in USERS_002_CHANGE_MD
-    assert "`True` when a row was removed" in USERS_002_CHANGE_MD
+    assert "removed id, or `None` when no user held it." in REMOVAL_PROSE_CHANGE_MD
+    assert "`True` when a row was removed" in REMOVAL_PROSE_CHANGE_MD
 
 
 def test_classify_removal_fires_on_a_real_heading_and_captures_only_its_terms() -> None:
@@ -613,7 +613,7 @@ def _sweep_context(tmp_path: Path, change_md: str, *, spec_text: str = "", src_t
 
 
 def test_orphan_sweep_skips_a_non_removal_change(tmp_path: Path) -> None:
-    result = accept._orphan_sweep(_sweep_context(tmp_path, USERS_002_CHANGE_MD))
+    result = accept._orphan_sweep(_sweep_context(tmp_path, REMOVAL_PROSE_CHANGE_MD))
     assert result.status == accept.SKIP
     assert "not a removal-flavour change" in result.detail
 
@@ -727,7 +727,7 @@ def test_section_matches_any_heading_depth_and_survives_a_subheading() -> None:
     """
     nested_heading = "# Title\n\n## Wrapper\n\n### Interface sketch\n`Foo(dep: Bar)`\n\n## Next\nafter\n"
     assert accept._section(nested_heading, "Interface sketch").strip() == "`Foo(dep: Bar)`"
-    # a DEEPER heading is body, not a terminator (the users/002 verdict's `## Adversarial review`
+    # a DEEPER heading is body, not a terminator (a real verdict's `## Adversarial review`
     # carries `### F1 …` findings — truncating there would drop the whole recorded pass).
     nested_body = "## Section\nlead\n\n### Sub\ndeep\n\n#### Deeper\ndeepest\n\n## Other\nout\n"
     body = accept._section(nested_body, "Section")
@@ -910,7 +910,7 @@ def _commit_escalate(repo: FixtureRepo) -> str:
 
 def test_committed_escalate_denies_through_a_detached_worktree(repo: FixtureRepo, tmp_path: Path) -> None:
     # THE case that would have caught this: every acceptance run of the 2026-07-25/26 session, and
-    # notes/19's own users/002 baseline, was produced in a fresh `git worktree` — which never
+    # notes/19's own acceptance baseline, was produced in a fresh `git worktree` — which never
     # carries untracked files. So the `escalate.exists()` gate had never once been exercised
     # against a real lock. With the hook committing the file (T06h part 1) the worktree carries it
     # and the denial is real.
@@ -1178,7 +1178,7 @@ def test_capability_birth_with_the_pass_is_acceptable_and_births_the_file(tmp_pa
 
 
 def test_a_born_capability_named_in_the_overview_is_not_a_dangling_ref(tmp_path: Path) -> None:
-    """F-03c/F-10 — the users/002 shape in miniature: overview.md names the capability this very
+    """F-03c/F-10 — the capability-birth shape in miniature: overview.md names the capability this very
     acceptance births, twice. spec-lint read the PRE-merge tree, so it reported a missing spec
     file — once per occurrence, since findings were not deduped."""
     repo = make_repo(
@@ -1675,7 +1675,7 @@ def test_a_comment_cannot_hijack_the_capability_birth_target(tmp_path: Path) -> 
 
 
 def test_the_birth_target_still_comes_from_the_real_capabilities_list(tmp_path: Path) -> None:
-    """The regression that would hurt (the users/002 path): the birth capability is derived from
+    """The regression that would hurt (the capability-birth path): the birth capability is derived from
     overview.md's list, so the human's chosen name wins over the change-dir slug. Discriminating
     on purpose — the listed name differs from the slug — and the comment alongside it changes
     nothing."""

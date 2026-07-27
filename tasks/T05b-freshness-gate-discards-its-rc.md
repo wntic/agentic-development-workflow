@@ -55,10 +55,13 @@ freshness semantics — tree-identity, signed off 2026-07-25), T04g (which found
 - `uv run pytest .claude/tools` green.
 - The new case demonstrably differs against pre-fix `accept.py` — today an unanswerable second diff
   reports **fresh**. Assert on the verdict, not only on the message.
-- **`users/002` reproduces unchanged**, and this is the case that matters: its verdict was rebased
-  away and is judged *by tree identity* through this very call (`verdict SHA … was rebased away but
-  the change's attested tree is byte-identical`). If that line changes, the fix broke T10d.
-  Recipe in the INDEX; commit tool edits first (T18).
+- **The rebase-survival case is what matters here, and its live fixture is gone** (the `users/002`
+  trial was abandoned 2026-07-27 — see the INDEX header). It exercised exactly this call: a verdict
+  whose pin was rebased away, judged fresh *by tree identity* (`verdict SHA … was rebased away but the
+  change's attested tree is byte-identical`). **Build that case as a fixture** in `test_accept.py`
+  before you change the call — rebase a fixture repo's change branch so the pin is orphaned, assert
+  the tree-identity PASS, and only then add the unanswerable-diff case. Without it you cannot tell a
+  correct FAIL from a broken T10d.
 - `uv run pytest .claude/tools/test_accept.py -k freshness` green.
 
 ## Out of scope / Escalate if
@@ -67,6 +70,6 @@ freshness semantics — tree-identity, signed off 2026-07-25), T04g (which found
 - Do NOT sweep the rest of `accept.py` for `_, x = _git(...)`. T04g's sweep already did: this is the
   only remaining site where an empty value is read as a positive fact. Adding `check=True` to calls
   whose emptiness is *legitimately* meaningful would be a fresh fail-closed noise source.
-- **Escalate if** making it FAIL turns `users/002` red. That would mean the call is unanswerable in a
-  legitimate rebase case, and then the fix has to distinguish "git refused" from "the pin is gone",
+- **Escalate if** making it FAIL reds the rebase-survival fixture above. That would mean the call is
+  unanswerable in a legitimate rebase case, and then the fix has to distinguish "git refused" from "the pin is gone",
   which is a T10d question, not this one.
