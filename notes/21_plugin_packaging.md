@@ -251,10 +251,24 @@ a rehearsal catalog whose plugin source is `file://<that clone>`), which establi
 
 ### 5b. The same rehearsal on the root layout (2026-07-27)
 
-Same shape, no `subtree split`: a clone of THIS repo is the plugin, and a rehearsal catalog points
-at it with a `file://` `url` source.
+No `subtree split`: a clone of THIS repo *is* the plugin, and a rehearsal catalog points at it with
+a `file://` `url` source (the catalog's own `name` bumped so it cannot squat the real one).
 
-*(Filled in by the run below — see the commit that carries this note.)*
+1. `claude plugin marketplace add <catalog dir>` → `claude plugin install adw@adw-rehearsal2` →
+   installed at `~/.claude/plugins/cache/adw-rehearsal2/adw/c1410764d7e5` — the version directory is
+   the **commit SHA**, and the copy holds **`.git`**. The whole repo is there, `notes/` and `tasks/`
+   included, and the `.claude/` symlinks survived the copy as relative symlinks (which the runtime
+   documents: a symlink resolving inside the plugin's own directory is preserved).
+2. `CLAUDE_PLUGIN_ROOT=<cache dir> uv run "<cache dir>/bin/adw.py" gate` →
+   **`[PASS] integrity.self-hash — all 14 enforcement anchor(s) match git HEAD (E-02)`**, GATE: GREEN.
+3. The consumer-safety half, read off the INSTALLED gate: `protected_paths(<any tree>)` →
+   `('.claude/settings.json', 'pyproject.toml')`. The plugin's own trees are absent, so a consumer's
+   `tools/` is its own. From a checked-out gate the same call returns
+   `(…, 'tools', 'hooks')` for this repo and the two-element form for a foreign tree — the
+   derivation measured in both directions.
+4. Both manifests validate: the catalog cleanly, the plugin half (marketplace-less copy) with two
+   warnings — the accepted `version` one, and *"CLAUDE.md at the plugin root is not loaded as project
+   context"*, which is the runtime confirming §1's claim about the dev record shipping inert.
 
 Still not exercised, because it needs the published remote: `claude plugin marketplace add
 wntic/agentic-development-workflow` over the network, and the `url` source resolving that repo for a
