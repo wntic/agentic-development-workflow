@@ -37,6 +37,8 @@ is decoration.
 import re
 from pathlib import Path
 
+import yaml
+
 SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 
 # The router's one sanctioned pointer form (CONVENTIONS.md "Skill format", meta-skill-author
@@ -85,6 +87,43 @@ def frontmatter_violations(root: Path) -> list[str]:
                     f"SKILL.md alone — a `name:` here advertises a phantom skill and splits one "
                     f"theme into two auto-invocation entries. Start the topic at its `# ` title."
                 )
+    return out
+
+
+def unparseable_frontmatter_violations(root: Path) -> list[str]:
+    """Every SKILL.md's frontmatter must parse as YAML — the check `claude plugin validate` makes.
+
+    Presence is not enough. An unquoted scalar containing `": "` is a YAML *mapping*, so the block
+    raises and the runtime loads the skill with **empty metadata, silently** — `description` and
+    `when_to_use` are what drive auto-invocation, so the skill simply stops being reachable.
+
+    This is the third occurrence. T15 found nine skills in this state and quoted them; T13 then
+    rewrote `meta-skill-author`'s description and reintroduced it; the format guard shipped by T13b
+    checked frontmatter *presence* and could not see it, so it survived until a plugin validation run.
+    Parsing is the only check that catches it.
+    """
+    out: list[str] = []
+    for skill in skill_dirs(root):
+        text = (skill / "SKILL.md").read_text(encoding="utf-8").lstrip("\ufeff")
+        if not text.startswith("---"):
+            out.append(f"{skill.name}/SKILL.md has no frontmatter block at all.")
+            continue
+        block = text.split("---", 2)[1]
+        try:
+            loaded = yaml.safe_load(block)
+        except yaml.YAMLError as exc:
+            first = str(exc).splitlines()[0]
+            out.append(
+                f"{skill.name}/SKILL.md frontmatter does not parse as YAML ({first}). The usual cause "
+                f'is an unquoted value containing ": " — quote the whole scalar.'
+            )
+            continue
+        if not isinstance(loaded, dict):
+            out.append(f"{skill.name}/SKILL.md frontmatter parses to {type(loaded).__name__}, not a mapping.")
+            continue
+        for field in ("name", "description", "when_to_use"):
+            if not loaded.get(field):
+                out.append(f"{skill.name}/SKILL.md frontmatter is missing `{field}`.")
     return out
 
 
@@ -153,6 +192,18 @@ def vacuity_violations(root: Path) -> list[str]:
 # --- the real catalog ----------------------------------------------------------------------
 
 
+def test_every_skill_frontmatter_parses_as_yaml() -> None:
+    """The check `claude plugin validate --strict` makes, run here so a broken skill cannot ship.
+
+    Caught live on 2026-07-27: `meta-skill-author` carried an unquoted description containing `": "`,
+    so the plugin failed validation and that skill would have loaded with **no metadata at all** —
+    `description` / `when_to_use` are what drive auto-invocation, so it silently stops being reachable.
+    Third occurrence: T15 quoted nine skills, T13 reintroduced it while rewriting one description, and
+    the presence-only check shipped by T13b could not see it.
+    """
+    assert unparseable_frontmatter_violations(SKILLS_DIR) == []
+
+
 def test_no_topic_file_carries_frontmatter() -> None:
     assert frontmatter_violations(SKILLS_DIR) == []
 
@@ -207,6 +258,24 @@ def _all_violations(root: Path) -> list[str]:
 def test_the_control_theme_is_clean(tmp_path: Path) -> None:
     _valid_theme(tmp_path)
     assert _all_violations(tmp_path) == []
+
+
+def test_unparseable_frontmatter_reds(tmp_path: Path) -> None:
+    """An unquoted scalar with a colon-space is a YAML mapping — the exact shape that shipped twice."""
+    skill = _valid_theme(tmp_path)
+    (skill / "SKILL.md").write_text(
+        "---\nname: x\ndescription: House style: the thing\nwhen_to_use: Doing it\n---\n\n# X\n",
+        encoding="utf-8",
+    )
+    violations = unparseable_frontmatter_violations(tmp_path)
+    assert violations and "does not parse as YAML" in violations[0]
+
+
+def test_a_missing_frontmatter_field_reds(tmp_path: Path) -> None:
+    """`description` and `when_to_use` drive auto-invocation; absent, the skill is unreachable."""
+    skill = _valid_theme(tmp_path)
+    (skill / "SKILL.md").write_text("---\nname: x\n---\n\n# X\n", encoding="utf-8")
+    assert any("missing `description`" in v for v in unparseable_frontmatter_violations(tmp_path))
 
 
 def test_frontmatter_in_a_topic_file_reds(tmp_path: Path) -> None:
