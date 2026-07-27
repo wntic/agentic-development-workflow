@@ -1,7 +1,6 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "adw",
-  "version": "0.1.0",
   "description": "Spec-driven agentic development workflow (v3): living Markdown specs per bounded context, a red-tests -> code -> verdict change cycle on a branch per change, and deterministic gates (gate.py / accept.py) that decide 'is it green' and 'may it merge'.",
   "author": {
     "name": "Egor Vorobyev",

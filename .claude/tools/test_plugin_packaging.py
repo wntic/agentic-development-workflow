@@ -34,6 +34,9 @@ TOOLS_DIR = Path(__file__).resolve().parent
 PLUGIN_ROOT = TOOLS_DIR.parent  # .claude/ IS the plugin root (T15, layout C)
 HOOKS_DIR = PLUGIN_ROOT / "hooks"
 MANIFEST = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
+# The catalog is a RELEASE artifact of this repo, not a shipped file — it lives outside the
+# plugin root, and deliberately so (see test_the_catalog_never_moves_into_the_plugin_root).
+MARKETPLACE = PLUGIN_ROOT.parent / ".claude-plugin" / "marketplace.json"
 SETTINGS = PLUGIN_ROOT / "settings.json"
 HOOKS_JSON = HOOKS_DIR / "hooks.json"
 SHIM = PLUGIN_ROOT / "bin" / "adw.py"
@@ -49,6 +52,20 @@ def _manifest() -> dict:
     return json.loads(MANIFEST.read_text(encoding="utf-8"))
 
 
+def _marketplace() -> dict:
+    """The release catalog, or skip — it does not ship, so a consumer's tree has none."""
+    if not (MARKETPLACE.is_file() and (MARKETPLACE.parent.parent / "workflow_v3_spec.md").is_file()):
+        pytest.skip("not the workflow's own repo — the marketplace catalog is a release artifact of that repo alone")
+    return json.loads(MARKETPLACE.read_text(encoding="utf-8"))
+
+
+def _entry() -> dict:
+    """The catalog's entry for this plugin."""
+    entries = [p for p in _marketplace()["plugins"] if p.get("name") == PLUGIN_NAME]
+    assert len(entries) == 1, _marketplace()["plugins"]
+    return entries[0]
+
+
 def _hook_scripts() -> set[str]:
     """Every hook the plugin ships — the set both wirings must cover exactly."""
     return {p.name for p in HOOKS_DIR.glob("*.py")}
@@ -62,7 +79,6 @@ def _hook_scripts() -> set[str]:
 def test_manifest_exists_and_names_the_plugin() -> None:
     data = _manifest()
     assert data["name"] == PLUGIN_NAME, "the namespace every /adw:<command> reference depends on"
-    assert re.fullmatch(r"\d+\.\d+\.\d+", data["version"]), data["version"]
     assert data["description"].strip()
 
 
@@ -79,6 +95,79 @@ def test_manifest_declares_no_component_paths() -> None:
     # the directory itself states (C7) — and the first one to drift.
     for key in ("commands", "agents", "skills", "hooks"):
         assert key not in _manifest(), f"{key} is discovered by location, not declared"
+
+
+# =======================================================================================
+# The marketplace catalog
+# =======================================================================================
+
+# The two `source` forms whose install is a git CLONE into the plugin cache, so the cache copy
+# keeps its `.git` — measured 2026-07-27, see the whole-repo rule below.
+WHOLE_REPO_SOURCES = frozenset({"github", "url"})
+
+
+def test_marketplace_catalog_exists_and_lists_this_plugin() -> None:
+    data = _marketplace()
+    assert data["name"] and data["name"] != PLUGIN_NAME, "marketplace and plugin names both appear in plugin@marketplace"
+    assert data["owner"]["name"].strip()
+    assert _entry()["source"], "an entry without a source cannot be installed"
+
+
+def test_the_catalog_never_moves_into_the_plugin_root() -> None:
+    """Colocating `marketplace.json` with `plugin.json` blinds the release check.
+
+    Measured on 2026-07-27: given a directory holding both, `claude plugin validate` validates
+    the MARKETPLACE manifest and says nothing about the plugin — so the plugin-manifest and
+    skill-frontmatter warnings (the ones that found nine unparseable `SKILL.md` files in T15)
+    stop being reported, silently and with a green exit code. The catalog therefore stays out
+    of the plugin root, which also keeps the ship rule literal: it is not a shipped file.
+    """
+    assert not (PLUGIN_ROOT / ".claude-plugin" / "marketplace.json").exists(), (
+        "a catalog next to plugin.json shadows the plugin's own validation"
+    )
+    _marketplace()  # ... and it exists where it belongs (or this is not the workflow's repo)
+
+
+def test_marketplace_fetches_the_plugin_as_a_WHOLE_repository() -> None:
+    """The load-bearing one: a subdirectory source makes the gate RED in every consumer.
+
+    Measured on Claude Code 2.1.220 (2026-07-27) by installing the same plugin three ways and
+    listing the cache directory:
+
+      | source form                          | cache copy holds        |
+      |--------------------------------------|-------------------------|
+      | `"./sub"` (relative path)            | no `.git`               |
+      | `"./"`    (the marketplace root)     | no `.git`               |
+      | `{"source": "url", ...}` whole repo  | `.git` (a real clone)   |
+
+    Without `.git`, `check_self_hash` reports the enforcement layer as *not inside a git
+    repository* and E-02 cannot be verified — GATE: RED on every run, for a reason that has
+    nothing to do with the consumer's code. `git-subdir` is the same content copy (notes/21 §5).
+    So the obvious packaging choice (marketplace repo with the plugin in a subdirectory) is the
+    broken one, and this test is what stands between a refactor and that failure.
+    """
+    source = _entry()["source"]
+    assert isinstance(source, dict), (
+        f"a string source is a relative path — its cache copy has no .git and the gate goes RED: {source!r}"
+    )
+    assert source["source"] in WHOLE_REPO_SOURCES, (
+        f"{source['source']!r} does not clone the whole repository: {source!r}"
+    )
+    assert "path" not in source, "a subdirectory of a repo is a content copy, not a clone"
+
+
+def test_nothing_pins_a_version_so_every_commit_reaches_every_machine() -> None:
+    # Version resolution: `plugin.json` wins over the marketplace entry, and the git commit SHA
+    # is the fallback when BOTH are unset. A `version` string therefore pins the plugin — pushing
+    # commits without bumping it leaves installed copies stale and `/plugin update` answers
+    # "already at the latest version". Bumping-on-release is a rule with nothing enforcing it
+    # (S4), and its failure is silent, so the workflow versions by commit SHA instead.
+    # Cost, accepted and measured: `claude plugin validate <plugin> --strict` now fails on the
+    # "No version specified" warning, so the release check is the non-strict form, read for its
+    # warnings (notes/21 §5). The frontmatter class of defect that --strict once caught has its
+    # own guard in the catalog tests since T13b.
+    assert "version" not in _manifest(), "a pinned version silently strands every installed copy"
+    assert "version" not in _entry(), "same pin, one file over"
 
 
 # =======================================================================================

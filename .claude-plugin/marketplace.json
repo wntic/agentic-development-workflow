@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "wntic-adw",
+  "owner": {
+    "name": "Egor Vorobyev",
+    "email": "voro6yov.egor@gmail.com",
+    "url": "https://github.com/wntic"
+  },
+  "description": "The adw workflow: spec-driven agentic development (v3) for Python backends.",
+  "plugins": [
+    {
+      "name": "adw",
+      "source": {
+        "source": "github",
+        "repo": "wntic/adw-plugin"
+      }
+    }
+  ]
+}
