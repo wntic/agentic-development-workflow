@@ -22,7 +22,7 @@ things: `verdict.md`, and state flips in `criteria.md`. You touch no `src/**` an
 
 1. The full gate, with the criteria cross-check:
    ```
-   uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --criteria --change <context>/NNN
+   uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" gate --criteria --change <context>/NNN
    ```
    This produces the junit report that backs every `[x]`: a criterion may be flipped to `[x]`
    only when a **passed** `@pytest.mark.ac("AC-n")` test for it exists in *this* run's junit

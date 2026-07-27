@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/bash_guard.py\""
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/plugins/adw/hooks/bash_guard.py\""
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/criteria_guard.py\""
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/plugins/adw/hooks/criteria_guard.py\""
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/subagent_stop.py\""
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/plugins/adw/hooks/subagent_stop.py\""
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session_stop.py\""
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/plugins/adw/hooks/session_stop.py\""
           }
         ]
       }

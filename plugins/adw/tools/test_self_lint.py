@@ -28,8 +28,8 @@ import sys
 from pathlib import Path
 
 TOOLS_DIR = Path(__file__).resolve().parent
-PLUGIN_ROOT = TOOLS_DIR.parent  # the repo root: this repo IS the plugin (notes/21 §1)
-REPO_ROOT = PLUGIN_ROOT
+PLUGIN_ROOT = TOOLS_DIR.parent  # plugins/adw — the plugin root (notes/21 §1)
+REPO_ROOT = TOOLS_DIR.parents[2]  # the repository root, for the isort first-party config
 
 
 def _load_gate():

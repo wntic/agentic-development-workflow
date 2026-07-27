@@ -203,7 +203,7 @@ The baseline is a derived glue **snapshot** of the just-written tables (≈ `con
 
 ## E. Toolchain (defined in `gate.py`)
 
-The toolchain commands, the pinned mypy/ruff/pytest config, and the single definition of "green" live in **`gate.py`** — run `uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate` (add `--criteria` to cross-check `criteria.md` flips). This skill does not restate the commands (C7). What follows is only the *house-style knowledge* the config encodes, so an author knows why a rule exists:
+The toolchain commands, the pinned mypy/ruff/pytest config, and the single definition of "green" live in **`gate.py`** — run `uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" gate` (add `--criteria` to cross-check `criteria.md` flips). This skill does not restate the commands (C7). What follows is only the *house-style knowledge* the config encodes, so an author knows why a rule exists:
 
 - **type-check runs both `src` and `tests`** at parity with lint — so a defect never hides in whichever the other skips. The test skills' "full annotations on every fixture/helper" rule is what keeps `tests` green (a fixture consuming the app types it `real_app: FastAPI`, a yielding fixture annotates `-> AsyncIterator[T]`, a parametrize hook `metafunc: pytest.Metafunc`).
 - **`B904`** (a `flake8-bugbear` rule the gate enables) makes a bare `raise X` inside an `except` an error: chain the cause with `raise X(...) from exc`, or deliberately suppress it with `from None` (e.g. translating a lookup-miss to an auth error without leaking the internal cause).

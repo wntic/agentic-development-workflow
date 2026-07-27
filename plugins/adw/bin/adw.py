@@ -4,7 +4,7 @@
 Every shipped file (commands, agents) names a tool exactly once and identically, whether the
 workflow is INSTALLED as a plugin or loaded from a project's own `.claude/`:
 
-    uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --change <context>/NNN
+    uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" gate --change <context>/NNN
 
 Why that single form works in both places (measured on Claude Code 2.1.220):
 
@@ -72,7 +72,7 @@ def usage() -> str:
     return (
         "usage: adw.py <" + " | ".join(TOOLS) + "> [tool arguments...]\n"
         "       run it through the project's environment: "
-        'uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --change <context>/NNN\n'
+        'uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" gate --change <context>/NNN\n'
     )
 
 

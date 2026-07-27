@@ -10,7 +10,7 @@ gates that hold the trust. AI agents build and maintain a strict hexagonal Pytho
 Three layers are kept strictly separate (see [`workflow_v3_spec.md`](workflow_v3_spec.md),
 the design doc — read it first; Russian):
 
-- **Knowledge** — *how* to write an artifact — lives in the **skills** (`skills/`).
+- **Knowledge** — *how* to write an artifact — lives in the **skills** (`plugins/adw/skills/`).
 - **Specification** — *what* to do and how to verify it — lives in `specs/`: a living spec per
   bounded context (small per-capability files), changed only through delta specs whose
   **acceptance criteria are a checklist agents can only tick with machine-checkable proof**.

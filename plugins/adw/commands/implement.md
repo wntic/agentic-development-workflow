@@ -69,7 +69,7 @@ Dispatch the **test-author** subagent for `<context>/NNN`. It:
    **separate, tests-only** baseline commit, then runs the red-check script:
 
 ```
-uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" red-check --change <context>/NNN
+uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" red-check --change <context>/NNN
 ```
 
 `red_check` asserts every `AC-n` has a marked test and every marked test is **RED**
@@ -106,7 +106,7 @@ adversarial pass earns when it finds a mutation the suite did not kill). It has 
 - **Step 2 is skipped — dispatch no implementer.** There is nothing in `src/**` for it to write,
   and a hardening change that touches `src/**` is a different change (send it back to `/adw:spec`).
   Instead run the gate once yourself at the baseline commit:
-  `uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --change <context>/NNN`. GREEN → step 3.
+  `uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" gate --change <context>/NNN`. GREEN → step 3.
 - **RED there is a TESTS-HANDBACK, never an ESCALATE.** `src/**` is untouched from a green base, so
   the RED is in `tests/**` by construction (a type error in a new fixture, a lint finding) and only
   the test-author can clear it. Return to step 1 with a fresh test-author, then re-anchor with
@@ -146,7 +146,7 @@ else: step 2 runs normally, because the refactor itself is ordinary `src/**` wor
 ## 2. implementer → green gate
 
 Dispatch the **implementer** subagent. It writes `src/**` (and owns any Alembic revision)
-until `gate.py` is GREEN, running `uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --change <context>/NNN`. On a
+until `gate.py` is GREEN, running `uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" gate --change <context>/NNN`. On a
 **greenfield first change** it first writes the behaviorless app shell (`create_app()` +
 container + error handler + `domain/exceptions.py` + `restapi/schemas/errors.py`) from the
 `architecture`/`restapi` skills, then the change's behaviour on top; brownfield changes add only
@@ -189,7 +189,7 @@ own commit.
   `src/` in place, do not stash it**. Then re-anchor the baseline onto that corrected commit:
 
   ```bash
-  uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" red-check --change <context>/NNN --rebaseline
+  uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" red-check --change <context>/NNN --rebaseline
   ```
 
   It verifies each property in the world where it is decidable — redness in a throwaway worktree
@@ -257,7 +257,7 @@ the change's class.
   remove the file, commit **that deletion alone**, then move the baseline over it:
 
   ```bash
-  uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" red-check --change <context>/NNN --clear-escalate
+  uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" red-check --change <context>/NNN --clear-escalate
   ```
 
   It is deliberately narrower than `--rebaseline` (§2): it refuses unless a committed `ESCALATE`

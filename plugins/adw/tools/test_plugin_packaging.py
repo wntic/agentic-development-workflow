@@ -30,6 +30,7 @@ make `pytest tools/` depend on a trial app being present in the tree.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -39,13 +40,16 @@ from pathlib import Path
 import pytest
 
 TOOLS_DIR = Path(__file__).resolve().parent
-PLUGIN_ROOT = TOOLS_DIR.parent  # the repository root IS the plugin root
+PLUGIN_ROOT = TOOLS_DIR.parent  # plugins/adw — where the workflow's own files live
+REPO_ROOT = TOOLS_DIR.parents[2]  # the repository: the marketplace AND the installation root
 HOOKS_DIR = PLUGIN_ROOT / "hooks"
-MANIFEST = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
-MARKETPLACE = PLUGIN_ROOT / ".claude-plugin" / "marketplace.json"
+# Both manifests belong to the INSTALLATION root, which is the repository root — a manifest
+# inside `plugins/adw/` would not be read at all (and would be a second source of truth).
+MANIFEST = REPO_ROOT / ".claude-plugin" / "plugin.json"
+MARKETPLACE = REPO_ROOT / ".claude-plugin" / "marketplace.json"
 # The hook wiring of the CHECKED-OUT load lives in project configuration, not in the plugin's own
 # `settings.json` (which the runtime would read for `agent` keys only).
-SETTINGS = PLUGIN_ROOT / ".claude" / "settings.json"
+SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 HOOKS_JSON = HOOKS_DIR / "hooks.json"
 SHIM = PLUGIN_ROOT / "bin" / "adw.py"
 
@@ -55,10 +59,15 @@ PLUGIN_NAME = "adw"
 # project configuration. `.claude/` may hold symlinks to the first group (the checked-out load
 # reads components from there) but never a second copy of them.
 COMPONENT_DIRS = ("skills", "commands", "agents", "hooks", "templates", "tools", "bin")
+# The components the platform loads from the INSTALLATION root only, reached by a relative
+# symlink there. Measured: `agents` loads from no custom path at all (a directory value even
+# fails the plugin), and a root symlink into the nested tree does load; `hooks/hooks.json` is
+# the default home, and the checked-out wiring of THIS session reached it that way.
+ROOT_SYMLINKS = ("agents", "hooks")
 
 # The two roots, and the substitution that turns one wiring into the other.
-PLUGIN_FORM = "${CLAUDE_PLUGIN_ROOT}/hooks/"
-PROJECT_FORM = "$CLAUDE_PROJECT_DIR/hooks/"
+PLUGIN_FORM = "${CLAUDE_PLUGIN_ROOT}/plugins/adw/hooks/"
+PROJECT_FORM = "$CLAUDE_PROJECT_DIR/plugins/adw/hooks/"
 
 
 def _manifest() -> dict:
@@ -67,7 +76,7 @@ def _manifest() -> dict:
 
 def _marketplace() -> dict:
     """The release catalog, or skip — a consumer's installed copy is not the marketplace."""
-    if not (MARKETPLACE.is_file() and (PLUGIN_ROOT / "workflow_v3_spec.md").is_file()):
+    if not (MARKETPLACE.is_file() and (REPO_ROOT / "workflow_v3_spec.md").is_file()):
         pytest.skip("not the workflow's own repo — the marketplace catalog belongs to that repo alone")
     return json.loads(MARKETPLACE.read_text(encoding="utf-8"))
 
@@ -102,24 +111,62 @@ def test_manifest_carries_an_author() -> None:
     assert isinstance(author, dict) and author.get("name"), author
 
 
-def test_manifest_declares_no_component_paths() -> None:
-    # Components are auto-discovered from the plugin root (commands/, agents/, skills/,
-    # hooks/hooks.json). Declaring them again would be a second source of truth for a layout
-    # the directory itself states (C7) — and the first one to drift.
-    for key in ("commands", "agents", "skills", "hooks"):
-        assert key not in _manifest(), f"{key} is discovered by location, not declared"
+def test_the_manifest_declares_where_the_components_are() -> None:
+    """The one place that says the assets are NOT at the installation root.
+
+    The opposite of what this suite demanded before the nesting: with `plugins/adw/` holding the
+    assets, discovery-by-location would find nothing, so the manifest's paths are the ONLY source
+    of truth rather than a second one (C7 is satisfied by there being exactly one).
+
+    `agents` is deliberately absent, and that is measured, not an oversight: on Claude Code
+    2.1.220 an agent loads from the plugin root's `agents/` and from no custom path at all —
+    a directory value in `agents` fails the plugin outright, a file value validates and then
+    loads nothing. The root symlink below is the mechanism that stands in for it.
+    """
+    manifest = _manifest()
+    for key in ("skills", "commands"):
+        declared = manifest[key]
+        paths = [declared] if isinstance(declared, str) else declared
+        for path in paths:
+            assert path.startswith("./plugins/adw/"), f"{key}: {path} does not point into the plugin's tree"
+            assert (REPO_ROOT / path).exists(), f"{key}: {path} does not exist"
+    for key in ("agents", "hooks"):
+        assert key not in manifest, f"{key} is reached through the root symlink, not a declared path"
 
 
 # =======================================================================================
-# The layout itself: plugin root == repository root, `.claude/` is project config only
+# The layout: assets under plugins/adw/, the installation root holds only what must be there
 # =======================================================================================
 
 
 @pytest.mark.parametrize("name", COMPONENT_DIRS)
-def test_every_component_directory_sits_at_the_plugin_root(name: str) -> None:
-    # The platform discovers components at the plugin root and nowhere else. With the root being
-    # the repository root, that is also what makes the whole-repo source legal.
-    assert (PLUGIN_ROOT / name).is_dir(), f"{name}/ must live at the plugin root"
+def test_every_component_directory_sits_in_the_plugins_own_tree(name: str) -> None:
+    assert (PLUGIN_ROOT / name).is_dir(), f"{name}/ must live in plugins/adw/"
+
+
+@pytest.mark.parametrize("name", ROOT_SYMLINKS)
+def test_the_platform_forced_symlinks_exist_and_point_into_the_plugin(name: str) -> None:
+    """The narrow exception to "assets live under plugins/adw/", and why it is narrow.
+
+    A relative symlink whose target resolves inside the plugin's own directory is preserved by
+    the install (measured: it survives the copy into `~/.claude/plugins/cache/…` and the agent
+    behind it loads). An absolute one, or one escaping the plugin, is skipped for security — so
+    the symlink must stay relative.
+    """
+    link = REPO_ROOT / name
+    assert link.is_symlink(), f"{name} must be a symlink at the installation root"
+    assert not Path(os.readlink(link)).is_absolute(), f"{name} must be RELATIVE or the install drops it"
+    assert link.resolve() == (PLUGIN_ROOT / name).resolve(), f"{name} points outside plugins/adw/"
+
+
+def test_the_installation_root_carries_no_stray_component_directory() -> None:
+    # Anything else with a component's name at the installation root would be a second copy the
+    # platform might load instead of the one under plugins/adw/ — and hooks wired twice fire twice.
+    for name in COMPONENT_DIRS:
+        entry = REPO_ROOT / name
+        if name in ROOT_SYMLINKS:
+            continue
+        assert not entry.exists(), f"{name} at the installation root shadows plugins/adw/{name}"
 
 
 def test_dot_claude_holds_project_configuration_and_never_a_second_copy() -> None:
@@ -129,7 +176,7 @@ def test_dot_claude_holds_project_configuration_and_never_a_second_copy() -> Non
     directory there would be a second copy of a skill or command, drifting from the first the
     moment either is edited. `settings.json` is the one real file: the hook wiring of that load.
     """
-    dot = PLUGIN_ROOT / ".claude"
+    dot = REPO_ROOT / ".claude"
     assert (dot / "settings.json").is_file(), "the checked-out load's hook wiring"
     for entry in sorted(dot.iterdir()):
         if entry.name in {"settings.json", "settings.local.json"} or entry.name.startswith("."):
@@ -167,7 +214,7 @@ def test_the_catalog_names_this_very_repository_as_the_plugins_source() -> None:
     """
     source = _entry()["source"]
     url = source.get("url") or source.get("repo", "")
-    rc = subprocess.run(["git", "-C", str(PLUGIN_ROOT), "remote", "get-url", "origin"], capture_output=True, text=True)
+    rc = subprocess.run(["git", "-C", str(REPO_ROOT), "remote", "get-url", "origin"], capture_output=True, text=True)
     if rc.returncode != 0:
         pytest.skip("no origin remote to compare the catalog against")
 
@@ -393,7 +440,6 @@ def test_shim_runs_a_tool_and_returns_its_exit_code() -> None:
 # Hat 3 — the meta layer's own environment (the root pyproject.toml)
 # =======================================================================================
 
-REPO_ROOT = PLUGIN_ROOT  # the same directory since the marketplace move
 
 # The meta layer's environment, exactly — measured, not assumed: in a venv holding only these,
 # in a tree with no `src/`, the whole suite passes; drop `pydantic` and 30 tests fail (gate.py's

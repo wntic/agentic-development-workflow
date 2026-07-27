@@ -75,7 +75,7 @@ sections: `${CLAUDE_PLUGIN_ROOT}/templates/change.md` (sections, classes, bindin
    `AC-n` items.
 
 7. **Exit gate** — the session does not end until all of this holds:
-   - `uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" criteria-lint specs/<context>/changes/NNN-<slug>/criteria.md`
+   - `uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" criteria-lint specs/<context>/changes/NNN-<slug>/criteria.md`
      is green — a vague criterion does not enter work; rewrite with the human until it names
      observable artifacts;
    - Verification answers "how do we prove it is done": required for M/L; every criterion

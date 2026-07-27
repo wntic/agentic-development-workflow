@@ -1377,7 +1377,7 @@ def test_this_repos_own_plugin_tree_anchors_every_decider() -> None:
     to force. Keep the count out of the test NAME — it drifts, the list does not.
     """
     root = gate.plugin_root()
-    assert root == TOOLS_DIR.parent
+    assert root == TOOLS_DIR.parent  # plugins/adw
     anchors = set(gate.self_integrity_anchors(gate._worktree_anchor_candidates(root)))
     assert {
         "tools/gate.py",
@@ -1391,13 +1391,40 @@ def test_this_repos_own_plugin_tree_anchors_every_decider() -> None:
         "hooks/session_stop.py",
         "hooks/hooks.json",
         "bin/adw.py",
-        ".claude-plugin/plugin.json",
-        # The catalog decides where the plugin is fetched from, so it is a decider too — it came
-        # into the set for free when the marketplace move put it beside plugin.json.
-        ".claude-plugin/marketplace.json",
-        # ... and the checked-out wiring, which that move turned into project configuration.
-        ".claude/settings.json",
     } == anchors, anchors
+
+
+def test_the_deciders_above_the_plugin_root_are_anchored_too() -> None:
+    """The other half of the live set, and the reason it needs a mechanism of its own.
+
+    `plugin.json` names the component paths (so an edit can unhook every hook), `marketplace.json`
+    names where the plugin is fetched from, and `.claude/settings.json` is the checked-out wiring.
+    All three belong to the INSTALLATION root — the repository root — which sits above the plugin
+    root `plugins/adw`, out of reach of a plugin-root-relative glob.
+    """
+    top = TOOLS_DIR.parents[2]
+    above = gate._anchors_above_the_plugin_root(top, gate.plugin_root())
+    assert {label for label, _, _ in above} == {
+        ".claude-plugin/plugin.json",
+        ".claude-plugin/marketplace.json",
+        ".claude/settings.json",
+    }, above
+    for label, disk, git_path in above:
+        assert disk.is_file(), label
+        assert git_path == label, (label, git_path)  # toplevel-relative on both sides
+
+
+def test_a_decider_inside_the_plugin_root_is_not_counted_twice() -> None:
+    # The `.claude/`-rooted layout (this repo before the move, every gate fixture since) puts
+    # `settings.json` AT the plugin root, where the ordinary globs already anchor it. Counting it
+    # again would inflate the number the verdict prints. The property is per-file, not per-layout:
+    # the two manifests still sit above a `.claude/` root and must keep being returned.
+    top = TOOLS_DIR.parents[2]
+    labels = {label for label, _, _ in gate._anchors_above_the_plugin_root(top, top / ".claude")}
+    assert ".claude/settings.json" not in labels, labels
+    assert labels == {".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"}, labels
+    # ... and when the two roots coincide, every glob is already plugin-root-relative.
+    assert gate._anchors_above_the_plugin_root(top, top) == []
 
 
 # The plugin layout as it ships (notes/21 §1), relative to the plugin root.
@@ -1418,12 +1445,20 @@ PLUGIN_FILES = (
 def _plugin_source(rel: str) -> Path:
     """Where a plugin-root-relative anchor is READ FROM in this repository.
 
-    One remap: the checked-out load's hook wiring is `settings.json` *at a plugin root* — which is
-    where it sits in the `.claude/`-rooted layout these fixtures build — while in this repo the
-    plugin root is the repository root, so the same file is project configuration at
-    `.claude/settings.json`. Both layouts are anchored (`SELF_INTEGRITY_GLOBS` names both).
+    Two remaps, both of the same kind: these fixtures build the `.claude/`-rooted layout, where
+    every anchor sits AT the plugin root — the layout this repo itself used before the marketplace
+    move, and still a legal one. In this repo the two files below belong to the INSTALLATION root
+    (the repository root) rather than to the plugin root `plugins/adw`, so they are read from
+    there. Both layouts are anchored: `SELF_INTEGRITY_GLOBS` covers them when the two roots
+    coincide, `ABOVE_ROOT_ANCHOR_GLOBS` when they do not.
     """
-    return TOOLS_DIR.parent / (".claude/settings.json" if rel == "settings.json" else rel)
+    outside = {
+        "settings.json": Path(".claude") / "settings.json",
+        ".claude-plugin/plugin.json": Path(".claude-plugin") / "plugin.json",
+    }
+    if rel in outside:
+        return TOOLS_DIR.parents[2] / outside[rel]
+    return TOOLS_DIR.parent / rel
 
 
 def install_plugin_files(repo: FixtureRepo) -> None:
@@ -1532,7 +1567,10 @@ def test_the_self_hash_floor_holds_when_the_globs_see_nothing(plugin_repo: Fixtu
 
     proc = run()
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "2 enforcement anchor(s) match git HEAD" in proc.stdout
+    # Three, not two: the floor (gate.py + criteria_lint.py) plus `.claude/settings.json`, which
+    # this fixture carries and which `ABOVE_ROOT_ANCHOR_GLOBS` reaches from the git toplevel. The
+    # floor is what this test is about, so it is asserted by name rather than by the count alone.
+    assert "3 enforcement anchor(s) match git HEAD" in proc.stdout
     (elsewhere / "gate.py").write_text(
         (elsewhere / "gate.py").read_text(encoding="utf-8") + "\n# tampered\n", encoding="utf-8"
     )

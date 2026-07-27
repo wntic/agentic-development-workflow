@@ -13,7 +13,7 @@
           },
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/bash_guard.py\""
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/plugins/adw/hooks/bash_guard.py\""
           }
         ]
       },
@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/criteria_guard.py\""
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/plugins/adw/hooks/criteria_guard.py\""
           }
         ]
       }
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/subagent_stop.py\""
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/plugins/adw/hooks/subagent_stop.py\""
           }
         ]
       }
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/session_stop.py\""
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/plugins/adw/hooks/session_stop.py\""
           }
         ]
       }

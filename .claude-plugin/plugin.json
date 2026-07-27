@@ -7,6 +7,12 @@
     "email": "voro6yov.egor@gmail.com"
   },
   "homepage": "https://github.com/wntic/agentic-development-workflow",
+  "skills": [
+    "./plugins/adw/skills"
+  ],
+  "commands": [
+    "./plugins/adw/commands"
+  ],
   "keywords": [
     "spec-driven-development",
     "tdd",

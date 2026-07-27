@@ -257,6 +257,11 @@ SELF_INTEGRITY_GLOBS = (
     "settings.json",  # the same wiring where the plugin root IS a `.claude/` (pre-move layouts,
     #                   a symlinked consumer venue) — one of the two exists, never both
 )
+# Deciders that live ABOVE the plugin root, as paths from the git TOPLEVEL. Anchored separately
+# because a plugin-root-relative glob cannot see them once the plugin is a subdirectory of its
+# installation root (`plugins/adw/` here) — see `_anchors_above_the_plugin_root`.
+ABOVE_ROOT_ANCHOR_GLOBS = (".claude-plugin/*.json", ".claude/settings.json")
+
 # Applied to an anchor candidate's basename (see the exclusion note above).
 SELF_INTEGRITY_SKIP = re.compile(r"^test_.*\.py$")
 
@@ -1843,21 +1848,57 @@ def check_self_hash(ctx: GateContext) -> Check:
     tools_dir = Path(__file__).resolve().parent
     tools_prefix = "" if tools_dir == root else tools_dir.relative_to(root).as_posix() + "/"
     anchors |= {f"{tools_prefix}gate.py", f"{tools_prefix}criteria_lint.py"}
+    # Each anchor as (label, file on disk, path git can resolve at HEAD).
+    checkable = [(rel, root / rel, f"{prefix}{rel}") for rel in sorted(anchors)]
+    checkable += _anchors_above_the_plugin_root(top, root)
     problems = []
-    for rel in sorted(anchors):
-        file_path = root / rel
-        rc, blob = _run_bytes(["git", "-C", str(top), "show", f"HEAD:{prefix}{rel}"])
+    for label, file_path, git_path in checkable:
+        rc, blob = _run_bytes(["git", "-C", str(top), "show", f"HEAD:{git_path}"])
         if rc != 0:
-            problems.append(f"{rel}: not committed at HEAD — the gate cannot vouch for it")
+            problems.append(f"{label}: not committed at HEAD — the gate cannot vouch for it")
         elif not file_path.exists():
             problems.append(
-                f"{rel}: committed at HEAD but missing from the work tree — an enforcement file was removed"
+                f"{label}: committed at HEAD but missing from the work tree — an enforcement file was removed"
             )
         elif file_path.read_bytes() != blob:
-            problems.append(f"{rel}: work-tree content differs from HEAD — the enforcement layer was modified")
+            problems.append(f"{label}: work-tree content differs from HEAD — the enforcement layer was modified")
     if problems:
         return Check("integrity.self-hash", "FAIL", "self-integrity violated (E-02):\n" + "\n".join(problems))
-    return Check("integrity.self-hash", "PASS", f"all {len(anchors)} enforcement anchor(s) match git HEAD (E-02)")
+    return Check("integrity.self-hash", "PASS", f"all {len(checkable)} enforcement anchor(s) match git HEAD (E-02)")
+
+
+def _anchors_above_the_plugin_root(top: Path, root: Path) -> list[tuple[str, Path, str]]:
+    """Deciders that live ABOVE the plugin root, as (label, disk path, HEAD path).
+
+    Two of them, and each decides which components run rather than what they do:
+
+      * `.claude-plugin/*.json` — `plugin.json` names the component paths (the hook file
+        included) and `marketplace.json` names where the plugin is fetched from;
+      * `.claude/settings.json` — the hook wiring of a CHECKED-OUT load.
+
+    They are anchored here because the plugin root is a SUBDIRECTORY of its installation root
+    (`plugins/adw/` in a repository that is also the marketplace), which puts them out of reach
+    of a plugin-root-relative glob. Unanchored, an edit to `plugin.json` unhooks every hook and
+    the gate still says GREEN.
+
+    A path that turns out to live INSIDE the plugin root is dropped, because
+    `SELF_INTEGRITY_GLOBS` already anchored it and counting it twice would inflate the count the
+    verdict prints. That is not hypothetical: in the `.claude/`-rooted layout (this repo before the
+    marketplace move, and every gate fixture since) the plugin root IS `<top>/.claude`, so
+    `.claude/settings.json` matches both sets.
+    """
+    if root == top:
+        return []
+    rels: set[str] = set()
+    for pattern in ABOVE_ROOT_ANCHOR_GLOBS:
+        directory = pattern.rsplit("/", 1)[0]
+        rc, listing = _git(top, "ls-tree", "-r", "--name-only", "HEAD", "--", directory)
+        committed = {line.strip() for line in listing.splitlines() if line.strip()} if rc == 0 else set()
+        # Union of HEAD and the work tree, for the same reason the plugin-root anchors take one:
+        # a DELETED decider and an uncommitted new one are both violations, not invisible.
+        rels |= {rel for rel in committed if fnmatch.fnmatch(rel, pattern)}
+        rels |= {p.relative_to(top).as_posix() for p in top.glob(pattern)}
+    return [(rel, top / rel, rel) for rel in sorted(rels) if root not in (top / rel).parents]
 
 
 # ---------------------------------------------------------------------------------------

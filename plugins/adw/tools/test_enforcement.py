@@ -22,8 +22,8 @@ import pytest
 from test_gate import CRITERIA_MD, SRC_MAIN_BROKEN, TESTS_CORE, FixtureRepo, make_repo
 
 TOOLS_DIR = Path(__file__).resolve().parent
-REPO_ROOT = TOOLS_DIR.parent  # <repo>/tools -> <repo>: this repo IS the plugin (notes/21 §1)
-HOOKS_DIR = TOOLS_DIR.parent / "hooks"
+REPO_ROOT = TOOLS_DIR.parents[2]  # <repo>/plugins/adw/tools -> <repo> (notes/21 §1)
+HOOKS_DIR = TOOLS_DIR.parent / "hooks"  # the PLUGIN root's
 HOOKS = ("criteria_guard.py", "bash_guard.py", "subagent_stop.py", "session_stop.py")
 
 CRITERIA_REL = "specs/demo/changes/001-thing/criteria.md"
@@ -220,7 +220,7 @@ def run_bash_guard(payload: dict, *, root: Path = REPO_ROOT) -> subprocess.Compl
     [
         "sed -i '' 's/x/y/' tests/test_core.py",
         "echo pwned >> specs/demo/changes/001-thing/criteria.md",
-        "rm tools/gate.py",
+        "rm plugins/adw/tools/gate.py",
         "git checkout -- specs/demo/core.md",
         "mv pyproject.toml pyproject.bak",
         "printf x | tee tests/test_core.py",
@@ -293,7 +293,7 @@ def _bash(command: str, agent_type: str | None = None) -> dict:
         ("evaluator", "echo x > tests/test_foo.py", "deny"),
         ("evaluator", "echo x > src/app/core.py", "deny"),
         ("evaluator", "echo x > specs/demo/core.md", "deny"),  # capability prose is /spec's
-        ("evaluator", "rm tools/gate.py", "deny"),
+        ("evaluator", "rm plugins/adw/tools/gate.py", "deny"),
         # --- implementer owns src/** (unchanged); tests/ and pyproject stay closed ---
         ("implementer", "echo x > src/app/core.py", None),
         ("implementer", "mkdir -p src/app/domain && echo x > src/app/domain/entities.py", None),
@@ -524,10 +524,10 @@ def test_bash_guard_protected_dir_denial_names_the_directory() -> None:
     # fixture inside it is named — but the reported fragment is the real reason, not the filename.
     # Anchored at THIS repo, the only place the plugin's own trees are protected (see the
     # plugin-trees block): in a tmp fixture the plugin is outside the tree and nothing fires.
-    cmd = "git show HEAD:x > tools/fixtures/a-change.md"
+    cmd = "git show HEAD:x > plugins/adw/tools/fixtures/a-change.md"
     proc = run_bash_guard(_bash(cmd, "test-author"))
     assert decision(proc) == "deny"
-    assert "/tools" in proc.stdout and "(change.md)" not in proc.stdout, proc.stdout
+    assert "/plugins/adw/tools" in proc.stdout and "(change.md)" not in proc.stdout, proc.stdout
 
 
 # =======================================================================================
@@ -776,15 +776,21 @@ def test_bash_guard_in_repo_denials_survive_the_rewrite(repo: FixtureRepo, comma
 # layout, so they stay static and keep firing in a fixture.
 
 PLUGIN_TREE_WRITES = [
-    ("rm tools/gate.py", None),
-    ("rm -rf tools/gate.py", "implementer"),
+    ("rm plugins/adw/tools/gate.py", None),
+    ("rm -rf plugins/adw/tools/gate.py", "implementer"),
+    ("echo x > plugins/adw/hooks/bash_guard.py", None),
+    ("cp /tmp/x.py plugins/adw/tools/gate.py", "v3-builder"),
+    ("cp -f /tmp/x.py plugins/adw/hooks/bash_guard.py", "implementer"),
+    ("cp -t plugins/adw/tools /tmp/x.py", "implementer"),  # the DIRECTORY itself is the write target
+    ("cp --target-directory=plugins/adw/hooks /tmp/x.py", "implementer"),
+    ("git rm --cached plugins/adw/tools/gate.py", "v3-builder"),
+    ("rm plugins/adw/tools", None),  # removing the tree wholesale
+    # ... and through the root symlinks the platform forces on the layout (`agents/` is loaded
+    # from the plugin root only, `hooks/hooks.json` is its default home). Measured: the guard
+    # resolves the alias, so a write through it is denied exactly like the real path — which
+    # matters, because the alias is the SHORTER way to reach the enforcement tree.
     ("echo x > hooks/bash_guard.py", None),
-    ("cp /tmp/x.py tools/gate.py", "v3-builder"),
-    ("cp -f /tmp/x.py hooks/bash_guard.py", "implementer"),
-    ("cp -t tools /tmp/x.py", "implementer"),  # the DIRECTORY itself is the write target
-    ("cp --target-directory=hooks /tmp/x.py", "implementer"),
-    ("git rm --cached tools/gate.py", "v3-builder"),
-    ("rm tools", None),  # removing the tree wholesale
+    ("rm -rf hooks/session_stop.py", "implementer"),
 ]
 
 
