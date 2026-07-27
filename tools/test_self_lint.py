@@ -1,6 +1,7 @@
 """Guard: the enforcement layer holds ITSELF to the gate's pinned selection (T04g).
 
-THE SCOPE DECISION, said plainly: every `*.py` under `.claude/` is linted with `gate.py`'s own
+THE SCOPE DECISION, said plainly: every `*.py` of the enforcement layer (`tools/`, `hooks/`,
+`bin/` — the directories the anchor globs name) is linted with `gate.py`'s own
 `RUFF_SELECT` / `ruff_common()` / `ruff format --check` — the exact invocation `check_ruff` runs
 over a consumer's `src/` and `tests/`. **No carve-out.** The full selection was measured against
 the whole tooling tree and it passes; a workflow that imposes a standard on its consumers' code
@@ -18,7 +19,7 @@ the fast pre-commit pass; this test is the one that decides.
 Discovery is a `rglob`, deliberately (T18's reasoning for the anchor globs): a tool or hook added
 later is covered the moment it lands, not when someone remembers to extend a list. The one
 consequence to know: a deliberately lint-dirty specimen must live **inline in a test** (as
-`red_check`'s lint-dirty conftest fixture does), never as a `.py` file on disk under `.claude/`.
+`red_check`'s lint-dirty conftest fixture does), never as a `.py` file on disk in one of those directories.
 """
 
 import importlib.util
@@ -27,8 +28,8 @@ import sys
 from pathlib import Path
 
 TOOLS_DIR = Path(__file__).resolve().parent
-CLAUDE_DIR = TOOLS_DIR.parent
-REPO_ROOT = CLAUDE_DIR.parent
+PLUGIN_ROOT = TOOLS_DIR.parent  # the repo root: this repo IS the plugin (notes/21 §1)
+REPO_ROOT = PLUGIN_ROOT
 
 
 def _load_gate():
@@ -42,6 +43,13 @@ def _load_gate():
 
 _GATE = _load_gate()
 
+# The layer's code homes, CITED from the anchor globs rather than re-listed (C7): every glob that
+# names `*.py` names a directory holding them. Since the plugin root became the repository root,
+# an unscoped `rglob` here would sweep in `.venv/`, a trial app's `src/`, and every future
+# top-level directory — so the scope is the enforcement layer's own directories, and a file added
+# to any of them is still covered by construction (T18's reasoning, one level down).
+CODE_DIRS = sorted({glob.rsplit("/", 1)[0] for glob in _GATE.SELF_INTEGRITY_GLOBS if glob.endswith("*.py")})
+
 
 def _targets() -> list[str]:
     """Every `*.py` the enforcement layer ships, discovered — never enumerated.
@@ -50,8 +58,9 @@ def _targets() -> list[str]:
     to the current directory, so a broken glob would not fail loud, it would silently lint
     something else and pass. The undetermined-input rule (notes/19) applied to this guard itself.
     """
-    files = sorted(CLAUDE_DIR.rglob("*.py"))
-    assert files, f"no .py files discovered under {CLAUDE_DIR} — the glob broke, the layer is unlinted"
+    assert CODE_DIRS, "the anchor globs named no *.py directory — the citation broke"
+    files = sorted(p for d in CODE_DIRS for p in (PLUGIN_ROOT / d).rglob("*.py"))
+    assert files, f"no .py files discovered under {CODE_DIRS} of {PLUGIN_ROOT} — the layer is unlinted"
     assert TOOLS_DIR / "gate.py" in files, "gate.py itself is missing from the discovered set"
     return [str(p) for p in files]
 

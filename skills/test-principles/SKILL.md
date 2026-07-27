@@ -1,6 +1,6 @@
 ---
 name: test-principles
-description: Reference skill that owns the catalog's paid-fixes guard — the machine inventory (`.claude/tools/test_skill_catalog.py`) that greps the whole skill catalog for every hard-won lesson by its content signature, so a later reword, split, or merge cannot silently drop one. Documents the guard, the families of lesson it inventories, and the append-only protocol for extending it. The testing constitution itself (the pyramid, the conftest hierarchy, the fixture-vs-builder rule, the no-mocks contract, per-layer speed targets) now lives in `testing-unit` and `testing-integration`; this skill is the guard, not the constitution.
+description: Reference skill that owns the catalog's paid-fixes guard — the machine inventory (`tools/test_skill_catalog.py`) that greps the whole skill catalog for every hard-won lesson by its content signature, so a later reword, split, or merge cannot silently drop one. Documents the guard, the families of lesson it inventories, and the append-only protocol for extending it. The testing constitution itself (the pyramid, the conftest hierarchy, the fixture-vs-builder rule, the no-mocks contract, per-layer speed targets) now lives in `testing-unit` and `testing-integration`; this skill is the guard, not the constitution.
 when_to_use: Moving, merging, or rewording a hard-won lesson anywhere in the catalog (the guard must still find its phrase afterwards), or adding a newly closed lesson to the paid-fixes inventory. Not consulted to write a test file — reach for `testing-unit` or `testing-integration`.
 ---
 
@@ -18,7 +18,7 @@ This skill owns one thing: the **catalog's own guard**, a machine inventory of e
 
 The knowledge base is a living document: skills get reworded, split, and merged. Every such move risks silently dropping a lesson that was expensive to learn — a defect surfaced once, its fix distilled into a distinctive sentence, and that sentence must never evaporate in an edit. Prose review ("I copied it all over, trust me") is not enough; the transfer is checked by a machine.
 
-**The guard is `.claude/tools/test_skill_catalog.py`** — a pytest suite that, for each closed lesson, greps the *whole* catalog for the lesson's **content signature** (a distinctive phrase or code pattern), never its file path. Because the check is path-agnostic, a lesson may live in any skill and move to any other; the guard stays green as long as the phrase is carried over verbatim. If a phrase disappears, the matching test reds and names the lesson that was lost.
+**The guard is `tools/test_skill_catalog.py`** — a pytest suite that, for each closed lesson, greps the *whole* catalog for the lesson's **content signature** (a distinctive phrase or code pattern), never its file path. Because the check is path-agnostic, a lesson may live in any skill and move to any other; the guard stays green as long as the phrase is carried over verbatim. If a phrase disappears, the matching test reds and names the lesson that was lost.
 
 The families of lesson it inventories today (one test each, the test name citing the lesson's id) — described here as categories only, deliberately **without** quoting the grep phrases, so the exact signatures live in exactly one place, the skills that own the knowledge, and this summary can never satisfy the guard by accident:
 

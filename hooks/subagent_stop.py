@@ -144,23 +144,28 @@ def unrunnable_message(returncode: int, stdout: str, stderr: str) -> str:
 
 
 def gate_path(root: Path) -> Path:
-    """Where gate.py lives: `$CLAUDE_PLUGIN_ROOT/tools`, else `<root>/.claude/tools` (T15/D4).
+    """Where gate.py lives: `$CLAUDE_PLUGIN_ROOT/tools`, else a checked-out location (T15/D4).
 
-    Installed as a plugin, the gate is NOT in the project — `<root>/.claude/tools/gate.py`
-    simply does not exist there, and the hook would report "the gate could not answer" on every
-    stop. Claude Code gives a plugin's hooks `CLAUDE_PLUGIN_ROOT`, so that wins when it names an
-    actual tools directory; a relative value (the workflow's own repo sets `.claude`) is resolved
-    against the acting root, and anything unusable falls back to the checked-out location.
+    Installed as a plugin, the gate is NOT in the project — a `<root>/…/tools/gate.py` simply
+    does not exist there, and the hook would report "the gate could not answer" on every stop.
+    Claude Code gives a plugin's hooks `CLAUDE_PLUGIN_ROOT`, so that wins when it names an actual
+    tools directory; a relative value (the workflow's own repo sets `.`) is resolved against the
+    acting root, and anything unusable falls back to a checked-out location — the plugin root at
+    the repository root first (this repo since the marketplace move), then a `.claude/` one (the
+    pre-move layout, and a consumer that attaches the workflow there). The last candidate is
+    returned even when absent, so `run_gate` reports a missing gate rather than guessing.
     """
     env = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    bases = []
     if env:
         base = Path(env).expanduser()
-        if not base.is_absolute():
-            base = root / base
+        bases.append(base if base.is_absolute() else root / base)
+    bases += [root, root / ".claude"]
+    for base in bases:
         candidate = base / "tools" / "gate.py"
         if candidate.is_file():
             return candidate
-    return root / ".claude" / "tools" / "gate.py"
+    return bases[-1] / "tools" / "gate.py"
 
 
 def run_gate(root: Path) -> GateRun:

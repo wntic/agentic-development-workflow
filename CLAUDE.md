@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Language
 
 **English is the working language of everything the workflow ships and produces** — skills,
-agents, commands, templates, `.claude/` tools and their comments, code, commit messages. The
+agents, commands, templates, the `tools/` scripts and their comments, code, commit messages. The
 workflow itself imposes no human language: its commands defer to *the project's* dialogue language
 (a consumer project sets its own; English if unset).
 
@@ -22,18 +22,27 @@ Two layers, not to be confused:
 
 | Layer | Where | What it is |
 |---|---|---|
-| **Meta** (the workflow) | `.claude/` (skills, agents, commands, `gate.py`/`accept.py`, hooks, templates), `tasks/`, the design docs | The knowledge + enforcement + orchestration that drive the agents |
+| **Meta** (the workflow) | the plugin at the repo root (`skills/`, `agents/`, `commands/`, `tools/`, `hooks/`, `bin/`, `templates/`), `tasks/`, the design docs | The knowledge + enforcement + orchestration that drive the agents |
 | **Target** (the app) | `src/`, `tests/`, `specs/<context>/` | The hexagonal Python backend built and maintained **in this repo** through the change cycle — one change = one branch, `main` always green |
 
 The v2→v3 shift in one line: v2 emitted a disposable app from a YAML manifest into a git-ignored
 directory; v3 maintains the app in-repo under branch-per-change, and the spec compounds into living
 documentation instead of being rendered from a schema.
 
-**What ships, in one rule: `.claude/` IS the Claude Code plugin (`adw`), and a file ships iff it
-lives under it** (T15). So `tasks/`, `notes/`, both design docs, this file and any trial app are dev
-artifacts a consumer never sees — which is why they keep the bare command names while everything
-inside `.claude/**` refers to commands as `/adw:<name>` (a bare `/spec` is *Unknown command* in a
-consumer). Packaging reference, release procedure and the measured platform facts:
+**This repository is at once the marketplace and the `adw` plugin — the plugin root is the repo
+root.** `.claude-plugin/` carries both manifests (`plugin.json`, `marketplace.json`), the component
+directories (`skills/`, `commands/`, `agents/`, `hooks/`, `templates/`) and the scripts (`tools/`,
+`bin/`) sit beside them, and `.claude/` holds only what a *project* needs: `settings.json` (the
+checked-out load's hook wiring) plus symlinks so that load still finds the components. So the ship
+rule is no longer "by location" — **everything in the repo ships**, because the one source form that
+survives `integrity.self-hash` is a whole-repo clone (a subdirectory source is a content copy with
+no `.git` → the gate is RED in every consumer; measured, `notes/21` §5a).
+
+What replaces it is a rule **by role**: a file that *instructs* an agent (`commands/`, `agents/`,
+`skills/`, `templates/`) refers to commands as `/adw:<name>`, because a bare `/spec` is *Unknown
+command* in a consumer; `tasks/`, `notes/`, both design docs and this file are a dev record that
+ships physically but is never loaded (a plugin-root `CLAUDE.md` is not read as project context), and
+they keep the bare names. Packaging reference, release procedure and the measured platform facts:
 **`notes/21_plugin_packaging.md`**. Do not enable both loads at once — checked out *and* installed
 fires every hook twice.
 
@@ -45,16 +54,16 @@ fires every hook twice.
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Knowledge** | how to write an artifact (house style) | `.claude/skills/` (one directory per theme; a large theme is a router `SKILL.md` + one `<topic>.md` per artifact) |
+| **Knowledge** | how to write an artifact (house style) | `skills/` (one directory per theme; a large theme is a router `SKILL.md` + one `<topic>.md` per artifact) |
 | **Specification** | what to do and how to verify it | `specs/` — sectioned free Markdown |
-| **Enforcement + orchestration** | who does what, what is forbidden, when it is "done" | `.claude/agents/`, `.claude/commands/`, `gate.py`/`accept.py` + hooks |
+| **Enforcement + orchestration** | who does what, what is forbidden, when it is "done" | `agents/`, `commands/`, `gate.py`/`accept.py` + hooks |
 
 A fact lives in exactly one layer. The enforcement layer is **first of all two scripts** —
 `gate.py` ("is it green") and `accept.py` ("may it merge") — and only secondarily hook ergonomics.
 There is deliberately **no machine-readable index**: blast-radius questions are answered by
 grep/agent over specs and code (earn-its-place if that ever hurts). Directory placement is pinned:
-`.claude/skills/` = knowledge (auto-invocation by `description`/`when_to_use` is fine),
-`.claude/commands/` = orchestration (explicit human launch only) — never merge them.
+`skills/` = knowledge (auto-invocation by `description`/`when_to_use` is fine),
+`commands/` = orchestration (explicit human launch only) — never merge them.
 
 ## Design principles — read these first
 
@@ -143,7 +152,7 @@ serve the same METHOD+path operation set; loud SKIP naming the class otherwise);
 (testcontainers + `alembic upgrade head`, loud `DOCKER SKIPPED` otherwise); `--criteria` (every
 `[x]` must be backed by a **passed** `ac`-marked test in this run's junit); and **integrity against
 the red-commit baseline** — protected-tree diff (criteria.md legal flips only, change.md hash,
-`.claude/tools|hooks`, settings, `pyproject.toml`), test inventory ⊇ baseline (a missing/skipped/
+the plugin's `tools|hooks`, settings, `pyproject.toml`), test inventory ⊇ baseline (a missing/skipped/
 xfailed baseline test is RED), self-hash of the **whole enforcement layer** (T18: every tool, hook
 and manifest under the plugin root — `tools/*.py`, `hooks/*.py|json`, `bin/*.py`, `plugin.json`,
 `settings.json` — must match git HEAD of the repo the plugin lives in, which is the *only* protection
@@ -181,7 +190,7 @@ tier, the §9 trust tail — and is archived in the git history of **`main`** (t
 commit `6824289`, the tip at this branch's fork point; no separate archive directory). Its design doc
 `codegen_workflow_spec.md` is kept for rationale, and `notes/` keep the decision history
 (`notes/pipeline_dryrun_feedback.md` is the honesty benchmark for defect logs). The v2 files that
-lived on this branch — the generator, the validator/runner under `.claude/tools/`, the v2
+lived on this branch — the generator, the validator/runner under the plugin's `tools/`, the v2
 agents/commands, `examples/` — were **harvested (`notes/16_agent_prompt_harvest.md`) then purged
 in T02**; recover any of them from git history, never by rewriting.
 
@@ -193,29 +202,33 @@ notes/15_v3_design_review.md      # the 5-probe adversarial review register — 
 codegen_workflow_spec.md          # v2 rationale — archive, kept for the "why" of what survived
 tasks/                            # v3 build-out: INDEX.md (status) + one file per task (T01–T11)
 notes/21_plugin_packaging.md      # what ships, the release procedure, the measured platform facts
-.claude-plugin/marketplace.json   # the RELEASE CATALOG — does not ship; names the split plugin repo
-                                  #   as a WHOLE-REPO source (a subdirectory source has no .git in
-                                  #   the plugin cache → self-hash unverifiable → gate RED, §5a)
-.claude/                          # THE PLUGIN ROOT (`adw`) — everything here ships, nothing else does
-  .claude-plugin/plugin.json      # the manifest
-  bin/adw.py                      # the one invocation form: `${CLAUDE_PLUGIN_ROOT}/bin/adw.py <tool>`
-  skills/                         # knowledge layer — one directory per theme (T08 merged 44 skills
+                                  # --- THE PLUGIN ROOT IS THIS DIRECTORY (`adw`) ---
+.claude-plugin/
+  plugin.json                     # the plugin manifest (no `version`: pinning it strands installs)
+  marketplace.json                # the CATALOG — lists `adw` with THIS repo as a WHOLE-REPO source
+                                  #   (a subdirectory source has no .git in the plugin cache →
+                                  #   self-hash unverifiable → gate RED, §5a). Future plugins go in
+                                  #   plugins/<name>/ with a relative source; they need no self-hash
+.claude/                          # PROJECT config, not plugin content: settings.json (the
+                                  #   checked-out load's hook wiring) + symlinks to the components
+bin/adw.py                        # the one invocation form: `${CLAUDE_PLUGIN_ROOT}/bin/adw.py <tool>`
+skills/                           # knowledge layer — one directory per theme (T08 merged 44 skills
                                   #   into them); a theme past ~500 lines is a router SKILL.md plus
                                   #   one <topic>.md per artifact, read on demand (T13/T14)
-  tools/
-    gate.py                       # "is it green" — the trust anchor            (planned, T04)
-    accept.py                     # "may it merge" — acceptance preconditions   (planned, T05)
-    drift.py                      # "has anything drifted" — §5.5, surfaces, never denies (T17);
+tools/
+  gate.py                         # "is it green" — the trust anchor            (planned, T04)
+  accept.py                       # "may it merge" — acceptance preconditions   (planned, T05)
+  drift.py                        # "has anything drifted" — §5.5, surfaces, never denies (T17);
                                   #   run by /orient, its hotfix half is accept.py's own
-  hooks/                          # criteria-guard, bash-guard, stop-gates      (planned, T06)
-    hooks.json                    #   the same wiring for an INSTALLED load; settings.json is the
-                                  #   checked-out twin (a plugin cannot ship hooks in settings.json)
-  agents/                         # v3-builder (build-out executor); test-author / implementer /
+hooks/                            # criteria-guard, bash-guard, stop-gates      (planned, T06)
+  hooks.json                      #   the same wiring for an INSTALLED load; .claude/settings.json
+                                  #   is the checked-out twin (a plugin cannot ship hooks there)
+agents/                           # v3-builder (build-out executor); test-author / implementer /
                                   #   evaluator (planned, T09); v2 agents purged in T02
-  commands/                       # orient, commit, brainstorm, build-task; /spec (T03),
+commands/                         # orient, commit, brainstorm, build-task; /spec (T03),
                                   #   /implement + /abandon (T09), /accept-change (T10);
                                   #   v2 commands purged in T02
-  templates/                      # change.md / criteria.md / verdict.md / overview / capability
+templates/                        # change.md / criteria.md / verdict.md / overview / capability
                                   #   skeletons (planned, T03); v2 manifest templates purged in T02
 specs/
   use-cases/UC-NN-*.md            # BA corpus, verbatim — the input material for /spec
@@ -232,7 +245,7 @@ test-author/implementer read `Template(s)` + `Rules`, the `/spec` session reads 
 `Hard stops` as classification rules. Same document, different sections, different consumers.
 
 Every artifact's knowledge is written as the same four-section body (see
-`.claude/skills/CONVENTIONS.md`): *When to use vs. neighbours · Template(s) · Rules · Hard stops*.
+`skills/CONVENTIONS.md`): *When to use vs. neighbours · Template(s) · Rules · Hard stops*.
 Where that body lives depends on the theme's size: a small theme keeps it inside its `SKILL.md`; a
 theme past ~500 lines makes `SKILL.md` a thin **router** (frontmatter + an imperative pointer per
 topic + genuinely cross-topic material) beside one `<topic>.md` per artifact, each carrying the full
@@ -279,17 +292,17 @@ layouts (see `notes/21`) — the two are the same file.
 
 ```bash
 # the single point of truth for "green"
-uv run .claude/bin/adw.py gate                      # --criteria to cross-check criteria.md flips
+uv run bin/adw.py gate                      # --criteria to cross-check criteria.md flips
 
 # acceptance preconditions
-uv run .claude/bin/adw.py accept <context>/NNN
+uv run bin/adw.py accept <context>/NNN
 
 # the red baseline, and the criteria lint
-uv run .claude/bin/adw.py red-check --change <context>/NNN
-uv run .claude/bin/adw.py criteria-lint <path-to-criteria.md>
+uv run bin/adw.py red-check --change <context>/NNN
+uv run bin/adw.py criteria-lint <path-to-criteria.md>
 
 # the meta layer's own suite (must pass with no src/ in the tree — T15's acceptance test)
-uv run pytest .claude/tools
+uv run pytest tools
 
 # the build-out itself: execute ONE task with the v3-builder agent
 /build-task tasks/TNN-<slug>.md         # tick tasks/INDEX.md only on green verification
@@ -305,6 +318,6 @@ specs), S3 (criteria are observable behaviour; append-only for agents), S4 (a mu
 in a gate, not prose), S8 (hooks are ergonomics; trust is the baseline check), S9 (branch per
 change), C-section for skills, D-section for roles and file ownership (tests vs src).
 
-Placement facts: a new skill goes in `.claude/skills/` via `meta-skill-author`; a new use case goes
+Placement facts: a new skill goes in `skills/` via `meta-skill-author`; a new use case goes
 in `specs/use-cases/` via `meta-uc-author`; a new must-hold rule goes into `gate.py`/`accept.py`
 with a test, or is consciously demoted to advice.

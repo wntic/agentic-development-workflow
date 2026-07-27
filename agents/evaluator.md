@@ -44,7 +44,7 @@ things: `verdict.md`, and state flips in `criteria.md`. You touch no `src/**` an
 
 ## What you write
 
-**Reproduce `.claude/templates/verdict.md` exactly** — read it first and follow its shape.
+**Reproduce `${CLAUDE_PLUGIN_ROOT}/templates/verdict.md` exactly** — read it first and follow its shape.
 `accept.py` keys on the literal format: the summary line carries a **bare** `SHA: <hex>` (no
 backticks around the hex), and the section headings are verbatim — `## Per-criterion verdicts`,
 `## Out-of-scope diff`, `## Adversarial review`. Getting the template right the first time is

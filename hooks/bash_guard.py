@@ -147,11 +147,34 @@ PROTECTED_FRAGMENTS = (
     "criteria.md",
     "change.md",
     "verdict.md",
-    ".claude/tools",
-    ".claude/hooks",
     ".claude/settings.json",
     "pyproject.toml",
 )
+
+# The plugin's OWN trees, protected only where they are part of THIS repository — the same
+# split `gate.py`'s `protected_paths()` makes, for the same reason. Root-anchored (the leading
+# slash), because with the plugin root at a repository root these are the generic names
+# `tools/` and `hooks/`: depth-loose, they would deny a consumer every write to its own
+# `src/tools/…`, which is the false-positive class this guard has already paid for four times
+# (A5). Empty when the plugin lives outside the repo, i.e. whenever it is installed — there a
+# write to the plugin resolves outside the repo root and never fires anyway (T06e).
+PLUGIN_SUBTREES = ("tools", "hooks")
+
+
+def _plugin_subtree_fragments(repo_root: str | None) -> tuple[str, ...]:
+    if repo_root is None:
+        return ()
+    root = Path(__file__).resolve().parent.parent  # the plugin root: the dir holding hooks/
+    try:
+        rel = root.relative_to(Path(repo_root).resolve()).as_posix()
+    except (ValueError, OSError):
+        return ()
+    prefix = "" if rel == "." else f"{rel}/"
+    # No trailing slash, exactly as the `.claude/tools` fragment these replace: the DIRECTORY
+    # itself is a write target (`cp -t tools /tmp/x.py`), and a directory fragment would need a
+    # component below it to fire.
+    return tuple(f"/{prefix}{sub}" for sub in PLUGIN_SUBTREES)
+
 
 # The owned-tree write path (T06d). Per acting role (`agent_type`), the fragments of a target
 # that the role legitimately writes — a target matching one is allowed even if it also matches
@@ -675,10 +698,18 @@ def _matches(frag: str, candidate: str) -> bool:
     but not `fixtures/a-change-spec.md`; `pyproject.toml` does not match `pyproject.toml.bak`.
     A trailing slash marks a DIRECTORY fragment — it matches only with something below it, so
     `tests/` fires on `tests/x.py` at any depth but not on a file merely named `tests`.
+
+    A LEADING slash marks a ROOT-ANCHORED fragment: `/tools` fires on `tools/gate.py` and on
+    `tools` itself, and never on `src/tools/helper.py`. The depth-loose default is right for the names this
+    workflow owns outright (`tests/`, `criteria.md`), and wrong for the generic names the
+    plugin's own trees carry once the plugin root is a repository root (`tools`, `hooks`) —
+    at depth those belong to whoever's project this is (see `_plugin_subtree_fragments`).
     """
     want = [p for p in frag.split("/") if p]
     parts = [p for p in candidate.split("/") if p and p != "."]
     tail = 1 if frag.endswith("/") else 0  # a directory fragment needs a component below it
+    if frag.startswith("/"):
+        return len(parts) >= len(want) + tail and parts[: len(want)] == want
     return any(parts[i : i + len(want)] == want for i in range(len(parts) - len(want) - tail + 1))
 
 
@@ -697,15 +728,17 @@ def acting_role(agent_type: str | None) -> str | None:
     return agent_type.rsplit(":", 1)[-1] or None
 
 
-def _protected_for(role: str | None) -> tuple[str, ...]:
+def _protected_for(role: str | None, repo_root: str | None = None) -> tuple[str, ...]:
     """The protected fragments that apply to the acting role.
 
-    Universal set for everyone; `src/**` is added for the two protected-tree agents so the
-    implementer's lane is closed to them (it stays open to the implementer and the default).
+    Universal set for everyone, plus the plugin's own trees when they are inside this repo;
+    `src/**` is added for the two protected-tree agents so the implementer's lane is closed to
+    them (it stays open to the implementer and the default).
     """
+    fragments = (*PROTECTED_FRAGMENTS, *_plugin_subtree_fragments(repo_root))
     if role in SRC_CLOSED_TO:
-        return (*PROTECTED_FRAGMENTS, SRC_FRAGMENT)
-    return PROTECTED_FRAGMENTS
+        return (*fragments, SRC_FRAGMENT)
+    return fragments
 
 
 def offending(
@@ -726,7 +759,7 @@ def offending(
     the owner reaches its tree through the shell instead of a hook bypass.
     """
     owned = ROLE_OWNED.get(role or "", ())
-    protected = _protected_for(role)
+    protected = _protected_for(role, repo_root)
     cwd = cwd or os.getcwd()
     for target in _write_targets(command, cwd):
         token = _anchorable(target.token)

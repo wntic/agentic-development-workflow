@@ -8,7 +8,7 @@ when_to_use: Deciding a file path, a class name, a store profile, which substrat
 
 This is the **derivation layer**: the rules that turn the bare identifiers a change introduces (entity name, protocol name, command base-name, datastore `kind`) into concrete file paths, class names, dependencies, and store wiring. Everything mechanical is derived **here** so the other skills stay about artifact content.
 
-Toolchain commands and the single definition of "green" live in **`gate.py`** (`.claude/tools/gate.py`) — this skill cites it, never restates it (C7: derivation has one home, and the toolchain's home is the gate).
+Toolchain commands and the single definition of "green" live in **`gate.py`** (`tools/gate.py`) — this skill cites it, never restates it (C7: derivation has one home, and the toolchain's home is the gate).
 
 All paths below are relative to the target package root `src/<package>/` (e.g. `src/hdk/domain/auth/user.py`). Worked names use the Helpdesk vocabulary (`auth`/`User`, `support`/`Ticket`, `openai`/`jwt`).
 

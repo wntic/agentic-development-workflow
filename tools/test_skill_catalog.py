@@ -16,7 +16,7 @@ One entry per closed finding. Never assert on a file path.
 KNOWN WEAKNESS OF THE CORPUS (recorded by T13b, deliberately not fixed — see below).
 `_load_catalog`'s `rglob("*.md")` is what makes bundled `<topic>.md` files covered for free after
 the T14 split, and that is the property T13/T14 rest on. The same `rglob` also pulls in
-`.claude/skills/CONVENTIONS.md` — the catalog's **format document**, not a skill. So a paid-for
+`skills/CONVENTIONS.md` — the catalog's **format document**, not a skill. So a paid-for
 needle could in principle be satisfied by a sentence in the format doc while the knowledge is
 absent from every skill body, and this suite would still pass. Measured 2026-07-27: of the 51
 needles, five (`conftest`, `re-raise`, `grandparent`, `sqlalchemy core`, `never the orm`) also occur
@@ -34,7 +34,7 @@ SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 
 
 def _load_catalog() -> str:
-    """Concatenate every Markdown file under `.claude/skills/`, lowercased.
+    """Concatenate every Markdown file under `skills/`, lowercased.
 
     Path-agnostic on purpose: the assertions ask only whether the knowledge exists somewhere
     in the catalog, so they survive the T08 file merges unchanged.

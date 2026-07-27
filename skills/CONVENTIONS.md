@@ -15,11 +15,11 @@ Two skills are **reference** skills (consulted, never producing a file): `conven
 ### Reference
 
 - `conventions` — the mechanical derivation registry: identifier → file path / class name, store profiles, the stack substrate (names, no versions), the relational/Alembic bootstrap, and multi-context resolution. Cites `gate.py` for the toolchain.
-- `test-principles` — the catalog's paid-fixes guard (`.claude/tools/test_skill_catalog.py`) that greps the whole catalog for every hard-won lesson by content signature, and the append-only protocol for extending it.
+- `test-principles` — the catalog's paid-fixes guard (`tools/test_skill_catalog.py`) that greps the whole catalog for every hard-won lesson by content signature, and the append-only protocol for extending it.
 
 ### Meta
 
-- `meta-skill-author` — produces one new `.claude/skills/<name>/SKILL.md` in the canonical format (`name` + `description` + `when_to_use` frontmatter, four-section body). Use when extending this catalog.
+- `meta-skill-author` — produces one new `skills/<name>/SKILL.md` in the canonical format (`name` + `description` + `when_to_use` frontmatter, four-section body). Use when extending this catalog.
 - `meta-uc-author` — produces one new `specs/use-cases/UC-NN-<slug>.md` in the narrative BA-dictated style. Use when hand-authoring a new use case.
 
 ### Architecture & style
@@ -112,7 +112,7 @@ Deliberately **not** a trigger: the number of artifacts. Five cohesive artifacts
 
 Splitting a theme changes no catalog fact: same themes, same frontmatter, same index entries — only the bodies move.
 
-Three of the shape-2 rules are enforced rather than advised: `.claude/tools/test_skill_format.py` reds when a topic file opens with a frontmatter block, when a topic file is not pointed at by its own `SKILL.md`, or when a pointer names a file that does not exist. What it deliberately cannot check — a router that keeps an imperative pointer *and* re-summarises the topic underneath it — is stated in that file's docstring.
+Three of the shape-2 rules are enforced rather than advised: `tools/test_skill_format.py` reds when a topic file opens with a frontmatter block, when a topic file is not pointed at by its own `SKILL.md`, or when a pointer names a file that does not exist. What it deliberately cannot check — a router that keeps an imperative pointer *and* re-summarises the topic underneath it — is stated in that file's docstring.
 
 ## Out of scope (intentionally not in this catalog)
 

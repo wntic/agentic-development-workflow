@@ -11,8 +11,8 @@
     {
       "name": "adw",
       "source": {
-        "source": "github",
-        "repo": "wntic/adw-plugin"
+        "source": "url",
+        "url": "https://github.com/wntic/agentic-development-workflow.git"
       }
     }
   ]

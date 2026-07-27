@@ -16,9 +16,9 @@ project's CLAUDE.md sets; English if it sets none) — it is input for the human
 machine; ids, slugs, and branch names stay ASCII.
 
 The format has ONE home — the templates. Do not restate their rules here or improvise
-sections: `.claude/templates/change.md` (sections, classes, binding/non-binding notes),
-`.claude/templates/criteria.md` (states, immutability), `.claude/templates/overview.md` and
-`.claude/templates/capability.md` (canonical spec skeletons).
+sections: `${CLAUDE_PLUGIN_ROOT}/templates/change.md` (sections, classes, binding/non-binding notes),
+`${CLAUDE_PLUGIN_ROOT}/templates/criteria.md` (states, immutability), `${CLAUDE_PLUGIN_ROOT}/templates/overview.md` and
+`${CLAUDE_PLUGIN_ROOT}/templates/capability.md` (canonical spec skeletons).
 
 ## Procedure
 

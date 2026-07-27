@@ -41,7 +41,7 @@ Gates, in the §5.4 order:
      from overview.md (L-07/O-13).
   6. orphan sweep (removal flavour): removed behaviour lingers neither in spec text nor as
      dead src symbols (V-02/§5.4). The vocabulary is spec §3.1's — the `REMOVED` marker on the
-     `Class:` line plus the `## Removed` section `.claude/templates/change.md` ships — and every
+     `Class:` line plus the `## Removed` section `templates/change.md` ships — and every
      way of missing it is FLAGged rather than silently understood or silently ignored: another
      wording on the `Class:` line, a declared removal with no filled `## Removed` section, or a
      section whose body names no harvestable symbol. The sweep never reads free prose, so the
@@ -694,7 +694,7 @@ class RemovalFlavour:
 # wrapped sketch line starting with "removed …" cannot pass for one. The pre-T10e classifier used
 # `#*` (zero-or-more) and matched exactly that.
 #
-# ONE spelling, and it is spec §3.1's: «Removal-вкус (`REMOVED`)». `.claude/templates/change.md`
+# ONE spelling, and it is spec §3.1's: «Removal-вкус (`REMOVED`)». `templates/change.md`
 # teaches that literal marker (`Class: behavioral, REMOVED`) beside the `## Removed` section this
 # harvests, so author and script now read the same rule out of one home (C7). Case-sensitive on
 # purpose — the marker is a tag, not prose, and lowercase "removes the legacy export" on the
@@ -1413,7 +1413,7 @@ def _orphan_sweep(actx: AcceptContext) -> Result:
                 f"the `Class:` line says '{flavour.unpinned}' but carries no `REMOVED` marker, and no filled "
                 "`## Removed` section either — V-02 did NOT run. Spec §3.1 pins one spelling: write "
                 "`Class: behavioral, REMOVED` plus the `## Removed` section of "
-                "`.claude/templates/change.md`, listing the removed symbols/node-ids; or, if this change "
+                "`templates/change.md`, listing the removed symbols/node-ids; or, if this change "
                 "removes nothing, drop the removal wording from the `Class:` line",
             )
         return Result(
@@ -1434,7 +1434,7 @@ def _orphan_sweep(actx: AcceptContext) -> Result:
             "the `Class:` line declares `REMOVED` but change.md carries no filled `## Removed` section "
             "(absent, or still holding only the template's instruction comment) — V-02 did NOT run: there "
             "is no structural list of removed behaviour to sweep (the sweep never harvests free prose). "
-            "Fill the `## Removed` section of `.claude/templates/change.md` with the removed "
+            "Fill the `## Removed` section of `templates/change.md` with the removed "
             "symbols/node-ids, or confirm in review that nothing is orphaned",
         )
     terms = list(flavour.terms)

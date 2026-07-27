@@ -1,24 +1,32 @@
-"""Guards for the shipped artifact's shape (workflow v3, T15).
+"""Guards for the shipped artifact's shape (workflow v3, T15; relaid by the marketplace move).
 
-The workflow ships as a Claude Code plugin whose root is `.claude/` itself — the ship rule is
-**by location**: a file ships iff it lives under `.claude/`. Nothing moved when the plugin was
-introduced, so `gate.py`'s `PROTECTED_PATHS` and `bash_guard`'s `PROTECTED_FRAGMENTS` stay
-literally true, and this suite pins the three facts that layout makes fragile:
+**This repository is at once the marketplace and the `adw` plugin.** The plugin root is the
+repository root — `skills/`, `commands/`, `agents/`, `tools/`, `hooks/`, `bin/`, `templates/` sit
+there, the catalog and the manifest share `.claude-plugin/`, and `.claude/` is left holding only
+what a *project* needs: `settings.json` plus symlinks for the checked-out load. Everything in the
+repo therefore ships, and the reason for that shape is one measured fact: a plugin installed from
+a SUBDIRECTORY source is a content copy with no `.git`, so `integrity.self-hash` cannot verify
+E-02 and the gate is RED in every consumer. A whole-repo source clones, `.git` included — and the
+only way to be a whole repo is to be one (notes/21 §5a).
 
-  1. **the manifest** — `.claude/.claude-plugin/plugin.json` exists and carries the metadata
-     `claude plugin validate --strict` demands (an absent `author` alone fails it);
-  2. **two homes for one hook wiring** — a plugin cannot ship hooks in `settings.json` (the
+What this suite pins:
+
+  1. **the manifest** — `.claude-plugin/plugin.json` exists and carries the metadata
+     `claude plugin validate` demands (an absent `author` alone fails `--strict`);
+  2. **the catalog** — `.claude-plugin/marketplace.json` names this repo as `adw`'s source, as a
+     whole-repo form, and nothing pins a `version` (else pushed commits never reach a machine);
+  3. **two homes for one hook wiring** — a plugin cannot ship hooks in `settings.json` (the
      runtime honours only `agent` / `subagentStatusLine` there), so the wiring is written twice:
-     `.claude/settings.json` for a checked-out load (`$CLAUDE_PROJECT_DIR`) and
-     `.claude/hooks/hooks.json` for an installed one (`${CLAUDE_PLUGIN_ROOT}`). The duplication
-     is forced by the platform, so it gets a guard rather than a comment (S4): the test maps one
-     form onto the other and FAILs on any drift, including a new hook wired in only one file;
-  3. **one invocation form** — every shipped file reaches a tool through `bin/adw.py`, never
-     through a `.claude/tools/...` path that does not exist in a consumer.
+     `.claude/settings.json` for a checked-out load (`$CLAUDE_PROJECT_DIR`) and `hooks/hooks.json`
+     for an installed one (`${CLAUDE_PLUGIN_ROOT}`). The duplication is forced by the platform, so
+     it gets a guard rather than a comment (S4): the test maps one form onto the other and FAILs on
+     any drift, including a new hook wired in only one file;
+  4. **one invocation form** — every instructing file reaches a tool through `bin/adw.py`, never
+     through a raw `tools/...` path (which resolves to the CONSUMER's tree once installed).
 
 Plus the meta layer's own environment (hat 3): the root `pyproject.toml` is the workflow's test
 environment and nothing else. It must never grow the trial app's substrate, because that would
-make `pytest .claude/tools/` depend on a trial app being present in the tree.
+make `pytest tools/` depend on a trial app being present in the tree.
 """
 
 import json
@@ -31,21 +39,26 @@ from pathlib import Path
 import pytest
 
 TOOLS_DIR = Path(__file__).resolve().parent
-PLUGIN_ROOT = TOOLS_DIR.parent  # .claude/ IS the plugin root (T15, layout C)
+PLUGIN_ROOT = TOOLS_DIR.parent  # the repository root IS the plugin root
 HOOKS_DIR = PLUGIN_ROOT / "hooks"
 MANIFEST = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
-# The catalog is a RELEASE artifact of this repo, not a shipped file — it lives outside the
-# plugin root, and deliberately so (see test_the_catalog_never_moves_into_the_plugin_root).
-MARKETPLACE = PLUGIN_ROOT.parent / ".claude-plugin" / "marketplace.json"
-SETTINGS = PLUGIN_ROOT / "settings.json"
+MARKETPLACE = PLUGIN_ROOT / ".claude-plugin" / "marketplace.json"
+# The hook wiring of the CHECKED-OUT load lives in project configuration, not in the plugin's own
+# `settings.json` (which the runtime would read for `agent` keys only).
+SETTINGS = PLUGIN_ROOT / ".claude" / "settings.json"
 HOOKS_JSON = HOOKS_DIR / "hooks.json"
 SHIM = PLUGIN_ROOT / "bin" / "adw.py"
 
 PLUGIN_NAME = "adw"
 
+# The directories the platform discovers at the plugin root, and the one directory that stays
+# project configuration. `.claude/` may hold symlinks to the first group (the checked-out load
+# reads components from there) but never a second copy of them.
+COMPONENT_DIRS = ("skills", "commands", "agents", "hooks", "templates", "tools", "bin")
+
 # The two roots, and the substitution that turns one wiring into the other.
 PLUGIN_FORM = "${CLAUDE_PLUGIN_ROOT}/hooks/"
-PROJECT_FORM = "$CLAUDE_PROJECT_DIR/.claude/hooks/"
+PROJECT_FORM = "$CLAUDE_PROJECT_DIR/hooks/"
 
 
 def _manifest() -> dict:
@@ -53,9 +66,9 @@ def _manifest() -> dict:
 
 
 def _marketplace() -> dict:
-    """The release catalog, or skip — it does not ship, so a consumer's tree has none."""
-    if not (MARKETPLACE.is_file() and (MARKETPLACE.parent.parent / "workflow_v3_spec.md").is_file()):
-        pytest.skip("not the workflow's own repo — the marketplace catalog is a release artifact of that repo alone")
+    """The release catalog, or skip — a consumer's installed copy is not the marketplace."""
+    if not (MARKETPLACE.is_file() and (PLUGIN_ROOT / "workflow_v3_spec.md").is_file()):
+        pytest.skip("not the workflow's own repo — the marketplace catalog belongs to that repo alone")
     return json.loads(MARKETPLACE.read_text(encoding="utf-8"))
 
 
@@ -98,6 +111,34 @@ def test_manifest_declares_no_component_paths() -> None:
 
 
 # =======================================================================================
+# The layout itself: plugin root == repository root, `.claude/` is project config only
+# =======================================================================================
+
+
+@pytest.mark.parametrize("name", COMPONENT_DIRS)
+def test_every_component_directory_sits_at_the_plugin_root(name: str) -> None:
+    # The platform discovers components at the plugin root and nowhere else. With the root being
+    # the repository root, that is also what makes the whole-repo source legal.
+    assert (PLUGIN_ROOT / name).is_dir(), f"{name}/ must live at the plugin root"
+
+
+def test_dot_claude_holds_project_configuration_and_never_a_second_copy() -> None:
+    """`.claude/` may point AT the components; it must not contain a fork of them.
+
+    The checked-out load reads components from `.claude/`, so symlinks live there — and a real
+    directory there would be a second copy of a skill or command, drifting from the first the
+    moment either is edited. `settings.json` is the one real file: the hook wiring of that load.
+    """
+    dot = PLUGIN_ROOT / ".claude"
+    assert (dot / "settings.json").is_file(), "the checked-out load's hook wiring"
+    for entry in sorted(dot.iterdir()):
+        if entry.name in {"settings.json", "settings.local.json"} or entry.name.startswith("."):
+            continue
+        assert entry.is_symlink(), f".claude/{entry.name} must be a symlink to the real directory, not a copy"
+        assert entry.resolve() == (PLUGIN_ROOT / entry.name).resolve(), f".claude/{entry.name} points elsewhere"
+
+
+# =======================================================================================
 # The marketplace catalog
 # =======================================================================================
 
@@ -114,19 +155,46 @@ def test_marketplace_catalog_exists_and_lists_this_plugin() -> None:
     assert _entry()["source"], "an entry without a source cannot be installed"
 
 
-def test_the_catalog_never_moves_into_the_plugin_root() -> None:
-    """Colocating `marketplace.json` with `plugin.json` blinds the release check.
+def test_the_catalog_names_this_very_repository_as_the_plugins_source() -> None:
+    """The self-reference this layout rests on: the marketplace repo IS the plugin repo.
 
-    Measured on 2026-07-27: given a directory holding both, `claude plugin validate` validates
-    the MARKETPLACE manifest and says nothing about the plugin — so the plugin-manifest and
-    skill-frontmatter warnings (the ones that found nine unparseable `SKILL.md` files in T15)
-    stop being reported, silently and with a green exit code. The catalog therefore stays out
-    of the plugin root, which also keeps the ship rule literal: it is not a shipped file.
+    Claude Code fetches the catalog and the plugin independently — one clone under
+    `plugins/marketplaces/<name>/`, one under `plugins/cache/<name>/<plugin>/<sha>/` — so a
+    repository may legally be both. What that buys is the only whole-repo source available
+    without a second repository, and therefore a `.git` in the cache (see the test below).
+    What it costs is that a wrong URL here installs somebody else's code under this name, so
+    the URL is checked against the actual remote rather than trusted.
     """
-    assert not (PLUGIN_ROOT / ".claude-plugin" / "marketplace.json").exists(), (
-        "a catalog next to plugin.json shadows the plugin's own validation"
+    source = _entry()["source"]
+    url = source.get("url") or source.get("repo", "")
+    rc = subprocess.run(["git", "-C", str(PLUGIN_ROOT), "remote", "get-url", "origin"], capture_output=True, text=True)
+    if rc.returncode != 0:
+        pytest.skip("no origin remote to compare the catalog against")
+
+    def _slug(text: str) -> str:  # owner/repo, however the URL spells it
+        return text.strip().removesuffix(".git").replace("git@github.com:", "").replace("https://github.com/", "")
+
+    assert _slug(url) == _slug(rc.stdout), f"catalog names {_slug(url)!r}, origin is {_slug(rc.stdout)!r}"
+
+
+def test_the_catalog_shares_the_plugin_root_and_that_costs_the_plugins_own_validation() -> None:
+    """A catalog beside `plugin.json` shadows the plugin half of `claude plugin validate`.
+
+    Measured on 2026-07-27: given a directory holding both manifests, the CLI validates the
+    MARKETPLACE one and reports nothing about the plugin — silently, with a green exit code. In
+    this layout that colocation is forced (the catalog's only legal home is
+    `<marketplace root>/.claude-plugin/`, and the marketplace root is the plugin root), so the
+    release check validates a marketplace-less COPY of the tree to see the plugin half
+    (notes/21 §5a). The class of defect that half once caught — unparseable `SKILL.md`
+    frontmatter — has its own guard since T13b, which is why the cost is affordable rather than
+    silent: `test_skill_format.py::test_every_skill_frontmatter_parses_as_yaml`.
+    """
+    assert MARKETPLACE.parent == MANIFEST.parent, "both manifests share `.claude-plugin/` in this layout"
+    guard = TOOLS_DIR / "test_skill_format.py"
+    assert "def test_every_skill_frontmatter_parses_as_yaml" in guard.read_text(encoding="utf-8"), (
+        "the frontmatter guard that replaces the shadowed validation is gone — restore it or "
+        "stop colocating the catalog"
     )
-    _marketplace()  # ... and it exists where it belongs (or this is not the workflow's repo)
 
 
 def test_marketplace_fetches_the_plugin_as_a_whole_repository() -> None:
@@ -225,26 +293,38 @@ def test_settings_hooks_use_the_project_root_only() -> None:
 # One invocation form (D4)
 # =======================================================================================
 
-# Every shipped Markdown that INSTRUCTS someone — commands, agents, skills, templates. The
+# Every Markdown that INSTRUCTS someone — commands, agents, skills, templates. Scoped to those
+# directories rather than to the plugin root, which is now the whole repository: `notes/` and
+# `tasks/` are a dev record, and a note may quote whatever invocation it is describing. The
 # fixtures under tools/ are test data (a recorded change spec, quoted verbatim), not instructions.
-SHIPPED_MARKDOWN = sorted(p for p in PLUGIN_ROOT.rglob("*.md") if "fixtures" not in p.parts)
-RAW_TOOL_INVOCATION = re.compile(r"uv run\s+\S*\.claude/tools/")
+INSTRUCTING_DIRS = ("commands", "agents", "skills", "templates")
+SHIPPED_MARKDOWN = sorted(
+    p for d in INSTRUCTING_DIRS for p in (PLUGIN_ROOT / d).rglob("*.md") if "fixtures" not in p.parts
+)
+# A raw tools path in an instructing file is doubly wrong once the plugin root is a repository
+# root: `tools/gate.py` does not merely fail to exist in a consumer, it names a directory in the
+# CONSUMER's tree — so the agent is sent at somebody else's file rather than at nothing.
+RAW_TOOL_INVOCATION = re.compile(r"uv run\s+\S*(?:\.claude/)?tools/\w+\.py")
+
+
+def test_there_are_instructing_files_to_check() -> None:
+    # `parametrize` over an empty list is a green no-op — the vacuity rule (notes/19).
+    assert len(SHIPPED_MARKDOWN) > 10, SHIPPED_MARKDOWN
 
 
 @pytest.mark.parametrize("doc", SHIPPED_MARKDOWN, ids=lambda p: str(p.relative_to(PLUGIN_ROOT)))
 def test_no_shipped_file_invokes_a_tool_by_its_checked_out_path(doc: Path) -> None:
-    # `.claude/tools/gate.py` does not exist in a consumer with the plugin installed. The one
-    # form that works in both layouts is the shim; a file that spells the path out sends the
-    # agent at a file that is not there.
+    # The one form that works in both layouts is the shim; a file that spells the path out sends
+    # the agent at a file that is not there — or, worse, at the consumer's own `tools/`.
     hits = RAW_TOOL_INVOCATION.findall(doc.read_text(encoding="utf-8"))
     assert not hits, f"{doc}: invoke tools through bin/adw.py, not {hits}"
 
 
 def test_the_dev_half_of_the_invocation_form_is_declared() -> None:
     # Checked out, nothing expands `${CLAUDE_PLUGIN_ROOT}` in a command file, so the shell must:
-    # settings.json states the fact that `.claude/` is the plugin root here.
+    # settings.json states the fact that the repository root is the plugin root here.
     env = json.loads(SETTINGS.read_text(encoding="utf-8")).get("env", {})
-    assert env.get("CLAUDE_PLUGIN_ROOT") == ".claude", env
+    assert env.get("CLAUDE_PLUGIN_ROOT") == ".", env
 
 
 # =======================================================================================
@@ -313,7 +393,7 @@ def test_shim_runs_a_tool_and_returns_its_exit_code() -> None:
 # Hat 3 — the meta layer's own environment (the root pyproject.toml)
 # =======================================================================================
 
-REPO_ROOT = PLUGIN_ROOT.parent
+REPO_ROOT = PLUGIN_ROOT  # the same directory since the marketplace move
 
 # The meta layer's environment, exactly — measured, not assumed: in a venv holding only these,
 # in a tree with no `src/`, the whole suite passes; drop `pydantic` and 30 tests fail (gate.py's
@@ -325,7 +405,7 @@ REPO_ROOT = PLUGIN_ROOT.parent
 META_ENV = frozenset({"pytest", "ruff", "mypy", "pydantic", "httpx", "pre-commit"})
 
 # Names of the app substrate a trial change installs. None of them may reach the meta layer's
-# environment: `pytest .claude/tools/` must pass in a tree with no `src/` at all.
+# environment: `pytest tools/` must pass in a tree with no `src/` at all.
 SUBSTRATE = (
     "fastapi",
     "starlette",
@@ -392,13 +472,13 @@ def test_meta_pyproject_declares_exactly_the_meta_environment() -> None:
 @pytest.mark.parametrize("name", SUBSTRATE)
 def test_meta_pyproject_carries_no_app_substrate(name: str) -> None:
     # The coupling this forbids is concrete: declare the trial app's deps here and
-    # `pytest .claude/tools/` starts needing a trial app to exist.
+    # `pytest tools/` starts needing a trial app to exist.
     declared = [d for d in _declared_dependencies(_meta_pyproject()) if d.lower().startswith(name)]
     assert not declared, f"{name} belongs to a trial app, not to the meta layer's test environment"
 
 
 def test_meta_layer_tests_import_nothing_from_the_app() -> None:
-    # The blunt acceptance test of T15 is "delete src/ and `pytest .claude/tools/` still passes".
+    # The blunt acceptance test of T15 is "delete src/ and `pytest tools/` still passes".
     # This is its static half: no test here reaches into the app's package.
     for test in sorted(TOOLS_DIR.glob("test_*.py")):
         text = test.read_text(encoding="utf-8")

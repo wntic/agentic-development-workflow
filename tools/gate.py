@@ -173,7 +173,7 @@ GREP_GATES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ),
 )
 
-# Test-tier grep gates (spec §5.1) — scan the target app's tests/** (never .claude/tools/).
+# Test-tier grep gates (spec §5.1) — scan the target app's tests/** (never the plugin's own tools/).
 TEST_GREP_GATES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # T08-5: the no-mocks contract — fakes for unit, real backends via testcontainers for
     # integration. The mock family only — unittest.mock / MagicMock / AsyncMock / @patch /
@@ -190,7 +190,30 @@ TEST_GREP_GATES: tuple[tuple[str, re.Pattern[str], str], ...] = (
 )
 
 # Protected trees for the integrity diff vs baseline (E-01/E-02/E-12).
-PROTECTED_PATHS = (".claude/tools", ".claude/hooks", ".claude/settings.json", "pyproject.toml")
+#
+# Two halves, because one of them is not at a fixed path. The project-relative half always
+# holds: `pyproject.toml` is the substrate, `.claude/settings.json` the hook wiring, and both
+# live at those paths in every project. The plugin's OWN trees are wherever the plugin is —
+# `.claude/tools` before the workflow moved to the repo root, `tools`/`hooks` after, and
+# nowhere in the consumer's tree at all when the plugin is installed. Naming them as bare
+# literals would protect a CONSUMER's unrelated `tools/` directory and fail its changes for
+# touching its own code, so they are derived from the plugin root at runtime and contribute
+# nothing when the plugin lives outside the tree (there, `integrity.self-hash` is what
+# protects them — notes/21 §5a).
+PROTECTED_PATHS = (".claude/settings.json", "pyproject.toml")
+PLUGIN_PROTECTED_SUBTREES = ("tools", "hooks")
+
+
+def protected_paths(tree: Path) -> tuple[str, ...]:
+    """`PROTECTED_PATHS` plus the plugin's own trees, if the plugin lives inside `tree`."""
+    root = plugin_root()
+    try:
+        rel = root.relative_to(tree.resolve()).as_posix()
+    except ValueError:
+        return PROTECTED_PATHS  # installed plugin — outside the tree, so nothing of it to diff
+    prefix = "" if rel == "." else f"{rel}/"
+    return (*PROTECTED_PATHS, *(f"{prefix}{sub}" for sub in PLUGIN_PROTECTED_SUBTREES))
+
 
 # Integration suite root (house convention: path-based collection, testcontainer-backed
 # tests live here — see the test-integration-* skills). The Docker-skip carve-out in the
@@ -200,15 +223,15 @@ INTEGRATION_TEST_PREFIX = "tests/integration/"
 
 # Files whose worktree content must match git HEAD for the gate to trust the enforcement
 # layer (E-02, widened by T18). Paths are PLUGIN-ROOT-relative — the plugin root is the
-# directory that holds `tools/`: `.claude/` in this repo, the repository top in a
-# `git subtree split --prefix=.claude` plugin repo (notes/21 §1).
+# directory that holds `tools/`: the repository top in this repo (which is at once the
+# marketplace and the `adw` plugin), the plugin cache directory once installed (notes/21 §1).
 #
 # Why this is not just gate.py: once the workflow is INSTALLED, it lives outside the
 # consumer's repository, and the two other protections both go blind there —
 # `bash_guard` anchors to the consumer's root (so a write to the plugin's own files
 # resolves outside it and is allowed, deliberately, T06e) and `integrity.protected-trees`
-# diffs `.claude/tools|hooks|settings.json` INSIDE the consumer tree, where they do not
-# exist, so it passes vacuously (notes/20 F-02). Self-hash is the only check that follows
+# contributes the plugin's trees only when the plugin lives INSIDE the tree, which an
+# installed one does not (see `protected_paths`, and notes/20 F-02). Self-hash is the only check that follows
 # `__file__` back to where the workflow actually lives, so everything a consumer's trust
 # rests on has to be anchored HERE or nowhere.
 #
@@ -229,8 +252,10 @@ SELF_INTEGRITY_GLOBS = (
     "hooks/*.py",  # the four hooks: ergonomics, but a tampered one lies to its reader
     "hooks/*.json",  # hooks.json — the hook wiring of an INSTALLED load
     "bin/*.py",  # the one sanctioned invocation form (notes/21 §3): tamper it and "the gate" is a fake
-    ".claude-plugin/*.json",  # plugin.json names the components
-    "settings.json",  # the hook wiring of a CHECKED-OUT / symlinked load — every trial so far
+    ".claude-plugin/*.json",  # plugin.json names the components; marketplace.json, where present
+    ".claude/settings.json",  # the hook wiring of a CHECKED-OUT load — this repo's own
+    "settings.json",  # the same wiring where the plugin root IS a `.claude/` (pre-move layouts,
+    #                   a symlinked consumer venue) — one of the two exists, never both
 )
 # Applied to an anchor candidate's basename (see the exclusion note above).
 SELF_INTEGRITY_SKIP = re.compile(r"^test_.*\.py$")
@@ -1361,13 +1386,14 @@ def _baseline_paths(ctx: GateContext, prefix: str) -> list[str]:
 def check_protected_trees(ctx: GateContext) -> Check:
     # E-01: Bash/Write bypass every prevention hook — so the gate diffs the protected
     # trees against the baseline commit instead of trusting the hooks.
-    # E-02: the enforcement infra itself (.claude/tools|hooks, settings, pyproject) is in
+    # E-02: the enforcement infra itself (the plugin's tools|hooks, settings, pyproject) is in
     # the protected list. E-12: change.md freeze is checked separately below.
-    rc, out = _git(ctx.tree, "diff", "--name-only", str(ctx.baseline), "--", *PROTECTED_PATHS)
+    paths = protected_paths(ctx.tree)
+    rc, out = _git(ctx.tree, "diff", "--name-only", str(ctx.baseline), "--", *paths)
     if rc != 0:
         return Check("integrity.protected-trees", "FAIL", f"git diff against baseline failed:\n{_tail(out)}")
     drifted = [line for line in out.splitlines() if line.strip()]
-    rc, out = _git(ctx.tree, "ls-files", "--others", "--exclude-standard", "--", *PROTECTED_PATHS)
+    rc, out = _git(ctx.tree, "ls-files", "--others", "--exclude-standard", "--", *paths)
     if rc != 0:
         return Check("integrity.protected-trees", "FAIL", f"git ls-files failed:\n{_tail(out)}")
     added = [f"{line} (untracked, new since baseline)" for line in out.splitlines() if line.strip()]

@@ -11,7 +11,7 @@ How the documents divide labour — keep them in their lanes, never duplicate:
   adversarial-review register behind the S8/S9 inversions.)
 - **This file** is the **decision verdict** — *when X is tempting → apply this litmus → do Y*. No prose
   rationale beyond one line; that lives in the spec.
-- **Skills** (`.claude/skills/`) are the **how-to-write-a-component** knowledge. House-style for a given
+- **Skills** (`skills/`) are the **how-to-write-a-component** knowledge. House-style for a given
   artifact lives in its skill, not here.
 
 This file follows its own canon: it does not restate the spec, it points to it. If a rule grows a
@@ -149,7 +149,7 @@ stops fire, the task asked for the wrong artifact — switch to the right skill,
 "One theme" permits **bundled per-topic reference files loaded on demand**: the theme is one
 auto-invocation entry (one `SKILL.md`, one frontmatter, one index line), not necessarily one file, so a
 theme past the size threshold keeps a thin `SKILL.md` router beside one `<topic>.md` per artifact
-(shape + threshold: `.claude/skills/CONVENTIONS.md`, "Skill format").
+(shape + threshold: `skills/CONVENTIONS.md`, "Skill format").
 *Why:* narrow, non-overlapping scope is what makes auto-invocation load the right knowledge. `v3 §7`
 
 **C3 · The human-onboarding purity test.** *Trigger:* any line in a skill. *Litmus:* would a new human
@@ -158,9 +158,9 @@ what the skill returns), it's a leaked layer — cut it. *Why:* the purity test 
 `Inputs the spec must supply` and `Report to the coordinator` sections from every skill. `v3 §7`
 
 **C4 · Skills describe artifacts; agents describe processes.** *Trigger:* deciding whether new content is
-a skill or an agent/command. *Do:* artifact-shaped → a skill in `.claude/skills/` (via
+a skill or an agent/command. *Do:* artifact-shaped → a skill in `skills/` (via
 `meta-skill-author`), four-section body, no orchestration sections; process-shaped → an agent in
-`.claude/agents/` or a command in `.claude/commands/`. The directories stay separate on purpose:
+`agents/` or a command in `commands/`. The directories stay separate on purpose:
 skills auto-invoke, commands run only on explicit human launch. *Why:* keeping the lanes apart is what
 stops per-component prompt proliferation (see D1). `v3 §1, §7`
 

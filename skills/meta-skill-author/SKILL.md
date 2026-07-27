@@ -1,6 +1,6 @@
 ---
 name: meta-skill-author
-description: "Apply when adding a new skill to `.claude/skills/`. Produces one `<name>/SKILL.md` — plus sibling `<topic>.md` files when the theme is large enough to need a router — conforming to the catalog's canonical format: the `name` + `description` + `when_to_use` frontmatter (the last two drive auto-invocation, ≤1536 chars combined), the four-section body, and placeholder vocabulary, so agents reading the new skill apply it the same way they apply every existing one. Does not produce the agents that invoke skills (those live under `.claude/agents/`) or the spec format itself."
+description: "Apply when adding a new skill to `skills/`. Produces one `<name>/SKILL.md` — plus sibling `<topic>.md` files when the theme is large enough to need a router — conforming to the catalog's canonical format: the `name` + `description` + `when_to_use` frontmatter (the last two drive auto-invocation, ≤1536 chars combined), the four-section body, and placeholder vocabulary, so agents reading the new skill apply it the same way they apply every existing one. Does not produce the agents that invoke skills (those live under `agents/`) or the spec format itself."
 when_to_use: "Adding a brand-new skill to the knowledge catalog, or checking that a hand-written skill conforms to the canonical frontmatter, the four-section body, and the single-topic-vs-router shape rule. Not for editing an existing skill (edit it directly) or sweeping cross-references after a rename."
 ---
 
@@ -20,7 +20,7 @@ This skill produces one new `SKILL.md` (plus its topic files, if the theme needs
 ## File location
 
 ```
-.claude/skills/<full-skill-name>/
+skills/<full-skill-name>/
     SKILL.md          # always: frontmatter + either the whole body (single-topic)
                       #         or the router (multi-topic theme)
     <topic>.md        # multi-topic theme only: one file per artifact, no frontmatter

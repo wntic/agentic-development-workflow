@@ -1392,7 +1392,11 @@ def test_this_repos_own_plugin_tree_anchors_every_decider() -> None:
         "hooks/hooks.json",
         "bin/adw.py",
         ".claude-plugin/plugin.json",
-        "settings.json",
+        # The catalog decides where the plugin is fetched from, so it is a decider too — it came
+        # into the set for free when the marketplace move put it beside plugin.json.
+        ".claude-plugin/marketplace.json",
+        # ... and the checked-out wiring, which that move turned into project configuration.
+        ".claude/settings.json",
     } == anchors, anchors
 
 
@@ -1411,14 +1415,27 @@ PLUGIN_FILES = (
 )
 
 
+def _plugin_source(rel: str) -> Path:
+    """Where a plugin-root-relative anchor is READ FROM in this repository.
+
+    One remap: the checked-out load's hook wiring is `settings.json` *at a plugin root* — which is
+    where it sits in the `.claude/`-rooted layout these fixtures build — while in this repo the
+    plugin root is the repository root, so the same file is project configuration at
+    `.claude/settings.json`. Both layouts are anchored (`SELF_INTEGRITY_GLOBS` names both).
+    """
+    return TOOLS_DIR.parent / (".claude/settings.json" if rel == "settings.json" else rel)
+
+
 def install_plugin_files(repo: FixtureRepo) -> None:
     """Give the fixture the WHOLE plugin (not just gate.py + criteria_lint.py) at its baseline.
 
-    Amends the baseline commit rather than adding one, so `integrity.protected-trees` still
-    sees `.claude/**` identical to the baseline and this isolates the self-hash question.
+    The fixture's plugin root is its `.claude/` — the layout this repo itself used before the
+    marketplace move, and still a legal one (`plugin_root()` is derived, never assumed). Amends the
+    baseline commit rather than adding one, so `integrity.protected-trees` still sees `.claude/**`
+    identical to the baseline and this isolates the self-hash question.
     """
     for rel in PLUGIN_FILES:
-        repo.write(f".claude/{rel}", (TOOLS_DIR.parent / rel).read_text(encoding="utf-8"))
+        repo.write(f".claude/{rel}", _plugin_source(rel).read_text(encoding="utf-8"))
     repo.git("add", "-A")
     repo.git("commit", "-q", "--amend", "--no-edit")
     repo.git("tag", "-f", "baseline/demo-001")

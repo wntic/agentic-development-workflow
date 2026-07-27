@@ -1,6 +1,6 @@
 {
   "env": {
-    "CLAUDE_PLUGIN_ROOT": ".claude"
+    "CLAUDE_PLUGIN_ROOT": "."
   },
   "hooks": {
     "PreToolUse": [
@@ -13,7 +13,7 @@
           },
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/bash_guard.py\""
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/bash_guard.py\""
           }
         ]
       },
@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/criteria_guard.py\""
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/criteria_guard.py\""
           }
         ]
       }
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent_stop.py\""
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/subagent_stop.py\""
           }
         ]
       }
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_stop.py\""
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/session_stop.py\""
           }
         ]
       }

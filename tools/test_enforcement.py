@@ -22,7 +22,7 @@ import pytest
 from test_gate import CRITERIA_MD, SRC_MAIN_BROKEN, TESTS_CORE, FixtureRepo, make_repo
 
 TOOLS_DIR = Path(__file__).resolve().parent
-REPO_ROOT = TOOLS_DIR.parent.parent  # <repo>/.claude/tools -> <repo>
+REPO_ROOT = TOOLS_DIR.parent  # <repo>/tools -> <repo>: this repo IS the plugin (notes/21 §1)
 HOOKS_DIR = TOOLS_DIR.parent / "hooks"
 HOOKS = ("criteria_guard.py", "bash_guard.py", "subagent_stop.py", "session_stop.py")
 
@@ -220,7 +220,7 @@ def run_bash_guard(payload: dict, *, root: Path = REPO_ROOT) -> subprocess.Compl
     [
         "sed -i '' 's/x/y/' tests/test_core.py",
         "echo pwned >> specs/demo/changes/001-thing/criteria.md",
-        "rm .claude/tools/gate.py",
+        "rm tools/gate.py",
         "git checkout -- specs/demo/core.md",
         "mv pyproject.toml pyproject.bak",
         "printf x | tee tests/test_core.py",
@@ -244,11 +244,11 @@ def test_bash_guard_denies_writes_to_protected_paths(command: str) -> None:
         "python3 -m pytest tests/",  # runs tests, no write token
         # T06b — false positives that trained the operator toward --no-verify (finding 3):
         # a `>` and a protected fragment inside the quoted commit message are not a write.
-        'git commit -m "msg with <brackets> and .claude/hooks"',
+        'git commit -m "msg with <brackets> and hooks/bash_guard.py"',
         # `2>&1` is fd duplication (target `&1`), and the tee target is unprotected.
         "pytest 2>&1 | tee /tmp/log",
         # the protected path is a *read* argument to pytest, not a write target.
-        "uv run pytest .claude/tools/test_enforcement.py 2>&1 | tee /tmp/log",
+        "uv run pytest tools/test_enforcement.py 2>&1 | tee /tmp/log",
     ],
 )
 def test_bash_guard_allows_benign(command: str) -> None:
@@ -293,7 +293,7 @@ def _bash(command: str, agent_type: str | None = None) -> dict:
         ("evaluator", "echo x > tests/test_foo.py", "deny"),
         ("evaluator", "echo x > src/app/core.py", "deny"),
         ("evaluator", "echo x > specs/demo/core.md", "deny"),  # capability prose is /spec's
-        ("evaluator", "rm .claude/tools/gate.py", "deny"),
+        ("evaluator", "rm tools/gate.py", "deny"),
         # --- implementer owns src/** (unchanged); tests/ and pyproject stay closed ---
         ("implementer", "echo x > src/app/core.py", None),
         ("implementer", "mkdir -p src/app/domain && echo x > src/app/domain/entities.py", None),
@@ -496,9 +496,9 @@ def test_bash_guard_cd_preserves_the_owned_tree_allowance(repo: FixtureRepo) -> 
 # =======================================================================================
 #
 # `change.md` is a filename relative to the repo root, so a file whose name merely CONTAINS
-# it is not it. Found building T10e: `git show … > .claude/tools/fixtures/a-change.md`
+# it is not it. Found building T10e: `git show … > tools/fixtures/a-change.md`
 # was reported as a write to `change.md`, which sent the builder renaming the fixture. That
-# path is in fact protected — it lives under `.claude/tools` — and the denial now says so.
+# path is in fact protected — it lives under the plugin's `tools/` — and the denial says so.
 
 
 @pytest.mark.parametrize(
@@ -519,13 +519,15 @@ def test_bash_guard_real_change_md_still_denied(repo: FixtureRepo) -> None:
     assert decision(_run_anchored(cmd, agent_type="test-author", root=repo.root)) == "deny"
 
 
-def test_bash_guard_protected_dir_denial_names_the_directory(repo: FixtureRepo) -> None:
-    # The T10e write: still denied — `.claude/tools` is a protected tree whoever the fixture
-    # is named for — but the reported fragment is now the real reason, not the filename.
-    cmd = "git show HEAD:x > .claude/tools/fixtures/a-change.md"
-    proc = _run_anchored(cmd, agent_type="test-author", root=repo.root)
+def test_bash_guard_protected_dir_denial_names_the_directory() -> None:
+    # The T10e write: still denied — the plugin's `tools/` is a protected tree whatever the
+    # fixture inside it is named — but the reported fragment is the real reason, not the filename.
+    # Anchored at THIS repo, the only place the plugin's own trees are protected (see the
+    # plugin-trees block): in a tmp fixture the plugin is outside the tree and nothing fires.
+    cmd = "git show HEAD:x > tools/fixtures/a-change.md"
+    proc = run_bash_guard(_bash(cmd, "test-author"))
     assert decision(proc) == "deny"
-    assert ".claude/tools" in proc.stdout and "(change.md)" not in proc.stdout, proc.stdout
+    assert "/tools" in proc.stdout and "(change.md)" not in proc.stdout, proc.stdout
 
 
 # =======================================================================================
@@ -612,10 +614,10 @@ def test_bash_guard_control_operator_glued_to_a_quoted_word(repo: FixtureRepo) -
     # Variant 6, verbatim (cost a builder two denied commands): the `;` glued to `"$S"` was no
     # CONTROL token, so `rm`'s target slice ran to the end of the line and swallowed the later
     # `cp`'s SOURCE — a path the command only READS — which is then what the denial blamed.
-    swallow = 'rm -rf "$S"; cp .claude/tools/x.py "$S/x.py"'
+    swallow = 'rm -rf "$S"; cp tools/x.py "$S/x.py"'
     assert decision(_run_anchored(swallow, agent_type="v3-builder", root=repo.root)) is None
     # ... and a single space before the `;` used to flip the verdict. Now both read the same.
-    spaced = 'rm -rf "$S" ; cp .claude/tools/x.py "$S/x.py"'
+    spaced = 'rm -rf "$S" ; cp tools/x.py "$S/x.py"'
     assert decision(_run_anchored(spaced, agent_type="v3-builder", root=repo.root)) is None
 
 
@@ -702,7 +704,7 @@ def test_bash_guard_operator_inventory(repo: FixtureRepo, command: str) -> None:
 
 RECORDED_FALSE_POSITIVES = [
     # 1 · T06b — a protected fragment and a `>` inside a quoted commit message
-    ('git commit -m "msg with <brackets> and .claude/hooks"', "test-author"),
+    ('git commit -m "msg with <brackets> and hooks/bash_guard.py"', "test-author"),
     # 2 · T06e — an absolute path outside the repo that merely contains `tests/`
     ("cat > /tmp/x/tests/conftest.py", "test-author"),
     # 3 · T06f A — a relative target inside a scratch tree reached by `cd`
@@ -712,7 +714,7 @@ RECORDED_FALSE_POSITIVES = [
     # 5 · T06g — a heredoc BODY read as command
     (COMMIT_HEREDOC, "evaluator"),
     # 6 · T06i variant 6 — `;` glued to a quoted word; the reason blamed the `cp`'s source
-    ('rm -rf "$S"; cp .claude/tools/x.py "$S/x.py"', "v3-builder"),
+    ('rm -rf "$S"; cp tools/x.py "$S/x.py"', "v3-builder"),
     # 7 · T06i variant 7 — an unexpanded variable resolved against the repo root. An expansion
     #     in the target's FIRST component anchors the path nowhere, so it is dropped rather than
     #     joined onto the repo root (precision bias; the deny direction is pinned by
@@ -747,11 +749,78 @@ def test_bash_guard_no_recorded_false_positive_fires(repo: FixtureRepo, command:
     [
         ("cat > tests/x.py", "evaluator"),  # a non-owner writing tests/ in the repo
         ("echo x > specs/demo/changes/001-thing/change.md", "test-author"),  # spec prose is /spec's
-        ("rm -rf .claude/tools/gate.py", "implementer"),  # the enforcement tree
     ],
 )
 def test_bash_guard_in_repo_denials_survive_the_rewrite(repo: FixtureRepo, command: str, role: str) -> None:
     assert decision(_run_anchored(command, agent_type=role, root=repo.root)) == "deny", command
+
+
+# =======================================================================================
+# bash_guard — the plugin's OWN trees, protected only where they are part of THIS repo
+# =======================================================================================
+#
+# Since the workflow moved to the repository root (notes/21 §5a), the enforcement layer's
+# directories are the generic names `tools/` and `hooks/`. They cannot be static fragments any
+# more, in either direction, and both directions are measured here:
+#
+#   * DENY — in this repo the plugin IS at the root, so `rm tools/gate.py` must fire. Measured
+#     against the pre-move guard, the same command was **ALLOWED**: its fragment read
+#     `.claude/tools`, which no longer matches anything. The whole enforcement tree had silently
+#     stopped being guarded — the A5 shape (a narrowing nobody ran in the deny direction).
+#   * ALLOW — a CONSUMER's own `tools/` and `hooks/` are its own code. Depth-loose fragments here
+#     would deny it every write to `src/tools/…`, which is the false-positive class this guard has
+#     paid for four times (A5). Hence root-anchored fragments, and none at all when the plugin
+#     lives outside the tree — i.e. whenever it is installed.
+#
+# The pyproject/tests/specs fragments are unaffected: they are the PROJECT's paths in every
+# layout, so they stay static and keep firing in a fixture.
+
+PLUGIN_TREE_WRITES = [
+    ("rm tools/gate.py", None),
+    ("rm -rf tools/gate.py", "implementer"),
+    ("echo x > hooks/bash_guard.py", None),
+    ("cp /tmp/x.py tools/gate.py", "v3-builder"),
+    ("cp -f /tmp/x.py hooks/bash_guard.py", "implementer"),
+    ("cp -t tools /tmp/x.py", "implementer"),  # the DIRECTORY itself is the write target
+    ("cp --target-directory=hooks /tmp/x.py", "implementer"),
+    ("git rm --cached tools/gate.py", "v3-builder"),
+    ("rm tools", None),  # removing the tree wholesale
+]
+
+
+@pytest.mark.parametrize(("command", "role"), PLUGIN_TREE_WRITES)
+def test_bash_guard_denies_writes_to_the_plugins_trees_in_this_repo(command: str, role: str | None) -> None:
+    proc = run_bash_guard(_bash(command, role) if role else {"tool_name": "Bash", "tool_input": {"command": command}})
+    assert decision(proc) == "deny", (command, proc.stdout)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm src/tools/helper.py",  # a consumer's own module, one level down
+        "rm app/hooks/webhook.py",
+        "echo x > src/adw/tools/registry.py",
+        "cp /tmp/x.py deploy/hooks/post-receive",
+    ],
+)
+def test_bash_guard_never_fires_on_a_tools_or_hooks_dir_at_depth(command: str) -> None:
+    # Root-anchored: at depth these names belong to whoever's project this is.
+    assert decision(run_bash_guard({"tool_name": "Bash", "tool_input": {"command": command}})) is None, command
+
+
+@pytest.mark.parametrize("command", ["rm tools/build.py", "echo x > hooks/pre-commit", "rm -rf tools"])
+def test_bash_guard_never_fires_on_a_consumers_own_tools_when_the_plugin_is_installed(
+    repo: FixtureRepo, command: str
+) -> None:
+    # The plugin lives in THIS repo, the acting tree is the fixture: the installed shape. A
+    # consumer's `tools/`/`hooks/` are its own, and the sanity anchors below prove the case is
+    # live rather than passing because the target resolved outside the tree.
+    assert decision(_run_anchored(command, agent_type=None, root=repo.root)) is None, command
+
+
+@pytest.mark.parametrize("command", ["rm tests/test_core.py", "rm pyproject.toml"])
+def test_the_installed_shape_still_denies_the_projects_own_protected_paths(repo: FixtureRepo, command: str) -> None:
+    assert decision(_run_anchored(command, agent_type=None, root=repo.root)) == "deny", command
 
 
 def test_bash_guard_cd_out_and_back_in_survives_the_rewrite(repo: FixtureRepo) -> None:
@@ -766,7 +835,7 @@ def test_bash_guard_cd_out_and_back_in_survives_the_rewrite(repo: FixtureRepo) -
 #
 # The tokeniser (T06i) resolves each write op's target; WHICH operations count as writing is a
 # separate, policy question, and `cp` / `install` / `dd of=` / `truncate` were missing from the
-# list — so `cp /tmp/evil.py .claude/tools/gate.py` was allowed for every role. Ergonomics, not
+# list — so `cp /tmp/evil.py tools/gate.py` was allowed for every role. Ergonomics, not
 # trust: the gate's self-hash catches a substituted gate.py post-hoc (S8); what the miss cost was
 # the early, legible denial. The trap is that `mv`'s "every non-flag argument" rule cannot be
 # reused — the copy family's sources are READS, so each operation gets its own argument rule and
@@ -778,12 +847,11 @@ def test_bash_guard_cd_out_and_back_in_survives_the_rewrite(repo: FixtureRepo) -
 @pytest.mark.parametrize(
     ("command", "role"),
     [
-        # cp: the destination is the last operand ...
-        ("cp /tmp/x.py .claude/tools/gate.py", "v3-builder"),
-        ("cp -f /tmp/x.py .claude/hooks/bash_guard.py", "implementer"),
+        # cp: the destination is the last operand (the plugin-tree variants of this family
+        # live in the plugin-trees block below, which anchors where the plugin actually is)
+        ("cp /tmp/x.py tests/test_x.py", "evaluator"),
         # ... or, with `-t`, the flag's operand while every positional is a source
-        ("cp -t .claude/tools /tmp/x.py", "implementer"),
-        ("cp --target-directory=.claude/hooks /tmp/x.py", "implementer"),
+        ("cp -t specs/demo /tmp/x.md", "test-author"),
         # install: same shape, plus value-taking options whose operand is not a path
         ("install -m 644 /tmp/x.py tests/test_x.py", "evaluator"),
         ("install -t specs/demo /tmp/core.md", "test-author"),
@@ -805,17 +873,17 @@ def test_bash_guard_write_op_inventory_denies_the_write_direction(repo: FixtureR
     [
         # THE read-direction pin: a protected file copied OUT writes nothing protected. Under
         # `mv`'s rule this is variant 6 all over again — a denial blaming `gate.py` for a read.
-        ("cp .claude/tools/gate.py /tmp/backup.py", "v3-builder"),
+        ("cp tools/gate.py /tmp/backup.py", "v3-builder"),
         ("cp -a specs/demo /tmp/spec-snapshot", "test-author"),
         ("cp tests/test_core.py /tmp/keep.py", "evaluator"),
-        ("install -m 644 .claude/tools/gate.py /tmp/x.py", "implementer"),
-        ("dd if=.claude/tools/gate.py of=/tmp/gate.bak", "v3-builder"),
+        ("install -m 644 tools/gate.py /tmp/x.py", "implementer"),
+        ("dd if=tools/gate.py of=/tmp/gate.bak", "v3-builder"),
         # `-r` names a reference file to READ, so it is not a target
         ("truncate -r pyproject.toml -s 0 /tmp/x", "implementer"),
         # a backup COPY of a protected file is a new, unprotected name (T06f component rule)
         ("cp pyproject.toml pyproject.toml.bak", "implementer"),
         # no destination named at all: nothing is guessed from the single operand
-        ("cp .claude/tools/gate.py", "v3-builder"),
+        ("cp tools/gate.py", "v3-builder"),
         ("dd if=tests/test_core.py", "evaluator"),
     ],
 )
@@ -891,7 +959,6 @@ def test_bash_guard_new_ops_keep_the_tokeniser_properties(repo: FixtureRepo) -> 
         ("git rm tests/x.py", "evaluator"),  # a non-owner removing a test
         ("git rm -r tests/integration", "implementer"),
         # `--cached` leaves the file on disk and still removes it from the index
-        ("git rm --cached .claude/tools/gate.py", "v3-builder"),
         ("git rm -r --cached specs/demo", "test-author"),
         # `--` respected: everything past it is a pathspec
         ("git rm -- tests/x.py", "evaluator"),

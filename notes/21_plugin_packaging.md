@@ -1,52 +1,68 @@
 # 21 — Packaging: what ships, how it is released, and where a trial lives (T15)
 
-The workflow is a **Claude Code plugin named `adw`**, and its root is `.claude/` itself. This note
-is the packaging reference: the ship rule, the platform facts the layout rests on (all measured on
-Claude Code 2.1.220, 2026-07-26 — none of it is inferred from documentation), the release
-procedure, and the two questions T15 had to answer in prose rather than in code.
+The workflow is a **Claude Code plugin named `adw`**, and **this repository is at once the
+marketplace and that plugin** — the plugin root is the repository root. This note is the packaging
+reference: the layout, the platform facts it rests on (all measured on Claude Code 2.1.220 — none of
+it inferred from documentation), the release procedure, and the questions answered in prose rather
+than in code.
 
 Companion notes: `notes/20_consumer_trial_venue.md` (the symlink venue, which is deliberately *not*
 the plugin) and `tasks/T18-what-protects-the-installed-plugin.md` (what the installed artifact
 does *not* protect — the open trust question this layout exposes).
 
+**History, so the reasoning is not re-derived:** until 2026-07-27 the plugin root was `.claude/`
+and a release was a `git subtree split --prefix=.claude` into a second repository. That satisfied
+the self-hash anchor (§5) but demanded one repo per plugin. §5a records the measurements that made
+the root layout the only shape which is simultaneously one repo, a marketplace, and green.
+
 ---
 
-## 1. The layout: `.claude/` IS the plugin root, and nothing moved
+## 1. The layout: the repository root IS the plugin root
 
 ```
-.claude/                        <- the plugin root; `git subtree split --prefix=.claude` releases it
-  .claude-plugin/plugin.json    <- the manifest (name `adw`)
-  bin/adw.py                    <- the one invocation form for the tools
-  hooks/hooks.json              <- the hook wiring for an INSTALLED load (${CLAUDE_PLUGIN_ROOT})
-  hooks/*.py                    <- the four hooks
-  settings.json                 <- the hook wiring for a CHECKED-OUT load ($CLAUDE_PROJECT_DIR);
-                                   ships, but is inert for a consumer
-  commands/ agents/ skills/ templates/ tools/
+.claude-plugin/plugin.json      <- the manifest (name `adw`; NO version — §5a)
+.claude-plugin/marketplace.json <- the catalog: `adw` from THIS repo as a whole-repo source
+.claude/settings.json           <- the hook wiring for a CHECKED-OUT load ($CLAUDE_PROJECT_DIR)
+.claude/{skills,commands,agents,hooks}  <- SYMLINKS to the real dirs, so that load finds components
+bin/adw.py                      <- the one invocation form for the tools
+hooks/hooks.json                <- the hook wiring for an INSTALLED load (${CLAUDE_PLUGIN_ROOT})
+hooks/*.py                      <- the four hooks
+commands/ agents/ skills/ templates/ tools/
+plugins/<name>/                 <- future plugins: relative sources, no self-hash to satisfy
 ```
 
-Not one file moved to make this work, and that is the point:
+What the move cost, precisely — three things that were literally true before and are derived now:
 
-- `gate.py`'s `PROTECTED_PATHS` (`.claude/tools`, `.claude/hooks`, `.claude/settings.json`) and
-  `bash_guard`'s `PROTECTED_FRAGMENTS` stay **literally true and unedited**;
-- the new `hooks/hooks.json` lands inside an already-protected tree for free;
-- `check_self_hash` needed no change *for the layout*: it computes `relative_to(<git toplevel>)` at
-  runtime, so `tools/gate.py` in the split repo verifies exactly as `.claude/tools/gate.py` does here
-  — and against the *published* commit, which is a strictly stronger anchor. **(T18, 2026-07-26: its
-  file SET did change — the anchors are now plugin-root-relative globs covering every tool, hook and
-  manifest, not gate.py + criteria_lint.py. The path arithmetic is untouched, and the split repo is
-  still verified as-is.)**
+- `gate.py`'s `PROTECTED_PATHS` split in two: the project's paths stay literals
+  (`.claude/settings.json`, `pyproject.toml`), and the plugin's own trees are computed by
+  `protected_paths()` from the plugin root, contributing nothing when the plugin lives outside the
+  tree. Naming them `tools`/`hooks` as literals would protect a **consumer's** unrelated `tools/`
+  and fail its changes for touching its own code;
+- `bash_guard`'s `PROTECTED_FRAGMENTS` likewise, plus a grammar addition: a leading slash marks a
+  **root-anchored** fragment, because these fragments match at any depth and `tools/` at depth
+  belongs to whoever's project it is. Measured in both directions (A5), including the pre-fix
+  failure: with the old `.claude/tools` fragment, `rm tools/gate.py` in the moved layout was
+  **ALLOWED** — the whole enforcement tree had silently stopped being guarded;
+- `check_self_hash` needed no path arithmetic change (it computes `relative_to(<git toplevel>)` at
+  runtime) but gained `.claude/settings.json` as an anchor, since the checked-out wiring is no
+  longer at the plugin root.
 
-### The ship rule — by location
+### The ship rule — everything ships, and the roles differ
 
-**A file ships iff it lives under `.claude/`.** No list, no manifest of exclusions, no per-file
-decision: a new file lands on the right side by where its author puts it.
+**Every file in the repository ships**, because the plugin is fetched as a whole repository (§5a).
+The by-location rule is gone; what remains is a rule by ROLE: a file that *instructs* an agent
+(`commands/`, `agents/`, `skills/`, `templates/`) must use the `/adw:<name>` command form, while
+`tasks/`, `notes/`, the design docs and `CLAUDE.md` are a dev record that ships physically and is
+never loaded (a plugin-root `CLAUDE.md` is not read as project context) and keeps the bare names.
 
 Consequences, accepted deliberately:
 
-- `tasks/`, `notes/`, `workflow_v3_spec.md`, `codegen_workflow_spec.md`, `CLAUDE.md`,
-  `PRINCIPLES.md`, `README.md`, `pyproject.toml`, the release catalog
-  `.claude-plugin/marketplace.json` (§5a), and any trial app in `src/`/`tests/` do **not** ship. A consumer reads nothing outside `.claude/` — which is why the `/adw:` rename sweep is
-  scoped to `.claude/**` and every document outside it keeps the bare command names.
+- `tasks/`, `notes/`, both design docs, `CLAUDE.md`, `PRINCIPLES.md`, `README.md`, `pyproject.toml`
+  and any trial app in `src/`/`tests/` now land in the plugin cache too. They are **inert** — the
+  platform loads components from `skills/`, `commands/`, `agents/`, `hooks/hooks.json` and nowhere
+  else — so the cost is disk and a consumer's puzzlement, not behaviour. The `/adw:` sweep is
+  therefore scoped to the *instructing* directories rather than to a path prefix, and
+  `test_no_shipped_file_invokes_a_tool_by_its_checked_out_path` is scoped the same way.
 - the meta layer's own `test_*.py` and `fixtures/` **do** ship (~250 KB). Accepted: it lets a
   consumer re-verify the enforcement scripts, and excluding them would separate the tests from the
   code they test.
@@ -94,9 +110,9 @@ uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" criteria-lint <path>
 ```
 
 - installed → Claude Code expands the placeholder to the plugin's absolute path;
-- checked out → nothing expands it, and the shell does, from `env.CLAUDE_PLUGIN_ROOT = ".claude"`
-  in `.claude/settings.json`. That is not a workaround dressed as configuration: `.claude/` **is**
-  the plugin root here, and the setting states it.
+- checked out → nothing expands it, and the shell does, from `env.CLAUDE_PLUGIN_ROOT = "."`
+  in `.claude/settings.json`. That is not a workaround dressed as configuration: the repository
+  root **is** the plugin root here, and the setting states it.
 - `bin/adw.py` resolves the tools directory from `CLAUDE_PLUGIN_ROOT` first and from its own
   location (`__file__`) second, so it also works when the variable is unset, relative to a moved
   cwd, or plain wrong. It adds no flags and parses no tool arguments — `gate.py --help` is still
@@ -104,9 +120,10 @@ uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" criteria-lint <path>
 - `uv run` is load-bearing: it puts the tool in the **project's** environment, which is where the
   toolchain must live (`sys.executable -m mypy|ruff|pytest` has to see the app's code).
 
-Guarded by `.claude/tools/test_plugin_packaging.py`: no shipped Markdown may say
-`uv run .claude/tools/<x>.py`, every sub-command must name an existing tool, and the dev half of
-the form must be declared in `settings.json`.
+Guarded by `tools/test_plugin_packaging.py`: no INSTRUCTING Markdown may name a tool by a raw
+`tools/<x>.py` path (which, with the plugin root at a repository root, would resolve inside the
+*consumer's* tree), every sub-command must name an existing tool, and the dev half of the form
+must be declared in `.claude/settings.json`.
 
 ---
 
@@ -116,8 +133,8 @@ Because a plugin cannot ship hooks in `settings.json`, the wiring exists twice:
 
 | Home | Read when | Root |
 |---|---|---|
-| `.claude/settings.json` | the workflow is checked out (this repo, or a consumer with `.claude/` symlinked) | `$CLAUDE_PROJECT_DIR/.claude/hooks/` |
-| `.claude/hooks/hooks.json` | the workflow is installed as a plugin | `${CLAUDE_PLUGIN_ROOT}/hooks/` |
+| `.claude/settings.json` | the workflow is checked out (this repo) | `$CLAUDE_PROJECT_DIR/hooks/` |
+| `hooks/hooks.json` | the workflow is installed as a plugin | `${CLAUDE_PLUGIN_ROOT}/hooks/` |
 
 The duplication is forced by the platform, so it is held by a test rather than by a plea (S4):
 `test_the_two_wirings_are_one_substitution_apart` maps one form onto the other **string for
@@ -130,14 +147,14 @@ hook is added to one home only. An entry in `settings.json` that names no script
 ## 5. Release: whole-repo source, never a subdirectory source
 
 ```bash
-# from the workflow repo, on the branch being released
-git subtree split --prefix=.claude -b adw-plugin
-git push <plugin-remote> adw-plugin:main
+# the whole release, since the plugin root became the repository root
+git push origin main
 ```
 
-The split repo's root is `.claude/`'s content, so `.claude-plugin/plugin.json` lands exactly where
-a plugin manifest belongs. Consumers then add it as a **`github` / `url` marketplace source (a
-whole repository)**.
+That is the entire procedure: the repository a consumer adds as a marketplace is the repository
+Claude Code clones as the plugin, so publishing is a push. **Superseded (2026-07-27):** a release
+used to be `git subtree split --prefix=.claude -b adw-plugin` into a second repository — the price
+of a `.claude/` plugin root, and the thing §5a's layout removes.
 
 **Never a `git-subdir` source.** This is a correctness requirement, not taste, and both directions
 are measured:
@@ -153,21 +170,26 @@ gate is red for a reason that has nothing to do with the consumer's code.
 
 ### 5a. The marketplace catalog (2026-07-27)
 
-The plugin is distributed through a marketplace of one plugin, so it updates in one place and
-installs on every machine. The catalog lives at **`<repo>/.claude-plugin/marketplace.json` — the
-dev repo's root, outside the plugin** (so it does not ship), and names the split repo as the
-plugin's source:
+**This repository is the marketplace AND the `adw` plugin.** The catalog and the manifest share
+`.claude-plugin/`, and the catalog names *this very repository* as `adw`'s source — a whole-repo
+form, which is what puts a `.git` in the plugin cache:
 
 ```json
 { "name": "wntic-adw", "owner": { "name": "…" },
-  "plugins": [ { "name": "adw", "source": { "source": "github", "repo": "wntic/adw-plugin" } } ] }
+  "plugins": [ { "name": "adw", "source": { "source": "url",
+    "url": "https://github.com/wntic/agentic-development-workflow.git" } } ] }
 ```
+
+The self-reference is legal because the catalog and the plugin are fetched independently: one clone
+under `plugins/marketplaces/<name>/`, one under `plugins/cache/<name>/<plugin>/<sha>/`. Future
+plugins live in `plugins/<name>/` with an ordinary relative source — **they** have no self-hash to
+satisfy, so the subdirectory restriction below binds `adw` alone.
 
 Consumer side: `claude plugin marketplace add wntic/agentic-development-workflow` →
 `claude plugin install adw@wntic-adw` → `/reload-plugins`.
 
-Three facts decided that layout, each measured on Claude Code 2.1.220 by installing a probe
-plugin three ways and listing the cache directory:
+Four measured facts decided this, all on Claude Code 2.1.220. First, a probe plugin installed three
+ways, then the cache directory listed:
 
 | plugin `source` form | cache copy holds | consequence |
 |---|---|---|
@@ -176,23 +198,39 @@ plugin three ways and listing the cache directory:
 | `{"source":"url"\|"github", …}` | `.git`, `.in_use` | a real clone → **self-hash PASS** |
 
 So §5's rule extends further than `git-subdir`: **every relative-path source is a content copy**,
-including `./` pointing at the marketplace root. That kills the one-repo shape where the marketplace
-repo *is* the plugin — the catalog cannot ship inside the plugin and point at itself relatively.
+including `./` pointing at the marketplace root. A plugin that must be a git checkout therefore has
+to *be* a whole repository — which, with one repo, means being the repository root.
 
-Second: **a catalog next to `plugin.json` shadows the plugin's own validation.** Given a directory
+Second, the anchor that would have rescued a subdirectory layout does not exist: an installed
+marketplace's clone under `plugins/marketplaces/<name>/` **is** a git checkout, but a **shallow**
+one (`rev-parse --is-shallow-repository` → `true`, one commit of history). It advances on every
+marketplace refresh and cannot vouch for the commit a plugin was installed at — the same reason T19
+rejected comparing against a release tag (`notes/20` F-02).
+
+Third: **a catalog next to `plugin.json` shadows the plugin's own validation.** Given a directory
 holding both manifests, `claude plugin validate` validates the *marketplace* and reports nothing
-about the plugin — so the plugin-manifest and skill-frontmatter warnings (§8's nine unparseable
-`SKILL.md` files) stop being reported, with a green exit code. Hence the catalog at the repo root:
-`claude plugin validate .` checks the catalog, `claude plugin validate .claude` checks the plugin.
-Pinned by `test_the_catalog_never_moves_into_the_plugin_root`.
+about the plugin, with a green exit code. Here that colocation is forced (the catalog's only legal
+home is `<marketplace root>/.claude-plugin/`), so the release check validates a marketplace-less
+copy to see the plugin half:
 
-Third: **`version` is gone from `plugin.json`.** Version resolution is `plugin.json` → marketplace
+```bash
+claude plugin validate .                                    # the catalog
+T=$(mktemp -d); cp -R . "$T/plug"; rm "$T/plug/.claude-plugin/marketplace.json"
+claude plugin validate "$T/plug"                             # the plugin + its skills
+```
+
+The class of defect that half once caught — unparseable `SKILL.md` frontmatter (§8) — has had its
+own guard since T13b (`test_skill_format.py::test_every_skill_frontmatter_parses_as_yaml`), which is
+why the cost is affordable rather than silent. Pinned by
+`test_the_catalog_shares_the_plugin_root_and_that_costs_the_plugins_own_validation`.
+
+Fourth: **`version` is gone from `plugin.json`.** Version resolution is `plugin.json` → marketplace
 entry → the source's commit SHA; a version *string* pins the plugin, so pushing commits leaves
 installed copies stale and `/plugin update` answers *"already at the latest version"*. Bump-on-release
 is a rule with nothing enforcing it and a silent failure (S4), so the workflow versions by commit SHA
-— the cache directory is then the short SHA (`…/adw/0e50b724513a`). Cost, accepted: `claude plugin
-validate .claude --strict` fails on the lone *"No version specified"* warning, so the release check
-is the non-strict form, read for its warnings.
+— the cache directory is then the short SHA (`…/adw/0e50b724513a`). Cost, accepted: the plugin half
+of `claude plugin validate --strict` fails on the lone *"No version specified"* warning, so that
+check is read for its warnings rather than its exit code.
 
 Auto-update is **off by default for third-party marketplaces** (only Anthropic's are on), so each
 machine needs `/plugin` → *Marketplaces* → *Enable auto-update* once, or a periodic
@@ -201,18 +239,26 @@ a random delay of up to 10 minutes and prompt for `/reload-plugins`.
 
 ### The marketplace rehearsal, end to end (2026-07-27)
 
-1. `git subtree split --prefix=.claude` → clone the split branch into a standalone repo → a
-   rehearsal catalog whose plugin source is `file://<that clone>` (a whole-repo `url` source).
-2. `claude plugin marketplace add <catalog dir>` → `claude plugin install adw@adw-rehearsal` →
-   installed at `~/.claude/plugins/cache/adw-rehearsal/adw/0e50b724513a`, **`.git` present**.
-3. `CLAUDE_PLUGIN_ROOT=<that dir> uv run "<that dir>/bin/adw.py" gate` →
-   **`[PASS] integrity.self-hash — all 13 enforcement anchor(s) match git HEAD (E-02)`**, GATE: GREEN.
-4. Both manifests validate independently; the catalog passes `--strict`.
+Rehearsed first on the pre-move layout (`git subtree split --prefix=.claude` → a standalone clone →
+a rehearsal catalog whose plugin source is `file://<that clone>`), which established the shape:
 
-Not yet exercised, because it needs the published remotes: `add wntic/agentic-development-workflow`
-over the network, and the `github` source resolving `wntic/adw-plugin` (which does not exist yet).
-`file://` is accepted as a *plugin* source but **rejected as a marketplace source**, so the
-marketplace-add half cannot be rehearsed locally against a git URL.
+1. `claude plugin marketplace add <catalog dir>` → `claude plugin install adw@adw-rehearsal` →
+   installed at `~/.claude/plugins/cache/adw-rehearsal/adw/0e50b724513a`, **`.git` present**.
+2. `CLAUDE_PLUGIN_ROOT=<that dir> uv run "<that dir>/bin/adw.py" gate` →
+   **`[PASS] integrity.self-hash — all 13 enforcement anchor(s) match git HEAD (E-02)`**, GATE: GREEN.
+3. `file://` is accepted as a **plugin** source and rejected as a **marketplace** source, which is
+   why the marketplace-add half cannot be rehearsed locally against a git URL.
+
+### 5b. The same rehearsal on the root layout (2026-07-27)
+
+Same shape, no `subtree split`: a clone of THIS repo is the plugin, and a rehearsal catalog points
+at it with a `file://` `url` source.
+
+*(Filled in by the run below — see the commit that carries this note.)*
+
+Still not exercised, because it needs the published remote: `claude plugin marketplace add
+wntic/agentic-development-workflow` over the network, and the `url` source resolving that repo for a
+consumer. Local `file://` covers the plugin half only.
 
 ### The release rehearsal, end to end (2026-07-26)
 
