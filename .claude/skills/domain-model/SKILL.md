@@ -1,6 +1,6 @@
 ---
 name: domain-model
-description: House style for the domain data model, all pure Python with zero third-party deps: entities (mutable `@dataclass`, identity equality, `__post_init__` invariants), value objects (frozen, value equality, the tunable-threshold variant), enums (`StrEnum`), filter records (frozen parameter bags with `frozenset` defaults), and the single `domain/exceptions.py` catalog.
+description: "House style for the domain data model, all pure Python with zero third-party deps: entities (mutable `@dataclass`, identity equality, `__post_init__` invariants), value objects (frozen, value equality, the tunable-threshold variant), enums (`StrEnum`), filter records (frozen parameter bags with `frozenset` defaults), and the single `domain/exceptions.py` catalog."
 when_to_use: Producing or editing a domain entity, value object, enum, filter, or exception class.
 ---
 # Domain model — entities, value objects, enums, filters, exceptions

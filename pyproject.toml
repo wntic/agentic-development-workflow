@@ -1,7 +1,32 @@
-# Meta-layer environment only. The v2 generator package this file used to build was purged
-# in T02 (recoverable from git history). The target app's own pyproject.toml is created by
-# the change cycle when the first change lands, and the v3 toolchain config ("green") lives
-# inside gate.py (planned, T04) — do not grow toolchain config here.
+# THE META LAYER'S OWN TEST ENVIRONMENT — one hat, and no other (T15).
+#
+# Its only job: the toolchain that runs the ~390 tests under `.claude/tools/`, which test
+# gate.py / accept.py / red_check.py / the hooks themselves. They ship nowhere and they must
+# keep passing in a tree with no `src/` at all.
+#
+# What must never be added here:
+#   * a `[build-system]` — this repository is not a distributable package. The plugin ships by
+#     location (`.claude/` IS the plugin root, released by `git subtree split`), and a
+#     build-system whose `src/<pkg>/` is absent makes uv hard-fail every command (T12b).
+#   * a trial app's substrate (a web framework, a driver, a migration tool, testcontainers…).
+#     A trialled change lives in a separate consumer project now (notes/21), so declaring its
+#     dependencies here would make `pytest .claude/tools/` need a trial app to be present.
+#   * the toolchain a CONSUMER needs. That one is correct where it is — in the consumer's own
+#     pyproject.toml (`conventions` block D) — because gate.py runs
+#     `sys.executable -m mypy|ruff|pytest` and those tools must see the app's code.
+#
+# The v3 definition of "green" (the pinned mypy/ruff/pytest config) lives inside gate.py: one
+# definition, cited never restated (C7). Do not grow toolchain config here.
+#
+# Guarded, not merely asked (S4): `.claude/tools/test_plugin_packaging.py` fails on a
+# `[build-system]`, a non-empty `dependencies`, `[project.scripts]`, any app-substrate name, and
+# on this dev group being anything other than the exact set below. Adding a dependency means
+# editing that guard, which is the point: it forces the "why is this here" answer.
+#
+# Measured 2026-07-26 in a venv holding ONLY the set below, in a tree with no `src/`:
+# 392 tests pass. With `pydantic` or `httpx` missing, 30 and 1 fail respectively — before T15
+# they were undeclared and satisfied only by a leftover trial-app venv (T12b finding 10), i.e.
+# by environment state no file recorded.
 
 [project]
 name = "agentic-development-workflow"
@@ -12,12 +37,29 @@ dependencies = []
 
 [dependency-groups]
 dev = [
+    # the three the gate itself shells out to (`sys.executable -m mypy|ruff|pytest`)
     "pytest",
     "ruff",
     "mypy",
+    # gate.py's pinned mypy config declares `plugins = pydantic.mypy`, so EVERY gate run needs
+    # pydantic importable — including the ~90 fixture gate runs in .claude/tools/. Not the app's
+    # substrate wearing a disguise: it is a dependency of the type-checker configuration.
+    "pydantic",
+    # one red_check fixture reproduces the health/001 lint-dirty conftest verbatim, imports
+    # included, and pytest must be able to COLLECT it for the lint screen to be reached.
+    "httpx",
+    # this repo's own git hooks (.pre-commit-config.yaml)
     "pre-commit>=4.6.0",
 ]
 
+# Deliberately NO `[tool.ruff.lint] select` here, and this is not an omission (T04g).
+# This section configures the pre-commit pass only, so it runs ruff's default `E4,E7,E9,F` — a
+# rule set several times narrower than the `RUFF_SELECT` the gate imposes on a consumer's code.
+# The full selection IS enforced over `.claude/**`, by `.claude/tools/test_self_lint.py`, which
+# imports `RUFF_SELECT` + `ruff_common()` from gate.py. A `select` list copied into this file
+# would be a second definition of the toolchain (C7) — and two configs disagreeing is precisely
+# how `RUF103`/`RUF100` survived inside gate.py itself, and how `RUF059` (ruff naming a discarded
+# git return code in accept.py — notes/19's defect class, found unaided) went unread.
 [tool.ruff]
 line-length = 120
 target-version = "py312"

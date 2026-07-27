@@ -65,7 +65,11 @@ def state_flip_only(old_text: str, new_text: str) -> tuple[bool, str]:
             f"line count changed ({len(old_lines)} -> {len(new_lines)}): criteria may be "
             "added or removed only by the /spec session"
         )
-    for old, new in zip(old_lines, new_lines):
+    # `strict=True` (B905): a truncating zip here would compare two criteria lists of different
+    # lengths line-for-line and report the shorter one as flip-only — the guard's whole question.
+    # It cannot happen today, because the length check three lines up returns first; strict makes
+    # that dependency explicit instead of load-bearing-by-adjacency.
+    for old, new in zip(old_lines, new_lines, strict=True):
         if old == new:
             continue
         if normalize_flip(old) == normalize_flip(new) and CHECKBOX.match(old) and CHECKBOX.match(new):

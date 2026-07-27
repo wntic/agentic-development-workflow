@@ -113,9 +113,52 @@ def test_duplicate_ac_id_rejected() -> None:
 
 def test_html_comments_are_ignored() -> None:
     template = Path(__file__).resolve().parents[1] / "templates" / "criteria.md"
-    lines = cl._strip_html_comments(template.read_text(encoding="utf-8").splitlines())
+    lines = cl.strip_html_comments(template.read_text(encoding="utf-8").splitlines())
     # the commented example line inside the template must not parse as a criterion
     assert all("AC-n" not in c.text for c in cl.iter_criteria(lines))
+
+
+def test_the_shared_stripper_blanks_in_place_and_never_shifts_a_line() -> None:
+    """The contract T10k made public and the whole layer reads by: a multi-line comment is BLANKED,
+    not deleted, so every line after it keeps its number and the text before/after a comment is not
+    joined onto one line. Every line-numbered finding and accept.py's S7 size subtraction depend on
+    it, so it is pinned here rather than left to be inferred from the docstring (T09j)."""
+    raw = ["- [ ] AC-1: kept", "prefix <!-- opens here", "still inside", "closes here --> suffix", "- [ ] AC-2: kept"]
+    out = cl.strip_html_comments(raw)
+    assert len(out) == len(raw)  # no line vanished: AC-2 is still line 5
+    assert out[0] == "- [ ] AC-1: kept"
+    assert out[1].rstrip() == "prefix"
+    assert out[2].strip() == ""
+    assert out[3] == " suffix"  # NOT "prefix suffix" on line 2 — the span-deleting grammar's result
+    assert out[4] == "- [ ] AC-2: kept"
+    assert [c.ac_id for c in cl.iter_criteria(out)] == ["AC-1", "AC-2"]
+    assert [c.line_no for c in cl.iter_criteria(out)] == [1, 5]
+
+
+def test_the_layer_carries_exactly_two_comment_grammars_each_with_one_implementation() -> None:
+    """T09j / C7 — one rule must not have N unexplained implementations.
+
+    The inventory is TWO, on purpose, and each has exactly one home: this module's
+    `strip_html_comments` (blanks in place, line count preserved — every line-numbered reader) and
+    `accept._uncomment` (deletes well-formed spans, for text-shaped reads; the reason and the
+    fail-closed direction are written in its docstring). What this pins is the third copy: the
+    deleting regex used to be inlined four times in `accept.py` and once more, privately and
+    unexplained, in `red_check.py` — thirty lines below that file's call to the shared helper.
+    """
+    layer = Path(__file__).resolve().parents[1]
+    inline = {
+        path.relative_to(layer).as_posix(): path.read_text(encoding="utf-8").count('"<!--.*?-->"')
+        for path in sorted(layer.rglob("*.py"))
+        if not path.name.startswith("test_")
+    }
+    assert inline, "no source files discovered — the glob broke and this guard is vacuous"
+    assert inline.pop("tools/accept.py") == 1, "accept.py's deleting grammar must have ONE implementation"
+    strays = {path: count for path, count in inline.items() if count}
+    assert not strays, (
+        f"an inline `<!--.*?-->` regex outside accept._uncomment ({strays}): route the caller "
+        "through one of the two named grammars, or — if it genuinely needs a third — write the "
+        "reason beside it, the way T03c ruled on the three section parses"
+    )
 
 
 # --- CLI ------------------------------------------------------------------------

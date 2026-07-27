@@ -1,4 +1,7 @@
 {
+  "env": {
+    "CLAUDE_PLUGIN_ROOT": ".claude"
+  },
   "hooks": {
     "PreToolUse": [
       {

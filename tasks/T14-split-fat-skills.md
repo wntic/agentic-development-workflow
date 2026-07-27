@@ -33,6 +33,20 @@ Under threshold, leave alone: `domain-model` (449) and everything smaller.
   frontmatter in a topic file.
 - Every internal cross-reference that used to point at a `## ` section now points at the topic file.
 
+**Two sweeps T13 identified that nobody else owns — do them here (its findings 3 and 4):**
+
+- **`CLAUDE.md` goes stale the moment the first split lands.** Line ~230 says *"Every skill follows the
+  four-section body"* — true today only because no skill is split yet. Reword for both shapes (a
+  single-topic skill, or a router beside one topic file each keeping the four-section body). While there,
+  the "44 skills now → ~13 after T08" line is also stale; T08 landed.
+- **The agent prompts point at a theme as "the one home", and after this task that home is a file
+  auto-invocation does not inject.** `.claude/agents/evaluator.md:99` says the assert-strength recipes
+  come "from the **`testing-unit`** skill — that skill is the one home"; `test-author.md:71` says "For
+  unit tests read **`testing-unit`**". The theme name still resolves, so neither is *wrong* — but the
+  Human-verification question below ("does the subagent actually follow the pointer?") partly depends on
+  the **agent prompt** telling it to. Make both prompts name the topic file for the specific thing they
+  send the agent to read, keeping the theme name as the entry point.
+
 ## Steps
 1. One skill per commit (reviewable). Move content verbatim; do not reword paid-for lines.
 2. After **every** commit: `uv run pytest .claude/tools/test_skill_catalog.py` — a red run means a

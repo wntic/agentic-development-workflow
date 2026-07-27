@@ -29,7 +29,9 @@ accept.py, the human):
   - `.gate/verdict.json` in the tree: sha, dirty flag, baseline, per-check status, and
     `docker_exempt` (integration node-ids the daemon-absence carve-out let skip, T04b);
   - `.gate/last-run.xml` in the tree: junit-xml of the pytest run (backs --criteria);
-  - exit code 0 only on GREEN.
+  - exit code 0 only on GREEN; exit code 2 when the gate could not run at all (an unresolvable
+    --change/--baseline, a toolchain missing from the project's environment) — that is an
+    abort, not a verdict: no `.gate/verdict.json` is left behind for anyone to misread.
 
 Environment contract:
   - GATE_DOCKER=0 force-skips the Docker tier (reported loudly as DOCKER SKIPPED).
@@ -41,11 +43,16 @@ Environment contract:
 The toolchain config (mypy strictness, ruff select incl. B006/B904, pinned pytest flags)
 lives HERE as constants — the `conventions` skill cites gate.py, never the other way
 around (spec §5, V-04).
+
+One check is keyed on the change's declared CLASS: `invisible.openapi-diff` compares the
+constructed app's OpenAPI operation set against the baseline commit's, because §3.1 makes that
+diff the `invisible` class's whole proof (T20). Every other check is class-independent.
 """
 
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import io
 import json
 import os
@@ -58,8 +65,9 @@ import tempfile
 import time
 import tomllib
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 
 sys.dont_write_bytecode = True  # never litter bytecode into protected trees
 
@@ -97,7 +105,9 @@ plugins = pydantic.mypy
 ignore_missing_imports = True
 """
 
-# ruff: select includes B (hence B006 mutable-default and B904 raise-from — spec §5.1).
+# The ruff selection below includes B (hence B006 mutable-default and B904 raise-from — spec
+# §5.1). Do not open this comment with the literal `ruff:` prefix: ruff parses `# ruff: <word>` as
+# a file-level suppression directive and reports the prose as RUF103 (T04f).
 RUFF_SELECT = "E,W,F,I,N,UP,B,C4,SIM,RUF"
 RUFF_LINE_LENGTH = "120"
 RUFF_TARGET = "py312"
@@ -188,9 +198,42 @@ PROTECTED_PATHS = (".claude/tools", ".claude/hooks", ".claude/settings.json", "p
 # skip-reason string.
 INTEGRATION_TEST_PREFIX = "tests/integration/"
 
-# Files whose worktree content must match git HEAD for the gate to trust itself (E-02).
-# criteria_lint.py is imported by --criteria, so it is part of the trust base (C7).
-SELF_INTEGRITY_FILES = ("gate.py", "criteria_lint.py")
+# Files whose worktree content must match git HEAD for the gate to trust the enforcement
+# layer (E-02, widened by T18). Paths are PLUGIN-ROOT-relative — the plugin root is the
+# directory that holds `tools/`: `.claude/` in this repo, the repository top in a
+# `git subtree split --prefix=.claude` plugin repo (notes/21 §1).
+#
+# Why this is not just gate.py: once the workflow is INSTALLED, it lives outside the
+# consumer's repository, and the two other protections both go blind there —
+# `bash_guard` anchors to the consumer's root (so a write to the plugin's own files
+# resolves outside it and is allowed, deliberately, T06e) and `integrity.protected-trees`
+# diffs `.claude/tools|hooks|settings.json` INSIDE the consumer tree, where they do not
+# exist, so it passes vacuously (notes/20 F-02). Self-hash is the only check that follows
+# `__file__` back to where the workflow actually lives, so everything a consumer's trust
+# rests on has to be anchored HERE or nowhere.
+#
+# An anchor is a file whose content DECIDES something: the tools a verdict comes out of,
+# the four hooks, and the two manifests that decide which components are wired at all
+# (tamper with `plugin.json` and every hook silently unhooks). Expressed as globs so a new
+# tool or hook is anchored by construction rather than by remembering to extend a list.
+#
+# Deliberately NOT anchored:
+#   * `tools/test_*.py` — they ship (notes/21 §1) but no enforcement decision reads them:
+#     a tampered test cannot change a verdict, while anchoring them would turn every
+#     uncommitted edit to the meta layer's own suite into a RED gate;
+#   * skills / agents / commands / templates — knowledge and prompts. Their drift is a
+#     review question, not an integrity one, and freezing them would make editing a skill
+#     require a commit before any gate run.
+SELF_INTEGRITY_GLOBS = (
+    "tools/*.py",  # gate.py, criteria_lint.py (imported by --criteria), accept.py, red_check.py
+    "hooks/*.py",  # the four hooks: ergonomics, but a tampered one lies to its reader
+    "hooks/*.json",  # hooks.json — the hook wiring of an INSTALLED load
+    "bin/*.py",  # the one sanctioned invocation form (notes/21 §3): tamper it and "the gate" is a fake
+    ".claude-plugin/*.json",  # plugin.json names the components
+    "settings.json",  # the hook wiring of a CHECKED-OUT / symlinked load — every trial so far
+)
+# Applied to an anchor candidate's basename (see the exclusion note above).
+SELF_INTEGRITY_SKIP = re.compile(r"^test_.*\.py$")
 
 CAPABILITY_REF = re.compile(r"\(verified by:\s*([^)]+)\)")  # L-06
 CREATE_APP_DEF = re.compile(r"^def create_app\(", re.MULTILINE)  # A4 construct-smoke
@@ -289,7 +332,8 @@ def _git(tree: Path, *args: str) -> tuple[int, str]:
     return _run(["git", "-C", str(tree), *args], timeout=120)
 
 
-def _criteria_lint():  # noqa: ANN202 — stdlib-only sibling import, one grammar one home (C7)
+def _criteria_lint() -> ModuleType:
+    """The `criteria_lint` sibling module — stdlib-only import, one grammar one home (C7)."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import criteria_lint
 
@@ -314,6 +358,41 @@ def _module_name(py_file: Path, src_root: Path) -> str:
     if parts[-1] == "__init__":
         parts = parts[:-1]
     return ".".join(parts)
+
+
+def capability_files(tree: Path) -> list[Path]:
+    """The CANONICAL spec files of the tree: capability files + context overviews.
+
+    Excluded: `use-cases/` (BA sources, verbatim input material) and `changes/` (a delta living
+    on its own branch, deleted at acceptance). One home for the corpus rule (C7) — this gate's
+    invariant-provenance check and the §5.5 drift check must not disagree about which files are
+    the living spec.
+    """
+    specs = tree / "specs"
+    if not specs.is_dir():
+        return []
+    return [p for p in sorted(specs.rglob("*.md")) if "use-cases" not in p.parts and "changes" not in p.parts]
+
+
+def app_import_env(tree: Path) -> dict[str, str]:
+    """The environment under which the app's own modules are importable in a subprocess.
+
+    ONE home for the import conditions the tools give the app (C7): `resolve_context` builds the
+    gate's full env on top of this (it adds the injected pytest plugin + inventory path), and
+    `drift.py` reuses it to construct the app for its §5.5 route inventory. See the A4 note above
+    `plan_package_import` for why the `PYTHONPATH=src` injection stays and how the import claim is
+    checked with it stripped.
+    """
+    env = os.environ.copy()
+    for var in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "MYPYPATH"):  # E-05 class: caller-side suppression
+        env.pop(var, None)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    path_parts = [str(tree / "src")] if (tree / "src").is_dir() else []
+    if os.environ.get("PYTHONPATH"):
+        path_parts.append(os.environ["PYTHONPATH"])
+    if path_parts:
+        env["PYTHONPATH"] = os.pathsep.join(path_parts)
+    return env
 
 
 # ---------------------------------------------------------------------------------------
@@ -369,15 +448,10 @@ def resolve_context(tree: Path, change_arg: str | None, baseline_arg: str | None
         # a leftover artifact from a previous run must never back THIS run (E-07 freshness)
         (gate_dir / stale).unlink(missing_ok=True)
 
-    env = os.environ.copy()
-    for var in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "MYPYPATH"):  # E-05 class: caller-side suppression
-        env.pop(var, None)
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env = app_import_env(tree)
     path_parts = [str(plugin_dir)]
-    if (tree / "src").is_dir():
-        path_parts.append(str(tree / "src"))
-    if os.environ.get("PYTHONPATH"):
-        path_parts.append(os.environ["PYTHONPATH"])
+    if env.get("PYTHONPATH"):
+        path_parts.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = os.pathsep.join(path_parts)
     env["GATE_INVENTORY_PATH"] = str(gate_dir / INVENTORY_NAME)
 
@@ -428,6 +502,91 @@ def resolve_context(tree: Path, change_arg: str | None, baseline_arg: str | None
         baseline=baseline,
         baseline_reason=reason,
     )
+
+
+# ---------------------------------------------------------------------------------------
+# 0. Toolchain preflight — a PRECONDITION, not a check row (T12b)
+# ---------------------------------------------------------------------------------------
+
+# The gate invokes its toolchain as `sys.executable -m <tool>` inside the PROJECT's own
+# interpreter (the tools must see the project's code and dependencies). A project whose
+# environment lacks one of them used to get a raw `No module named mypy` out of a subprocess,
+# attributed to whichever check happened to run it — three FAILs and not one sentence saying
+# what to install (the first consumer-project run, T16).
+#
+# This is a precondition, not a check: with the tool absent the gate cannot answer GREEN/RED at
+# all, so it aborts loudly (exit 2, no verdict.json) rather than occupying a check row — the
+# same shape accept.py gives an input it cannot determine (T10f). It still fails closed:
+# resolve_context() has already deleted any stale .gate/verdict.json, so no downstream consumer
+# (SubagentStop, accept.py) can read a previous run's answer as this one's.
+TOOLCHAIN_FIX = (
+    # "the workflow's scripts", not "gate.py": red_check.py prints this same sentence (T06j).
+    "the workflow's scripts run each of them as `<python> -m <tool>` in the project's own interpreter, so they must be "
+    'installed in the project\'s environment: add them to `[dependency-groups] dev` ("Dev (always present)" '
+    "in the `conventions` skill, block D) and run `uv sync`."
+)
+
+
+def required_toolchain(tree: Path, *, docker_available: bool) -> list[str]:
+    """The modules THIS run is about to invoke — the preflight's scope.
+
+    Conditioned exactly like the checks that invoke them, so a tree whose checks would SKIP
+    anyway never aborts over a tool it was never going to run (an empty greenfield tree)."""
+    needed: list[str] = []
+    if (tree / "src").is_dir() or (tree / "tests").is_dir():
+        needed += ["mypy", "ruff"]  # check_mypy / check_ruff
+    if (tree / "tests").is_dir():
+        needed.append("pytest")  # check_pytest
+    if docker_available and (tree / "alembic.ini").exists():
+        needed.append("alembic")  # check_docker_tier
+    return needed
+
+
+def missing_toolchain(modules: list[str], env: dict[str, str], cwd: Path) -> list[str]:
+    """Which of `modules` the gate's own interpreter cannot import. A probe that cannot be
+    run at all is a loud GateError — "could not ask" must never read as "nothing missing"."""
+    if not modules:
+        return []
+    probe = (
+        "import importlib.util, json, sys\n"
+        "missing = []\n"
+        "for name in sys.argv[1:]:\n"
+        "    try:\n"
+        "        found = importlib.util.find_spec(name) is not None\n"
+        "    except (ImportError, ValueError):\n"
+        "        found = False\n"
+        "    if not found:\n"
+        "        missing.append(name)\n"
+        "print(json.dumps(missing))\n"
+    )
+    rc, out = _run([sys.executable, "-c", probe, *modules], cwd=cwd, env=env, timeout=120)
+    if rc != 0:
+        raise GateError(f"toolchain preflight could not run under {sys.executable}:\n{_tail(out)}")
+    try:
+        result = json.loads(out.strip().splitlines()[-1])
+    except (IndexError, json.JSONDecodeError):
+        raise GateError(f"toolchain preflight returned no answer under {sys.executable}:\n{_tail(out)}") from None
+    return [str(name) for name in result]
+
+
+def toolchain_missing_message(missing: list[str]) -> str:
+    """The one actionable sentence for an absent toolchain — one home for it (C7).
+
+    red_check.py runs the same preflight before its baseline lint (T06j) and reuses this
+    wording rather than restating it, so the consumer reads the same sentence whichever of
+    the two scripts the workflow happens to run first."""
+    return (
+        f"toolchain missing from this project's environment ({sys.executable}): "
+        + ", ".join(missing)
+        + "\n"
+        + TOOLCHAIN_FIX
+    )
+
+
+def preflight_toolchain(ctx: GateContext, *, docker_available: bool) -> None:
+    missing = missing_toolchain(required_toolchain(ctx.tree, docker_available=docker_available), ctx.env, ctx.tree)
+    if missing:
+        raise GateError(toolchain_missing_message(missing))
 
 
 # ---------------------------------------------------------------------------------------
@@ -629,6 +788,331 @@ def check_table_smoke(ctx: GateContext) -> Check:
 
 
 # ---------------------------------------------------------------------------------------
+# 3a. The OBSERVABLE SURFACE of a tree: which operations the constructed app serves
+# ---------------------------------------------------------------------------------------
+#
+# The same machinery as the construct smoke above (same factory discovery, same import
+# environment) with the schema kept instead of discarded. It lives HERE, in the gate, because
+# gate.py is the one tool that already builds the app and owns the import conditions
+# (`app_import_env`) — and because two readers need exactly one answer to "what does this tree's
+# app serve" (C7):
+#
+#   * `check_invisible_surface` below — the `invisible` class's before/after diff (spec §3.1);
+#   * `drift.py` — the §5.5 route⊆described-operation comparison (T17), which CALLS this.
+#
+# The direction is deliberate and pinned by a test: `drift.py` imports the gate, never the other
+# way round (test_drift.test_no_decider_runs_this_script — a script that only SURFACES drift must
+# not be reachable from anything that can deny). So the extraction lives in the decider and the
+# reporter borrows it.
+
+HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE")
+
+ROUTE_MARKER = "__ADW_ROUTES__"
+
+
+@dataclass
+class Route:
+    method: str
+    path: str
+    module: str
+
+    @property
+    def operation(self) -> str:
+        """`METHOD /path` — the identity a surface comparison uses."""
+        return f"{self.method} {self.path}"
+
+
+@dataclass
+class Surface:
+    routes: list[Route] = field(default_factory=list)
+    modules: list[str] = field(default_factory=list)
+    undetermined: str = ""  # a surface that EXISTS and could not be read (T10f)
+    absent: str = ""  # there is no HTTP surface in this tree at all (the loud-SKIP case)
+
+    @property
+    def operations(self) -> list[str]:
+        return sorted({route.operation for route in self.routes})
+
+
+def route_inventory(tree: Path) -> Surface:
+    """Construct every `create_app()` factory under `src/**` and read `app.openapi()`.
+
+    Two negatives, kept apart on purpose (the same distinction this file draws everywhere between
+    a loud SKIP and a FAIL):
+      * ABSENT — no `src/`, or no `create_app()` in it: the tree has no HTTP surface to describe.
+      * UNDETERMINED — a factory exists and will not construct, or yields no route list. The
+        surface is then UNKNOWN, never empty: reading a broken import as "no routes" would let a
+        caller conclude "nothing changed" from "nothing known" (notes/19's fail-open class).
+    """
+    files = _src_files(tree)
+    if not files:
+        return Surface(absent=f"no src/ under {tree} — this tree serves no HTTP surface")
+    src_root = tree / "src"
+    factories = [f for f in files if CREATE_APP_DEF.search(f.read_text(encoding="utf-8", errors="replace"))]
+    if not factories:
+        return Surface(absent="no create_app() found under src/ — this tree serves no constructible HTTP surface")
+    env = app_import_env(tree)
+    surface = Surface()
+    for factory in sorted(factories):
+        module = _module_name(factory, src_root)
+        code = (
+            "import importlib, json, sys\n"
+            f"methods = {list(HTTP_METHODS)!r}\n"
+            f"m = importlib.import_module({module!r})\n"
+            "app = m.create_app()\n"
+            "schema = app.openapi()\n"
+            "paths = schema.get('paths') if isinstance(schema, dict) else None\n"
+            "if not isinstance(paths, dict):\n"
+            "    sys.exit('app.openapi() returned no `paths` mapping')\n"
+            "out = []\n"
+            "for path, ops in paths.items():\n"
+            "    if isinstance(ops, dict):\n"
+            "        out += [[str(k).upper(), str(path)] for k in ops if str(k).upper() in methods]\n"
+            f"print({ROUTE_MARKER!r} + json.dumps(sorted(out)))\n"
+        )
+        rc, out = _run([sys.executable, "-c", code], cwd=tree, env=env, timeout=300)
+        payload = [line for line in out.splitlines() if line.startswith(ROUTE_MARKER)]
+        if rc != 0 or not payload:
+            return Surface(undetermined=f"{module}.create_app()/openapi() did not yield a route list:\n{_tail(out)}")
+        surface.modules.append(module)
+        for method, path in json.loads(payload[-1][len(ROUTE_MARKER) :]):
+            surface.routes.append(Route(method, path, module))
+    return surface
+
+
+# ---------------------------------------------------------------------------------------
+# 3b. Package-import smoke (A4, T12b): the app must import with the gate's injection stripped
+# ---------------------------------------------------------------------------------------
+
+# resolve_context() puts `<tree>/src` on PYTHONPATH for every subprocess the gate spawns, so
+# mypy/pytest/the construct smoke all reach the app under an import path ONLY the gate provides.
+# A project that is not installable therefore passed every other check while `uv run uvicorn …` died
+# with ModuleNotFoundError — the gate supplying the conditions that hide the failure mode is
+# exactly what A4 forbids. The injections stay (the editable install's .pth holds an ABSOLUTE
+# path to one tree's src, and collect_baseline_inventory needs one to reach the extracted
+# baseline tree — removing them would trade this A4 hole for an integrity hole); instead ONE
+# check asks the question with the injection stripped.
+#
+# It can only ask it of a project that claims to be importable, so the trigger is the project's
+# own `[build-system]` declaration: present -> the claim is checked and a failure is RED; absent
+# -> the project says it is not installable and the SKIP says so out loud (this repo's permanent,
+# honest case — see the T12b task file). Never silent either way.
+
+
+@dataclass
+class PackageImportPlan:
+    kind: str  # "import" | "skip" | "fail"
+    package: str | None
+    reason: str
+
+
+def plan_package_import(tree: Path) -> PackageImportPlan:
+    """Decide what the import smoke can ask of this tree, from pyproject.toml alone."""
+    pyproject = tree / "pyproject.toml"
+    if not pyproject.is_file():
+        return PackageImportPlan("skip", None, "no pyproject.toml in tree — the project declares no packaging to check")
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        # unreadable input for a check that guards trust: FAIL, never a quiet pass (T10f).
+        return PackageImportPlan("fail", None, f"pyproject.toml could not be read: {exc}")
+    if not isinstance(data.get("build-system"), dict):
+        return PackageImportPlan(
+            "skip",
+            None,
+            "pyproject.toml declares no [build-system], so the project is not installable: nothing outside "
+            "gate.py (uvicorn, a plain `python -c import`) can reach src/** — the gate injects PYTHONPATH=src "
+            "itself. Add [build-system] (`conventions` skill, block D) to have this checked",
+        )
+    package = project_package(tree)
+    if not package:
+        return PackageImportPlan(
+            "fail",
+            None,
+            "pyproject.toml declares [build-system] but no [project] name — the import package cannot be determined",
+        )
+    return PackageImportPlan("import", package, "")
+
+
+def import_without_injection(package: str, env: dict[str, str], cwd: Path) -> tuple[int, str]:
+    """`import <package>` under `-I`: no PYTHONPATH, no cwd on sys.path, no user site — only
+    what the interpreter's own environment installs, which is all `uvicorn` gets."""
+    clean = {k: v for k, v in env.items() if k != "PYTHONPATH"}
+    return _run([sys.executable, "-I", "-c", f"import {package}"], cwd=cwd, env=clean, timeout=300)
+
+
+def check_package_import(ctx: GateContext) -> Check:
+    plan = plan_package_import(ctx.tree)
+    if plan.kind == "skip":
+        return Check("smoke.package-import", "SKIP", f"PACKAGE IMPORT SKIPPED — {plan.reason}")
+    if plan.kind == "fail" or plan.package is None:
+        return Check("smoke.package-import", "FAIL", plan.reason)
+    rc, out = import_without_injection(plan.package, ctx.env, ctx.tree)
+    if rc == 0:
+        return Check(
+            "smoke.package-import",
+            "PASS",
+            f"`import {plan.package}` succeeds with the gate's PYTHONPATH=src injection stripped (A4)",
+        )
+    return Check(
+        "smoke.package-import",
+        "FAIL",
+        f"the project declares [build-system] but `import {plan.package}` fails without the gate's own "
+        f"PYTHONPATH=src injection — the app is unstartable outside gate.py (A4). Install the project into "
+        f"its environment (`uv sync`) and check that src/{plan.package}/ is the package the build backend "
+        f"builds:\n{_tail(out)}",
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# 3c. The change-class register, as the tools read it (spec §3.1)
+# ---------------------------------------------------------------------------------------
+#
+# One home for "which class did this change declare" (C7): the gate needs it for the `invisible`
+# proof below, `red_check.py` needs it to pick the baseline property (redness / mutation /
+# green-at-baseline), and both must never disagree. HTML comments are stripped first, because the
+# change.md template enumerates every class name inside its own comment — a change that keeps the
+# comment declares the DEFAULT, not the last name the template happens to mention.
+
+DEFAULT_CHANGE_CLASS = "behavioral"  # spec §3.1: the register's default
+CLASS_INVISIBLE = "invisible"  # the one class THIS file behaves differently for (T20); §3.1 has the rest
+
+CLASS_LINE = re.compile(r"(?im)^Class:[ \t]*([A-Za-z][A-Za-z0-9_-]*)")
+
+
+def parse_change_class(change_md: str) -> str:
+    """The change's declared `Class:` (lowercased); `behavioral` when the line is absent."""
+    stripped = "\n".join(_criteria_lint().strip_html_comments(change_md.splitlines()))
+    match = CLASS_LINE.search(stripped)
+    return match.group(1).lower() if match else DEFAULT_CHANGE_CLASS
+
+
+# ---------------------------------------------------------------------------------------
+# 3d. `Class: invisible` — the before/after OpenAPI diff that IS this class's proof (§3.1, T20)
+# ---------------------------------------------------------------------------------------
+#
+# Spec §3.1 gives the `invisible` class (refactor / dependency upgrade / performance) a
+# deterministic proof instead of new observable behaviour: «полный gate зелёный + diff
+# OpenAPI-схемы до/после пуст». Until T20 the second half existed in no script at all — the
+# promise was prose, which under S4 means the class had no proof and, since `red_check` had no
+# `Class:` parse either, could not even obtain a baseline tag. This check is that half, and
+# putting it INSIDE the gate collapses the two halves into one sentence: for an invisible change,
+# "the gate is green" now includes "the app serves exactly the operations it served at baseline".
+#
+# What it compares, and why not more: the METHOD+path operation set, sorted, from
+# `app.openapi()`. That is the whole observable HTTP surface a client can discover, and it is
+# deterministic (route order and dict order cannot affect a sorted set). A full schema diff would
+# additionally fire on an internal Pydantic model rename — устройство, not behaviour (S1) — and
+# would train the route-around reflex a gate must never train. The narrower half is not left
+# unguarded: every baseline test must still be collected AND pass (E-05 + the pytest check), so a
+# changed response body is caught by the tests, while an ADDED or REMOVED endpoint — the one
+# surface change no existing test can notice — is caught here.
+#
+# Reading the class from the WORK TREE copy of change.md is safe and attested: `change.md` is
+# frozen against the baseline commit (E-12), so re-declaring `invisible` as `behavioral` to dodge
+# this check makes `integrity.change-frozen` FAIL instead.
+#
+# The before side comes from `git archive <baseline>` extracted to a temp dir — never a
+# `git worktree`, so this works in the detached worktrees acceptance runs use — and is
+# constructed with the CURRENT environment's packages. That is a real limit worth naming: a
+# breaking dependency upgrade whose baseline source cannot import under the new package versions
+# reports UNDETERMINED, i.e. FAIL. Such a change cannot be proved by this comparison at all, and
+# saying so out loud is the honest answer; silently passing it would be notes/19's fail-open class
+# in the one place where the class has no other proof.
+
+
+def _surface_of_baseline(ctx: GateContext, into: Path) -> Surface:
+    """The baseline commit's own surface: its tracked tree extracted to `into`, then constructed.
+
+    Pristine on purpose — unlike `collect_baseline_inventory`, which hybridises the baseline tree
+    with the CURRENT `src/` so red-committed tests can import today's modules. Here the baseline's
+    own `src/` IS the question: it is the "before" of the diff.
+    """
+    rc, tar_bytes = _run_bytes(["git", "-C", str(ctx.tree), "archive", "--format=tar", str(ctx.baseline)], timeout=300)
+    if rc != 0:
+        return Surface(undetermined=f"git archive {ctx.baseline} failed — the baseline surface cannot be read")
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes)) as tar:
+        tar.extractall(into, filter="data")
+    return route_inventory(into)
+
+
+def check_invisible_surface(ctx: GateContext) -> Check:
+    check_id = "invisible.openapi-diff"
+    if ctx.change_dir is None:
+        return Check(check_id, "SKIP", "no change directory resolved — the class register applies to a change (§3.1)")
+    change_md = ctx.change_dir / "change.md"
+    if not change_md.is_file():
+        return Check(
+            check_id,
+            "SKIP",
+            f"no {change_md.relative_to(ctx.tree)} — the declared class is unreadable (a change.md missing "
+            "against a baseline is RED at integrity.change-frozen, E-12)",
+        )
+    declared = parse_change_class(change_md.read_text(encoding="utf-8", errors="replace"))
+    if declared != CLASS_INVISIBLE:
+        return Check(
+            check_id,
+            "SKIP",
+            f"Class: {declared} — the before/after OpenAPI diff is the `invisible` class's proof (§3.1)",
+        )
+    if ctx.baseline is None:
+        return Check(
+            check_id,
+            "FAIL",
+            f"Class: invisible, but there is no baseline to compare against ({ctx.baseline_reason}) — this "
+            "class's whole proof is that the surface did not change, so without a BEFORE side it has no "
+            "proof at all (§3.1). Tag the baseline (red_check) or re-classify the change.",
+        )
+    with tempfile.TemporaryDirectory(prefix="gate-invisible-") as tmp:
+        before = _surface_of_baseline(ctx, Path(tmp).resolve())
+        after = route_inventory(ctx.tree)
+    for side, surface in (("baseline", before), ("work tree", after)):
+        if surface.undetermined:
+            return Check(
+                check_id,
+                "FAIL",
+                f"the {side}'s OpenAPI surface could not be determined, so the before/after diff did not "
+                f"run — undetermined is not 'unchanged' (§3.1):\n{surface.undetermined}",
+            )
+    if before.absent and after.absent:
+        return Check(
+            check_id,
+            "SKIP",
+            f"Class: invisible with no constructible HTTP surface on either side ({after.absent}) — the diff "
+            "has nothing to compare, so this change's proof rests on the green gate plus the baseline test "
+            "inventory alone (§3.1)",
+        )
+    if bool(before.absent) != bool(after.absent):
+        gone, gained = (before, after) if after.absent else (after, before)
+        return Check(
+            check_id,
+            "FAIL",
+            f"Class: invisible, but the app's HTTP surface itself appeared or disappeared since the baseline "
+            f"— one side serves {len(gained.routes)} operation(s) and the other serves none "
+            f"({gone.absent}). That is a behavioural change (§3.1).",
+        )
+    added = [op for op in after.operations if op not in set(before.operations)]
+    removed = [op for op in before.operations if op not in set(after.operations)]
+    if added or removed:
+        return Check(
+            check_id,
+            "FAIL",
+            "Class: invisible, but the OpenAPI operation set changed since the baseline "
+            f"{ctx.baseline} — an invisible change must serve exactly the same surface (§3.1):\n"
+            + "\n".join([f"+ {op} (served now, absent at baseline)" for op in added])
+            + ("\n" if added and removed else "")
+            + "\n".join([f"- {op} (served at baseline, gone now)" for op in removed])
+            + "\nA surface change is behaviour: re-spec it as a behavioral change, or revert it.",
+        )
+    return Check(
+        check_id,
+        "PASS",
+        f"Class: invisible — all {len(after.operations)} OpenAPI operation(s) identical to the baseline "
+        f"{ctx.baseline} (§3.1)",
+    )
+
+
+# ---------------------------------------------------------------------------------------
 # 4. Docker tier (O-06): postgres container + `alembic upgrade head`; loud DOCKER SKIPPED
 # ---------------------------------------------------------------------------------------
 
@@ -752,7 +1236,7 @@ def check_criteria(ctx: GateContext) -> list[Check]:
     if not criteria_path.exists():
         detail = f"{criteria_path.relative_to(ctx.tree)} does not exist"
         return [Check("criteria.junit-backing", "FAIL", detail), Check("criteria.manual-verdict", "FAIL", detail)]
-    lines = lint._strip_html_comments(criteria_path.read_text(encoding="utf-8").splitlines())
+    lines = lint.strip_html_comments(criteria_path.read_text(encoding="utf-8").splitlines())
     criteria = lint.iter_criteria(lines)
     checked = [c.ac_id for c in criteria if c.state == "x"]
     manual = [c.ac_id for c in criteria if c.state == "m"]
@@ -798,14 +1282,19 @@ def check_criteria(ctx: GateContext) -> list[Check]:
 
 
 def check_invariant_tests(ctx: GateContext) -> Check:
-    specs = ctx.tree / "specs"
-    if not specs.is_dir():
+    if not (ctx.tree / "specs").is_dir():
         return Check("spec.invariant-tests", "SKIP", "no specs/ in tree")
+    lint = _criteria_lint()
     refs: list[tuple[Path, str]] = []
-    for path in sorted(specs.rglob("*.md")):
-        if "use-cases" in path.parts or "changes" in path.parts:
-            continue
-        for match in CAPABILITY_REF.finditer(path.read_text(encoding="utf-8", errors="replace")):
+    for path in capability_files(ctx.tree):
+        # A comment is not content (T10j). The criteria check strips HTML comments before
+        # parsing; this one did not, so accept.py's capability birth — which copies the
+        # template's own comment documenting the provenance form — handed the BASE branch a
+        # rotted reference to a test named `<test-id>`, i.e. the acceptance script breaking S9.
+        # Any capability file may legitimately carry a comment; the strip is the real fix, and
+        # one grammar keeps one home (C7).
+        text = "\n".join(lint.strip_html_comments(path.read_text(encoding="utf-8", errors="replace").splitlines()))
+        for match in CAPABILITY_REF.finditer(text):
             refs.extend((path, token.strip()) for token in match.group(1).split(",") if token.strip())
     if not refs:
         return Check("spec.invariant-tests", "PASS", "no (verified by: ...) references in specs (L-06)")
@@ -830,13 +1319,43 @@ def check_invariant_tests(ctx: GateContext) -> Check:
 
 
 def _baseline_blob(ctx: GateContext, rel_path: str) -> bytes | None:
+    """The baseline content of `rel_path`, or None when git would not hand it over.
+
+    None conflates two facts — "the baseline tree has no such path" and "git could not read
+    it" — which is why every caller pairs it with `_baseline_paths()` and reports the second
+    case as a git failure (`_baseline_blob_problem`, T04f).
+    """
     rc, out = _run_bytes(["git", "-C", str(ctx.tree), "show", f"{ctx.baseline}:{rel_path}"])
     return out if rc == 0 else None
 
 
+def _baseline_blob_problem(ctx: GateContext, rel: str, *, in_baseline_tree: bool) -> str:
+    """Why `_baseline_blob(ctx, rel)` came back None, said truthfully.
+
+    A path the baseline tree LISTS cannot have been "created after the baseline commit"; if its
+    blob is unreadable, git failed. Naming the wrong cause is how the swallowed rc in
+    `_baseline_paths()` stayed invisible — the check failed closed, so only its message lied
+    (T04f, notes/19's fail-open class).
+    """
+    if in_baseline_tree:
+        return f"{rel}: listed in the baseline tree but `git show {ctx.baseline}:{rel}` failed — baseline unreadable"
+    return f"{rel}: created after the baseline commit"
+
+
 def _baseline_paths(ctx: GateContext, prefix: str) -> list[str]:
+    """The baseline tree's paths under `prefix` — raising when git could not answer.
+
+    "The baseline commit carries no such path" and "the baseline commit is unreadable" are
+    different facts, and only the first is a legitimate empty list: an empty list from an
+    unanswerable git call is read by every caller as "nothing to compare", i.e. it fails OPEN
+    by construction (notes/19's single root cause; T04f). Callers turn the GateError into a
+    FAIL naming the git failure — never an abort, because a broken baseline is a verdict about
+    the tree, not a reason to leave no verdict at all.
+    """
     rc, out = _git(ctx.tree, "ls-tree", "-r", "--name-only", str(ctx.baseline), "--", prefix)
-    return [line for line in out.splitlines() if line.strip()] if rc == 0 else []
+    if rc != 0:
+        raise GateError(f"git ls-tree {ctx.baseline} -- {prefix} failed (rc={rc}):\n{_tail(out)}")
+    return [line for line in out.splitlines() if line.strip()]
 
 
 def check_protected_trees(ctx: GateContext) -> Check:
@@ -884,12 +1403,15 @@ def criteria_flip_violations(base_lines: list[str], work_lines: list[str]) -> li
 
 def check_criteria_flips(ctx: GateContext) -> Check:
     work_files = {str(p.relative_to(ctx.tree)) for p in ctx.tree.glob("specs/*/changes/*/criteria.md")}
-    base_files = {p for p in _baseline_paths(ctx, "specs") if p.endswith("/criteria.md") and "/changes/" in p}
+    try:
+        base_files = {p for p in _baseline_paths(ctx, "specs") if p.endswith("/criteria.md") and "/changes/" in p}
+    except GateError as exc:
+        return Check("integrity.criteria-flips", "FAIL", f"baseline criteria.md set unknown (E-03): {exc}")
     problems: list[str] = []
     for rel in sorted(work_files | base_files):
         blob = _baseline_blob(ctx, rel)
         if blob is None:
-            problems.append(f"{rel}: created after the baseline commit (E-03)")
+            problems.append(f"{_baseline_blob_problem(ctx, rel, in_baseline_tree=rel in base_files)} (E-03)")
             continue
         if rel not in work_files:
             problems.append(f"{rel}: existed at baseline but is gone from the work tree")
@@ -906,12 +1428,15 @@ def check_change_frozen(ctx: GateContext) -> Check:
     # E-12: change.md hash is frozen at the red commit — the task text cannot be bent
     # to fit the implementation afterwards.
     work_files = {str(p.relative_to(ctx.tree)) for p in ctx.tree.glob("specs/*/changes/*/change.md")}
-    base_files = {p for p in _baseline_paths(ctx, "specs") if p.endswith("/change.md") and "/changes/" in p}
+    try:
+        base_files = {p for p in _baseline_paths(ctx, "specs") if p.endswith("/change.md") and "/changes/" in p}
+    except GateError as exc:
+        return Check("integrity.change-frozen", "FAIL", f"baseline change.md set unknown (E-12): {exc}")
     problems: list[str] = []
     for rel in sorted(work_files | base_files):
         blob = _baseline_blob(ctx, rel)
         if blob is None:
-            problems.append(f"{rel}: created after the baseline commit")
+            problems.append(_baseline_blob_problem(ctx, rel, in_baseline_tree=rel in base_files))
         elif rel not in work_files:
             problems.append(f"{rel}: existed at baseline but is gone from the work tree")
         elif (ctx.tree / rel).read_bytes() != blob:
@@ -921,6 +1446,92 @@ def check_change_frozen(ctx: GateContext) -> Check:
             "integrity.change-frozen", "FAIL", "change.md frozen-hash violated (E-12):\n" + "\n".join(problems)
         )
     return Check("integrity.change-frozen", "PASS", "change.md identical to baseline (E-12)")
+
+
+@dataclass(frozen=True)
+class EscalateState:
+    """What git knows about a branch's `ESCALATE` locks, relative to an anchor commit."""
+
+    known: tuple[str, ...]  # ESCALATE paths carried by the anchor tree OR committed since it
+    missing: tuple[str, ...]  # of `known`, those the work tree no longer has
+    error: str | None  # a git call that could not be answered — never read as "no ESCALATE"
+
+
+def _escalate_lines(text: str) -> set[str]:
+    return {ln.strip() for ln in text.splitlines() if ln.strip().endswith("/ESCALATE") and "/changes/" in ln}
+
+
+def escalate_state(tree: Path, anchor: str) -> EscalateState:
+    """Every `specs/*/changes/*/ESCALATE` git knows for this branch since `anchor`, and which of
+    them the work tree no longer has. One implementation, shared with accept.py (C7).
+
+    Two git questions, because a lock enters history two ways: the anchor commit may carry it
+    (`ls-tree`), or — the shipped flow — some commit in `anchor..HEAD` may have added it
+    (`log`). The hook fires at the *implementer's* ceiling, i.e. AFTER the red baseline is
+    committed and tagged, so a real ESCALATE is never in the baseline tree; a baseline-vs-HEAD
+    tree comparison therefore sees "absent" at both ends and passes. That is exactly why T04e's
+    baseline-only check could not fire in the shipped flow (notes/19, the corrected Question-3
+    row) — the question has to be about the branch's HISTORY, not about two trees.
+
+    Both calls are guarded: an unanswerable git result becomes `error`, never an empty list a
+    caller would read as "no ESCALATE" (notes/19's fail-open class).
+    """
+    rc, out = _git(tree, "ls-tree", "-r", "--name-only", anchor, "--", "specs")
+    if rc != 0:
+        return EscalateState((), (), f"git ls-tree against {anchor} failed:\n{_tail(out)}")
+    known = _escalate_lines(out)
+    rc, out = _git(tree, "log", "--pretty=format:", "--name-only", f"{anchor}..HEAD", "--", "specs")
+    if rc != 0:
+        return EscalateState((), (), f"git log {anchor}..HEAD failed:\n{_tail(out)}")
+    known |= _escalate_lines(out)
+    ordered = tuple(sorted(known))
+    return EscalateState(ordered, tuple(rel for rel in ordered if not (tree / rel).exists()), None)
+
+
+def check_escalate_intact(ctx: GateContext) -> Check:
+    # §5.3 / E-08: the iteration-ceiling `ESCALATE` file is a human-only lock — accept.py
+    # denies while it exists and "снять файл может только человек". That was prose: the
+    # change directory is deliberately NOT in PROTECTED_PATHS (criteria.md flips and
+    # verdict.md writes are legal cycle traffic, so a blanket freeze would deadlock the very
+    # cycle the lock guards), so an agent that hit its ceiling could delete the file and be
+    # invisible to both scripts. The disappearance is therefore checked on its own: an
+    # ESCALATE git knows about — carried by the baseline commit or COMMITTED by the hook since
+    # it (T06h) — must still be in the work tree.
+    #
+    # The asymmetry is deliberate: a lock that still STANDS is not a gate failure (its presence
+    # is accept.py's business, §5.3/§5.4) — the gate judges only its removal. Making a live lock
+    # RED would leave an escalated change un-gateable, i.e. unable to show the human whether the
+    # tree is otherwise green.
+    #
+    # The legal human path is unchanged in kind from every other baseline-anchored fact
+    # (S4/S8): clear the file, commit that deletion alone, then move the baseline over it
+    # (`red_check.py --change <ctx>/NNN --clear-escalate`) — the new baseline is the removal
+    # commit, so the range is empty and the check goes quiet. The gate cannot tell a human from
+    # an agent at the filesystem (neither can criteria_guard); it only makes the removal
+    # visible, which is what turns clearing a lock into a deliberate, recorded act.
+    state = escalate_state(ctx.tree, str(ctx.baseline))
+    if state.error:
+        return Check("integrity.escalate-intact", "FAIL", state.error)
+    if not state.known:
+        return Check(
+            "integrity.escalate-intact",
+            "PASS",
+            "no ESCALATE file at the baseline commit or committed since it (§5.3/E-08)",
+        )
+    if state.missing:
+        return Check(
+            "integrity.escalate-intact",
+            "FAIL",
+            "ESCALATE removed since the baseline — only a human may clear it, and clearing it means "
+            "re-baselining the change over the removal commit "
+            f"(`red_check.py --change {ctx.change_id or '<ctx>/NNN'} --clear-escalate`, §5.3/E-08):\n"
+            + "\n".join(state.missing),
+        )
+    return Check(
+        "integrity.escalate-intact",
+        "PASS",
+        f"{len(state.known)} ESCALATE file(s) known to git on this branch are still present (§5.3/E-08)",
+    )
 
 
 def _is_integration_node(node_id: str) -> bool:
@@ -940,7 +1551,25 @@ def inventory_violations(
     # E-05: collected node-ids must be a superset of the baseline inventory; a baseline
     # test that is missing, skipped or xfailed = RED (deletion / deselect / conftest
     # silencing all collapse into this one check). Legal removals exist only when the
-    # change.md (frozen at baseline) lists the node-id.
+    # change.md (frozen at baseline) lists the node-id in its CONTENT.
+    #
+    # A comment is not content (T10j/T10k) — and here that rule guards a PERMISSION, not a
+    # reading: the allowance is a raw substring match over the whole change.md, so a node-id
+    # appearing anywhere in it would authorise deleting a baseline test. Inside an HTML comment
+    # that means the template's own instruction text, which every change keeps, silently
+    # widening the allowance for all of them — the fail-open direction (T04h). One grammar, one
+    # home (C7): the helper the criteria and capability-provenance checks already use, applied
+    # HERE so the property belongs to this function and not to whoever calls it.
+    #
+    # NOT scoped to the `## Removed` section, deliberately (T04h's second half). change.md is
+    # frozen against the baseline commit (E-12) and no agent inside the cycle may edit it (D4),
+    # so a node-id in non-comment text outside that section can only come from the human's own
+    # authoring in the /spec session — one document's slip, not a widening every change inherits
+    # from the template. Scoping would cost a FOURTH `#+ Removed` parser here (or an upward
+    # import of accept.py's, which would invert the layering: the gate is the lower script), and
+    # it narrows a permission whose owner is the human. Reopen it with a real recorded case: a
+    # node-id written in `## Verification` grants deletion of that very test, which is the shape
+    # to look for.
     #
     # Sole carve-out (spec §5.1, T04b): a COLLECTED baseline test under tests/integration/
     # reported `skipped` is NOT RED when the gate's own Docker probe found the daemon absent
@@ -949,6 +1578,7 @@ def inventory_violations(
     # integration test (not collected) is still RED (finding 4: the deselect bypass); with
     # the daemon present there is no exemption at all; a non-integration skip is RED; and
     # only `skipped` is exempt (an xfail or a setup error still fails).
+    allowed_removals_text = "\n".join(_criteria_lint().strip_html_comments(allowed_removals_text.splitlines()))
     violations = []
     docker_skipped = []
     for node_id in sorted(baseline_ids):
@@ -1012,16 +1642,24 @@ def collect_baseline_inventory(ctx: GateContext) -> set[str]:
 
 
 def check_test_inventory(ctx: GateContext, pytest_check: Check, *, docker_available: bool) -> tuple[Check, list[str]]:
+    # The legal-removal allowance is READ OUT of the baseline change.md, so an unreadable
+    # baseline must not silently shrink it to "" — that would turn a legal removal into a
+    # violation, i.e. blame the tests for a git failure (T04f).
     try:
         baseline_ids = collect_baseline_inventory(ctx)
+        allowed = ""
+        for rel in _baseline_paths(ctx, "specs"):
+            if rel.endswith("/change.md") and "/changes/" in rel:
+                blob = _baseline_blob(ctx, rel)
+                if blob is None:
+                    raise GateError(_baseline_blob_problem(ctx, rel, in_baseline_tree=True))
+                # Newline-separated: each blob is its own document, so the last line of one
+                # change.md must not glue onto the first line of the next and fabricate a
+                # node-id nobody wrote. (An UNTERMINATED comment in one document still blanks
+                # what follows it — that shrinks the allowance, i.e. fails closed.)
+                allowed += blob.decode("utf-8", errors="replace") + "\n"
     except GateError as exc:
         return Check("integrity.test-inventory", "FAIL", str(exc)), []
-    allowed = ""
-    for rel in _baseline_paths(ctx, "specs"):
-        if rel.endswith("/change.md") and "/changes/" in rel:
-            blob = _baseline_blob(ctx, rel)
-            if blob:
-                allowed += blob.decode("utf-8", errors="replace")
     inventory_path = ctx.gate_dir / INVENTORY_NAME
     if pytest_check.status == "SKIP" or not inventory_path.exists():
         if baseline_ids:
@@ -1062,29 +1700,138 @@ def check_test_inventory(ctx: GateContext, pytest_check: Check, *, docker_availa
     )
 
 
+def plugin_root() -> Path:
+    """Where the workflow's own files live: the parent of the tools directory.
+
+    `.claude/` in this repository, the repository top in a split plugin repo — i.e. what
+    Claude Code passes as `${CLAUDE_PLUGIN_ROOT}`. Unrelated to `GateContext.plugin_dir`,
+    which is the injected *pytest* plugin's scratch directory.
+
+    Resolved through symlinks on purpose — a consumer may attach `.claude` by symlink
+    (notes/20 §2), and the question this answers is "where is the workflow REALLY", not
+    "how was it reached".
+    """
+    return Path(__file__).resolve().parent.parent
+
+
+def self_integrity_anchors(candidates: list[str]) -> list[str]:
+    """The plugin-root-relative paths in `candidates` that SELF_INTEGRITY_GLOBS anchors (E-02).
+
+    Matching is component-wise (directory part equal, basename fnmatch'ed), so `tools/*.py`
+    means exactly the files in `tools/` and never something nested under it.
+    """
+    anchors = set()
+    for rel in candidates:
+        parent, _, name = rel.rpartition("/")
+        if SELF_INTEGRITY_SKIP.match(name):
+            continue
+        for glob in SELF_INTEGRITY_GLOBS:
+            glob_parent, _, glob_name = glob.rpartition("/")
+            if parent == glob_parent and fnmatch.fnmatchcase(name, glob_name):
+                anchors.add(rel)
+                break
+    return sorted(anchors)
+
+
+def _worktree_anchor_candidates(root: Path) -> list[str]:
+    """Every file under `root` that the anchor globs could match, as it is on disk.
+
+    Read together with the HEAD listing so that an ADDED enforcement file (an untracked
+    `tools/helper.py` dropped next to the gate) is a violation too, not an invisible one.
+    """
+    candidates = []
+    for glob in SELF_INTEGRITY_GLOBS:
+        parent, _, name = glob.rpartition("/")
+        base = root / parent if parent else root
+        if not base.is_dir():
+            continue
+        candidates.extend(f"{parent}/{p.name}" if parent else p.name for p in sorted(base.glob(name)) if p.is_file())
+    return candidates
+
+
 def check_self_hash(ctx: GateContext) -> Check:
-    # E-02: the gate does not trust the file system about ITSELF — gate.py and the
-    # criteria grammar it imports must match git HEAD of the repo they live in. The
-    # toolchain config is constants inside gate.py, so this hash covers it too.
-    tools_dir = Path(__file__).resolve().parent
-    rc, out = _run(["git", "-C", str(tools_dir), "rev-parse", "--show-toplevel"], timeout=60)
+    """E-02: the enforcement layer must match git HEAD of the repository it is installed from.
+
+    What that asserts, precisely: *the work tree agrees with the plugin repo's LOCAL `HEAD`*
+    — nothing more. The anchor is the plugin's own git history, so this catches every tamper
+    nobody committed there (the accidental edit, the agent that patched a tool and moved on)
+    and catches nothing an actor with commit access to the plugin directory chose to record:
+    `bash_guard` allows writes to the plugin (it anchors to the CONSUMER's root, T06e), and
+    the same access runs `git -C <plugin> commit -a`, after which work tree == HEAD and this
+    check PASSes. Measured on a clone, not assumed (T19).
+
+    T19 ruled that limit **stated, not closed**, and rejected the cheap middle option —
+    comparing against the `{name}--v{version}` release tag — on two measurements: an
+    installed plugin's marketplace clone is *shallow* and fetches `+refs/heads/main` only, so
+    it carries no tags at all (the comparison would be inoperative exactly where it is
+    needed), while a dev checkout goes stale against its own tag on the next commit touching
+    any anchor — and `claude plugin tag` cuts that tag in the enclosing repo, i.e. in THIS
+    one. Closing it needs a reference the local actor cannot author: a published commit
+    (network — forbidden, a gate that needs the internet to say "green" is a worse property),
+    a signed manifest, or a checksum pinned outside the plugin. Argument, reproduction and
+    what a human can do instead: notes/20 F-02.
+    """
+    # E-02 (widened by T18): the gate does not trust the file system about the ENFORCEMENT
+    # LAYER — every tool, hook and manifest under the plugin root must match git HEAD of the
+    # repository the workflow is installed from. gate.py itself was the original coverage;
+    # `accept.py`, `red_check.py`, the hooks and `plugin.json` are anchors for the same
+    # reason, and in a consumer they have no other protection at all (see the note on
+    # SELF_INTEGRITY_GLOBS). The toolchain config is constants inside gate.py, so this
+    # covers it too.
+    #
+    # The anchor set is the union of what HEAD carries and what the work tree has, and both
+    # git calls are guarded: an unanswerable git result is a FAIL, never an empty set a
+    # caller would read as "nothing to check" (notes/19's fail-open class).
+    #
+    # No provenance means no verdict: an installed plugin that is not a git repository FAILs
+    # rather than degrading, because a trust anchor that quietly stops anchoring is worse
+    # than an absent one. The legitimate install modes all keep `.git` — the one that does
+    # not is a `git-subdir` marketplace source, which is forbidden for exactly this reason
+    # (notes/21 §5).
+    root = plugin_root()
+    rc, out = _run(["git", "-C", str(root), "rev-parse", "--show-toplevel"], timeout=60)
     if rc != 0:
         return Check(
-            "integrity.self-hash", "FAIL", "gate.py is not inside a git repository — self-integrity unverifiable"
+            "integrity.self-hash",
+            "FAIL",
+            f"the workflow's own files ({root}) are not inside a git repository — self-integrity is "
+            "unverifiable, so no verdict from this run can be trusted (E-02). Install the workflow "
+            "from a WHOLE-REPO source (a `github`/`url` marketplace source, never `git-subdir`): a "
+            "subdirectory source is a content copy with no `.git` (notes/21 §5).",
         )
     top = Path(out.strip()).resolve()
+    prefix = "" if root == top else root.relative_to(top).as_posix() + "/"
+    rc, listing = _git(top, "ls-tree", "-r", "--name-only", "HEAD", "--", prefix or ".")
+    if rc != 0:
+        return Check(
+            "integrity.self-hash",
+            "FAIL",
+            f"cannot list the workflow's own files at HEAD of {top} — self-integrity unverifiable "
+            f"(E-02):\n{_tail(listing)}",
+        )
+    tracked = [line[len(prefix) :] for line in listing.splitlines() if line.startswith(prefix) and line.strip()]
+    anchors = set(self_integrity_anchors(tracked)) | set(self_integrity_anchors(_worktree_anchor_candidates(root)))
+    # Fail-closed floor: whatever the globs see, the gate and the criteria grammar it imports
+    # are ALWAYS anchored. E-02's original coverage must not be able to shrink because a
+    # layout moved a file out of a glob's reach.
+    tools_dir = Path(__file__).resolve().parent
+    tools_prefix = "" if tools_dir == root else tools_dir.relative_to(root).as_posix() + "/"
+    anchors |= {f"{tools_prefix}gate.py", f"{tools_prefix}criteria_lint.py"}
     problems = []
-    for name in SELF_INTEGRITY_FILES:
-        file_path = tools_dir / name
-        rel = file_path.relative_to(top).as_posix()
-        rc, blob = _run_bytes(["git", "-C", str(top), "show", f"HEAD:{rel}"])
+    for rel in sorted(anchors):
+        file_path = root / rel
+        rc, blob = _run_bytes(["git", "-C", str(top), "show", f"HEAD:{prefix}{rel}"])
         if rc != 0:
-            problems.append(f"{rel}: not committed at HEAD — the gate cannot vouch for itself")
-        elif not file_path.exists() or file_path.read_bytes() != blob:
-            problems.append(f"{rel}: work-tree content differs from HEAD — the gate itself was modified")
+            problems.append(f"{rel}: not committed at HEAD — the gate cannot vouch for it")
+        elif not file_path.exists():
+            problems.append(
+                f"{rel}: committed at HEAD but missing from the work tree — an enforcement file was removed"
+            )
+        elif file_path.read_bytes() != blob:
+            problems.append(f"{rel}: work-tree content differs from HEAD — the enforcement layer was modified")
     if problems:
         return Check("integrity.self-hash", "FAIL", "self-integrity violated (E-02):\n" + "\n".join(problems))
-    return Check("integrity.self-hash", "PASS", f"{', '.join(SELF_INTEGRITY_FILES)} match git HEAD (E-02)")
+    return Check("integrity.self-hash", "PASS", f"all {len(anchors)} enforcement anchor(s) match git HEAD (E-02)")
 
 
 # ---------------------------------------------------------------------------------------
@@ -1094,6 +1841,10 @@ def check_self_hash(ctx: GateContext) -> Check:
 
 def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg: str | None) -> int:
     ctx = resolve_context(tree, change_arg, baseline_arg)
+    # one probe per run, shared by the Docker tier, the inventory carve-out AND the preflight
+    # (the alembic tier is the one toolchain user whose invocation depends on the daemon).
+    docker_probe = probe_docker()
+    preflight_toolchain(ctx, docker_available=docker_probe.available)
     checks: list[Check] = []
 
     checks.append(check_mypy(ctx))
@@ -1103,7 +1854,10 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
     checks.extend(check_greps(ctx))
     checks.append(check_construct_smoke(ctx))
     checks.append(check_table_smoke(ctx))
-    docker_probe = probe_docker()  # one probe per run, shared by the tier and the carve-out
+    checks.append(check_package_import(ctx))
+    # Class-keyed, and present in EVERY run's list so the class register is legible from the
+    # report: a non-invisible change gets a loud SKIP naming its class, never silence (§3.1/T20).
+    checks.append(check_invisible_surface(ctx))
     checks.append(check_docker_tier(ctx, docker_probe))
     if criteria:
         checks.extend(check_criteria(ctx))
@@ -1123,6 +1877,7 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
             "integrity.protected-trees",
             "integrity.criteria-flips",
             "integrity.change-frozen",
+            "integrity.escalate-intact",
             "integrity.test-inventory",
         ):
             checks.append(Check(check_id, "SKIP", skip))
@@ -1130,6 +1885,7 @@ def run_gate(tree: Path, *, criteria: bool, baseline_arg: str | None, change_arg
         checks.append(check_protected_trees(ctx))
         checks.append(check_criteria_flips(ctx))
         checks.append(check_change_frozen(ctx))
+        checks.append(check_escalate_intact(ctx))
         inventory_check, docker_exempt = check_test_inventory(
             ctx, pytest_check, docker_available=docker_probe.available
         )

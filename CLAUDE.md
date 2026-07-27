@@ -29,6 +29,14 @@ The v2→v3 shift in one line: v2 emitted a disposable app from a YAML manifest 
 directory; v3 maintains the app in-repo under branch-per-change, and the spec compounds into living
 documentation instead of being rendered from a schema.
 
+**What ships, in one rule: `.claude/` IS the Claude Code plugin (`adw`), and a file ships iff it
+lives under it** (T15). So `tasks/`, `notes/`, both design docs, this file and any trial app are dev
+artifacts a consumer never sees — which is why they keep the bare command names while everything
+inside `.claude/**` refers to commands as `/adw:<name>` (a bare `/spec` is *Unknown command* in a
+consumer). Packaging reference, release procedure and the measured platform facts:
+**`notes/21_plugin_packaging.md`**. Do not enable both loads at once — checked out *and* installed
+fires every hook twice.
+
 **Status: v3 is being built.** The build-out is decomposed into `tasks/` (T01–T11, status in
 `tasks/INDEX.md`), executed one task per `v3-builder` dispatch via `/build-task`. Anything marked
 *planned (TNN)* below does not exist yet — check the INDEX before assuming a tool is available.
@@ -37,7 +45,7 @@ documentation instead of being rendered from a schema.
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Knowledge** | how to write an artifact (house style) | `.claude/skills/` (44 skills now → ~13 after T08) |
+| **Knowledge** | how to write an artifact (house style) | `.claude/skills/` (one directory per theme; a large theme is a router `SKILL.md` + one `<topic>.md` per artifact) |
 | **Specification** | what to do and how to verify it | `specs/` — sectioned free Markdown |
 | **Enforcement + orchestration** | who does what, what is forbidden, when it is "done" | `.claude/agents/`, `.claude/commands/`, `gate.py`/`accept.py` + hooks |
 
@@ -95,9 +103,14 @@ Three commands plus `/abandon` — all *planned*, see `tasks/INDEX.md`:
 | `/accept-change <context>/NNN` | wrapper over `accept.py`: gates → human reviews the merge diff → merge to `main` + tag + delete change dir | planned (T10) |
 | `/abandon <context>/NNN` | delete the change branch (red tests never touched `main`), reason in tag `abandoned/<context>-NNN` | planned (T09) |
 
-Change **classes**: `behavioral` (default; removal flavour makes the test-author owner of obsolete
-tests), `bugfix` (code diverged from a recorded invariant), `invisible` (refactor/deps/perf — proof
-is a green gate + empty OpenAPI diff). Change **depths**: S (Task + 1–3 AC, evaluator fast-lane) ·
+Change **classes**: `behavioral` (default; the removal flavour — marked `REMOVED` on the `Class:`
+line, with a `## Removed` section listing the symbols and obsolete node-ids — makes the test-author
+owner of obsolete tests), `bugfix` (code diverged from a recorded invariant), `invisible` (refactor/deps/perf — proof
+is a green gate + empty OpenAPI diff, both halves enforced: `gate.py`'s `invisible.openapi-diff`
+compares the baseline commit's operation set with HEAD's, and since the class's tests pin behaviour
+that already holds, `red_check` asks for green-at-baseline instead of redness — T20) and `hardening`
+(the tests get stronger, behaviour identical; redness replaced by kill-the-declared-mutation — T09g).
+Change **depths**: S (Task + 1–3 AC, evaluator fast-lane) ·
 M (+ Context, Out of scope, Interface sketch, Verification) · L (+ non-binding Design notes). A new
 context's first change is a **vertical slice** — one end-to-end observable AC. There is no scaffold
 template: a new project is a plain `uv init` + the installed plugin, and the substrate is
@@ -124,12 +137,22 @@ share — it kills the "who owns the names" seam. Agent definitions for these ro
 verdict + junit-xml + git SHA. Inventory (§5.1, every check traces to a paid-for finding): toolchain
 (mypy / ruff / pytest with **pinned config living inside gate.py**); grep-gates (`# type: ignore`,
 `from __future__ import annotations`, `# noqa: F401`, `raise NotImplementedError` in `src/**`);
-construct-smoke (`create_app()` + `app.openapi()`, table-metadata import); Docker tier
+construct-smoke (`create_app()` + `app.openapi()`, table-metadata import); the class-keyed
+`invisible.openapi-diff` (for `Class: invisible` only — the baseline commit's app and HEAD's must
+serve the same METHOD+path operation set; loud SKIP naming the class otherwise); Docker tier
 (testcontainers + `alembic upgrade head`, loud `DOCKER SKIPPED` otherwise); `--criteria` (every
 `[x]` must be backed by a **passed** `ac`-marked test in this run's junit); and **integrity against
 the red-commit baseline** — protected-tree diff (criteria.md legal flips only, change.md hash,
 `.claude/tools|hooks`, settings, `pyproject.toml`), test inventory ⊇ baseline (a missing/skipped/
-xfailed baseline test is RED), self-hash of gate.py + toolchain config. **S8 in one breath: hooks
+xfailed baseline test is RED), self-hash of the **whole enforcement layer** (T18: every tool, hook
+and manifest under the plugin root — `tools/*.py`, `hooks/*.py|json`, `bin/*.py`, `plugin.json`,
+`settings.json` — must match git HEAD of the repo the plugin lives in, which is the *only* protection
+the plugin's own files have once installed: `bash_guard` is anchored to the consumer's root and the
+protected-tree diff is vacuous there), and `escalate-intact`
+(an `ESCALATE` the branch's history knows — carried by the baseline commit *or* committed by the hook
+since it — must still be in the work tree; its *removal* is RED, its *presence* is not, since a
+standing lock is `accept.py`'s business. Clearing it is a recorded act: commit the deletion, then
+`red_check.py --change <ctx>/NNN --clear-escalate` moves the baseline over it — T06h). **S8 in one breath: hooks
 are ergonomics — trust is the post-hoc check against the git baseline; bypassing a hook only gets
 your result invalidated at the gate.**
 
@@ -143,9 +166,12 @@ one breath: one change = one branch — red tests, code and verdict live on the 
 
 Hook ergonomics + stop-gates *(planned, T06)*: criteria-guard (disk-diff on Write), bash-guard,
 path canonicalisation, SubagentStop blocking the implementer while the gate is red, and a
-**hook-written** `ESCALATE` file at the iteration ceiling (`accept.py` denies while it exists;
-only the human removes it). Hotfixes past the workflow are legal but not silent: `/spec --retro`
-+ the drift-check in `accept.py`/`/orient` (§5.5).
+**hook-written and hook-committed** `ESCALATE` file at the iteration ceiling (`accept.py` denies
+while it exists *and* after a committed one disappears; only the human clears it, through
+`red_check --clear-escalate`). Hotfixes past the workflow are legal but not silent: `/spec --retro`
++ the drift-check `drift.py` runs for `/orient`, whose hotfix half `accept.py` prints after every
+`--execute` (§5.5). It **surfaces** and never denies — the one deterministic check in this workflow
+that is deliberately not a gate.
 
 ## v2 — archived
 
@@ -166,13 +192,21 @@ workflow_v3_spec.md               # THE v3 design doc (Russian) — read first; 
 notes/15_v3_design_review.md      # the 5-probe adversarial review register — design canon
 codegen_workflow_spec.md          # v2 rationale — archive, kept for the "why" of what survived
 tasks/                            # v3 build-out: INDEX.md (status) + one file per task (T01–T11)
-.claude/
-  skills/                         # knowledge layer — 44 skills now, merged to ~13 (T08) after the
-                                  #   paid-fixes inventory + test-principles rewrite (T07)
+notes/21_plugin_packaging.md      # what ships, the release procedure, the measured platform facts
+.claude/                          # THE PLUGIN ROOT (`adw`) — everything here ships, nothing else does
+  .claude-plugin/plugin.json      # the manifest
+  bin/adw.py                      # the one invocation form: `${CLAUDE_PLUGIN_ROOT}/bin/adw.py <tool>`
+  skills/                         # knowledge layer — one directory per theme (T08 merged 44 skills
+                                  #   into them); a theme past ~500 lines is a router SKILL.md plus
+                                  #   one <topic>.md per artifact, read on demand (T13/T14)
   tools/
     gate.py                       # "is it green" — the trust anchor            (planned, T04)
     accept.py                     # "may it merge" — acceptance preconditions   (planned, T05)
+    drift.py                      # "has anything drifted" — §5.5, surfaces, never denies (T17);
+                                  #   run by /orient, its hotfix half is accept.py's own
   hooks/                          # criteria-guard, bash-guard, stop-gates      (planned, T06)
+    hooks.json                    #   the same wiring for an INSTALLED load; settings.json is the
+                                  #   checked-out twin (a plugin cannot ship hooks in settings.json)
   agents/                         # v3-builder (build-out executor); test-author / implementer /
                                   #   evaluator (planned, T09); v2 agents purged in T02
   commands/                       # orient, commit, brainstorm, build-task; /spec (T03),
@@ -194,8 +228,14 @@ A skill is **knowledge injected into context, not an executor**. Skills auto-inv
 test-author/implementer read `Template(s)` + `Rules`, the `/spec` session reads `When to use` /
 `Hard stops` as classification rules. Same document, different sections, different consumers.
 
-Every skill follows the four-section body (see `.claude/skills/CONVENTIONS.md`): *When to use vs.
-neighbours · Template(s) · Rules · Hard stops*. Use `meta-skill-author` to add one. Purity rules
+Every artifact's knowledge is written as the same four-section body (see
+`.claude/skills/CONVENTIONS.md`): *When to use vs. neighbours · Template(s) · Rules · Hard stops*.
+Where that body lives depends on the theme's size: a small theme keeps it inside its `SKILL.md`; a
+theme past ~500 lines makes `SKILL.md` a thin **router** (frontmatter + an imperative pointer per
+topic + genuinely cross-topic material) beside one `<topic>.md` per artifact, each carrying the full
+four-section body. Only `SKILL.md` is injected on auto-invocation, so a topic file reaches the agent
+only when the agent opens it — the router's pointers are instructions, not cross-references. Use
+`meta-skill-author` to add one. Purity rules
 (a skill must not know what invokes it; every must-hold rule needs a gate, not prose) live in
 `PRINCIPLES.md` sections C and S4. Mechanical derivation (paths, naming, store profiles, substrate)
 has one home: the `conventions` skill — toolchain commands live in `gate.py`, which `conventions`
@@ -230,12 +270,23 @@ testcontainers; every acceptance criterion is pinned by an `@pytest.mark.ac("AC-
 
 The project uses **uv** and targets **Python 3.12**.
 
-```bash
-# the single point of truth for "green" (planned, T04 — does not exist yet):
-uv run .claude/tools/gate.py            # add --criteria to cross-check criteria.md flips
+Every tool is reached through one shim, `bin/adw.py` (T15). At a plain terminal name it by path;
+inside a session, shipped files use `"${CLAUDE_PLUGIN_ROOT}/bin/adw.py"`, which resolves in both
+layouts (see `notes/21`) — the two are the same file.
 
-# acceptance preconditions (planned, T05):
-uv run .claude/tools/accept.py <context>/NNN
+```bash
+# the single point of truth for "green"
+uv run .claude/bin/adw.py gate                      # --criteria to cross-check criteria.md flips
+
+# acceptance preconditions
+uv run .claude/bin/adw.py accept <context>/NNN
+
+# the red baseline, and the criteria lint
+uv run .claude/bin/adw.py red-check --change <context>/NNN
+uv run .claude/bin/adw.py criteria-lint <path-to-criteria.md>
+
+# the meta layer's own suite (must pass with no src/ in the tree — T15's acceptance test)
+uv run pytest .claude/tools
 
 # the build-out itself: execute ONE task with the v3-builder agent
 /build-task tasks/TNN-<slug>.md         # tick tasks/INDEX.md only on green verification
@@ -243,8 +294,6 @@ uv run .claude/tools/accept.py <context>/NNN
 
 `mypy` stays load-bearing (contract drift shows up as type errors), but the command you run is
 `gate.py` — the toolchain config lives inside it, so there is exactly one definition of "green".
-Until T04 lands, there is **no gate to run**: the v2 validator and its machinery were purged in T02
-(recoverable from git history; tag `v2-archive` on `main`).
 
 ## Conventions when extending the workflow
 

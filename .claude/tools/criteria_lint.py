@@ -88,8 +88,19 @@ class Finding:
         return f"{self.path}:{self.line_no}: {self.reason}"
 
 
-def _strip_html_comments(lines: list[str]) -> list[str]:
-    """Blank out <!-- ... --> spans (including multi-line) preserving line count."""
+def strip_html_comments(lines: list[str]) -> list[str]:
+    """Blank out <!-- ... --> spans (including multi-line) preserving line count.
+
+    PUBLIC on purpose (T10k): "a comment is not content" is a rule of the whole enforcement
+    layer, not of this module — `gate.py` (criteria check, capability provenance), `accept.py`
+    (spec-lint, the overview capability list) and `red_check.py` all read documents that ship
+    their own instructions inside comments. One grammar, one home (C7), so the name every other
+    tool imports must not look like a private detail it is reaching into.
+
+    The line count is preserved (spans are blanked, not dropped), which callers depend on:
+    accept.py's S7 size check subtracts comment-only lines from the raw count, and every
+    line-numbered finding stays truthful about the file on disk.
+    """
     out: list[str] = []
     in_comment = False
     for line in lines:
@@ -127,7 +138,7 @@ def iter_criteria(lines: list[str]) -> list[Criterion]:
 
 
 def lint_lines(raw_lines: list[str], path: str = "criteria.md") -> list[Finding]:
-    lines = _strip_html_comments(raw_lines)
+    lines = strip_html_comments(raw_lines)
     findings: list[Finding] = []
     seen_ids: dict[str, int] = {}
     criteria = iter_criteria(lines)
@@ -194,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         all_findings.extend(findings)
         if not findings:
-            criteria = iter_criteria(_strip_html_comments(path.read_text(encoding="utf-8").splitlines()))
+            criteria = iter_criteria(strip_html_comments(path.read_text(encoding="utf-8").splitlines()))
             states = [c.state for c in criteria]
             print(
                 f"OK: {path} — {len(criteria)} criteria "

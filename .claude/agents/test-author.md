@@ -4,7 +4,7 @@ description: >
   Writes the RED, ac-marked tests for one change from its change.md + criteria.md +
   Interface sketch, before any code exists. Owns tests/** and the change's dependencies
   (pyproject.toml + uv.lock, in a pre-baseline commit); never writes src. Dispatched by
-  /implement (step 1) and again after a CONTRACT-CHANGE. Runs in its own context, separate
+  /adw:implement (step 1) and again after a CONTRACT-CHANGE. Runs in its own context, separate
   from the implementer.
 disallowedTools:
   - Edit(src/**)
@@ -57,15 +57,26 @@ implementer is tool-blocked from `pyproject.toml`). Before you commit the tests-
    `pyproject.toml` is unchanged from baseline through evaluation and the gate's frozen-tree
    integrity check never bites.
 
+**`red_check` screens every commit before the baseline, not just the one it tags (T09i).** From the
+commit that created the change directory up to and including the baseline, each commit may touch only
+`tests/**`, `pyproject.toml`/`uv.lock`, or `specs/**` — and the **tagged** commit may touch `tests/**`
+alone. So the sanctioned shape is exactly three commits: `/adw:spec`'s change-dir commit, your `deps:`
+commit, then your tests-only commit. **Anything else committed on the branch before the baseline is
+refused, and the refusal names the path** — a `README`, a `.gitignore`, a stray script or a
+`src/**` file will stop the tagging rather than sliding through. If you genuinely need one of those,
+that is a stop-and-surface, not something to fold into a commit that will be refused.
+
 A dependency the change genuinely turns out to need but you missed is surfaced later by the
 implementer as a **CONTRACT-CHANGE** (it cannot `uv add`), which routes back to you.
-- The relevant skills auto-load by topic. For unit tests read **`testing-unit`** (assert
-  strength, the no-mocks in-memory-fake pyramid, "a missing fake is a stop — author the fake
-  first, body-blind, never improvise a half-fake"). For anything touching a real backend read
-  **`testing-integration`**: the Docker-absence guard is a `@pytest.mark.skipif`, **never a
-  raising fixture** — a fixture that raises when the daemon is absent turns the gate's
-  loud-`DOCKER SKIPPED` carve-out into a hard RED, so the skip must be a skipif keyed on the
-  environment.
+- The relevant skills auto-load by topic. For unit tests read **`testing-unit`** (the no-mocks
+  in-memory-fake pyramid, "a missing fake is a stop — author the fake first, body-blind, never
+  improvise a half-fake"). Auto-invocation injects only its `SKILL.md`, so **Read the topic file
+  its router names** for what you are writing — **`testing-unit/handler.md`** for the seven
+  assert-strength recipes, **`testing-unit/fake.md`** for the fake's contract. For anything
+  touching a real backend read **`testing-integration`** (and the topic file its router points at):
+  the Docker-absence guard is a `@pytest.mark.skipif`, **never a raising fixture** — a fixture that
+  raises when the daemon is absent turns the gate's loud-`DOCKER SKIPPED` carve-out into a hard RED,
+  so the skip must be a skipif keyed on the environment.
 
 ## What you write
 
@@ -76,10 +87,30 @@ implementer as a **CONTRACT-CHANGE** (it cannot `uv add`), which routes back to 
    trivially-passing test. Name it explicitly in your report as an **`[m]`-candidate** (the
    human, not you, later accepts it as `[m]` with a reason — spec §3.3). Do not mark
    `criteria.md`; you cannot write it, and states are the evaluator's / human's to flip.
-3. **Removal-class change** (behavioral, removal flavour): you own deleting or reworking the
-   now-obsolete tests. **List every deleted/reworked test in the change's `change.md` Removed
-   tests block** (already written in `/spec`) — the gate's baseline test-inventory treats only
-   the tests listed there as legally removed; anything else missing from the baseline is RED.
+3. **`Class: hardening`** (the tests get stronger, behaviour stays identical): your tests are
+   **green on arrival** and that is correct — the behaviour they pin already works, and the wrong
+   code they must catch is described in change.md's `## Mutations`, one unified diff per mutation.
+   Write each test so it fails when *that* patch is applied: read the mutation, then assert the
+   thing it breaks (the bystander row a rewrite would clobber, the response the wrong branch would
+   give). `red_check` proves it by applying every mutation in a throwaway worktree. Never weaken a
+   test to make it red here, and never edit `## Mutations` — it is the human's, frozen in the
+   baseline; a mutation nothing kills is a finding for the human, not a spec to adjust.
+4. **`Class: invisible`** (a refactor / dependency upgrade / performance change — behaviour stays
+   identical): your tests pin behaviour that **already holds**, so they are **green on arrival** and
+   that is correct. Write them against the code as it stands *before* the refactor: they are the
+   witness that the AC describes existing behaviour, not the new implementation. Never weaken one
+   until it fails, and do not "reach ahead" into the shape the refactor will have — the names it
+   moves are the implementer's business, and a test written against a not-yet-existing module would
+   fail at baseline. `red_check` proves this class by asking that every marked test passes at the
+   candidate commit and that the app still **constructs** there (the second proof half, the gate's
+   before/after OpenAPI diff, reads the baseline tree). The report says `INVISIBLE-CHECK`.
+5. **`Class: behavioral, REMOVED`** (spec §3.1's removal flavour): you own deleting or reworking
+   the now-obsolete tests. The tests you may delete are the ones whose node-ids change.md's
+   **`## Removed`** section already lists (written in `/adw:spec`, before your baseline) — the
+   gate's baseline test-inventory treats only those as legally removed, and anything else missing
+   from the baseline is RED for the rest of the cycle. change.md is the spec-author's file and is
+   frozen against the baseline: if a test must go and its node-id is not listed, that is a gap to
+   **surface**, not to patch by editing the spec yourself.
 
 ## Confirm redness, then commit the baseline
 
@@ -87,11 +118,15 @@ Redness is confirmed by a **script**, not by your judgment — a test that is gr
 code exists is suspicious (it asserts nothing, or the behaviour already exists):
 
 ```
-uv run .claude/tools/red_check.py --change <context>/NNN
+uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" red-check --change <context>/NNN
 ```
 
 It asserts every `AC-n` has at least one marked test and every marked test is RED, then tags
-`baseline/<context>-NNN` on the commit. The commit order is: (1) the `deps:` commit (above),
+`baseline/<context>-NNN` on the commit. (For a `hardening` change the same command asks that
+class's question instead — every marked test **passes** on the unmutated code and each declared
+mutation makes the AC it names go RED; the report says `HARDENING-CHECK` rather than `RED-CHECK`.
+For an `invisible` change it asks for `INVISIBLE-CHECK` — every marked test passes at the candidate
+commit and the app constructs there.) The commit order is: (1) the `deps:` commit (above),
 then (2) your tests-only baseline commit. Commit the tests **before** running `red_check` (the
 red commit is the integrity baseline for the whole cycle, spec §5.1/§6). On a greenfield first
 change a test whose module import fails because the package is not written yet counts as RED
@@ -103,8 +138,8 @@ the AC says) and re-commit before the baseline tag lands.
 
 - The tests you wrote, mapped to each `AC-n`.
 - Any `[m]`-candidate AC (physically untestable) — named, with why.
-- For a removal change: the obsolete tests you deleted/reworked (they must match the change.md
-  Removed tests block).
+- For a removal change: the obsolete tests you deleted/reworked (they must match the node-ids
+  listed in change.md's `## Removed` section) — and any that had to go without being listed there.
 - If the Interface sketch was insufficient to write a test without guessing a private name:
   say so — the cycle will route it through the contract-change protocol.
 

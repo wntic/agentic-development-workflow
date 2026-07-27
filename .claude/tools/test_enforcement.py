@@ -13,6 +13,7 @@ gate.py + criteria_lint.py committed and a `baseline/demo-001` tag."""
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +34,10 @@ def run_hook(
 ) -> subprocess.CompletedProcess[str]:
     e = os.environ.copy()
     e["GATE_DOCKER"] = "0"  # any gate the hook re-runs must skip Docker deterministically
+    # The gate a hook re-runs must be the FIXTURE's, never one an ambient CLAUDE_PLUGIN_ROOT
+    # points at (T15/D4): this repo's settings.json sets it, and a plugin install would set it
+    # to an absolute path, which would silently bypass every stubbed gate below.
+    e.pop("CLAUDE_PLUGIN_ROOT", None)
     if env:
         e.update(env)
     return subprocess.run(
@@ -43,6 +48,20 @@ def run_hook(
         cwd=str(cwd),
         env=e,
     )
+
+
+def _load_hook(name: str):  # the hook module, imported for its pure helpers
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(f"{name}_mod", HOOKS_DIR / f"{name}.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    # Registered before exec: a module with `from __future__ import annotations` AND a
+    # @dataclass (bash_guard) resolves its field annotations through sys.modules at class
+    # creation, and blows up with AttributeError if it is not there.
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def decision(proc: subprocess.CompletedProcess[str]) -> str | None:
@@ -298,6 +317,47 @@ def test_bash_guard_owner_denial_names_the_role() -> None:
     assert "'evaluator'" in proc.stdout, proc.stdout
 
 
+# --- T15/D1: the same role, namespaced by the plugin loader -----------------------------
+#
+# Installed as a plugin, `agent_type` arrives as `adw:<role>`; loaded from project config
+# (as in this repo) it arrives bare. ROLE_OWNED is keyed on bare names, so without stripping
+# the namespace every cycle role loses its owned-tree write path — silently, and invisibly to
+# every other test here. BOTH forms are pinned: the bare one must keep working.
+
+
+@pytest.mark.parametrize(
+    ("agent_type", "command", "expected"),
+    [
+        ("adw:test-author", "echo x > tests/test_foo.py", None),
+        ("adw:test-author", "echo x > src/app/core.py", "deny"),
+        ("adw:evaluator", "echo x > specs/demo/changes/001-thing/verdict.md", None),
+        ("adw:evaluator", "echo x > tests/test_foo.py", "deny"),
+        ("adw:implementer", "echo x > src/app/core.py", None),
+        ("adw:implementer", "echo x > tests/test_foo.py", "deny"),
+        # The namespace is STRIPPED, not validated (D1's rule is the last segment): a foreign
+        # plugin's identically-named role is read as this workflow's. Pinned as the shipped
+        # behaviour — the widening only ever grants a role its OWN tree, so the blast radius is
+        # an unrelated `*:test-author` writing tests/**, and the gate backstops it (S8).
+        ("other:test-author", "echo x > tests/test_foo.py", None),
+        # a name that is no role of this workflow's still fires on every protected tree
+        ("stranger", "echo x > tests/test_foo.py", "deny"),
+        ("adw:stranger", "echo x > tests/test_foo.py", "deny"),
+    ],
+)
+def test_bash_guard_role_survives_the_plugin_namespace(agent_type: str, command: str, expected: str | None) -> None:
+    proc = run_bash_guard(_bash(command, agent_type))
+    assert decision(proc) == expected, (agent_type, command, proc.stdout)
+
+
+def test_bash_guard_acting_role_strips_only_the_namespace() -> None:
+    mod = _load_hook("bash_guard")
+    assert mod.acting_role("adw:implementer") == "implementer"
+    assert mod.acting_role("implementer") == "implementer"
+    assert mod.acting_role(None) is None
+    assert mod.acting_role("") is None
+    assert mod.acting_role("adw:") is None  # a trailing colon names no role
+
+
 # =======================================================================================
 # bash_guard — repo-root anchoring (T06e)
 # =======================================================================================
@@ -346,6 +406,551 @@ def test_bash_guard_relative_under_repo_still_denied(repo: FixtureRepo) -> None:
 def test_bash_guard_owned_tree_under_repo_still_allowed(repo: FixtureRepo) -> None:
     # T06d owned-tree allowance survives the anchoring: the test-author writes tests/ freely.
     assert decision(_run_anchored("echo x > tests/x.py", agent_type="test-author", root=repo.root)) is None
+
+
+# =======================================================================================
+# bash_guard — cd-aware resolution of relative targets (T06f)
+# =======================================================================================
+#
+# T06e anchored the ABSOLUTE variant; the relative one stayed broken because the payload's
+# `cwd` is the SESSION cwd and the tokeniser had no `cd` awareness — so a write into a scratch
+# copy of the tree (`cd /tmp/mut && cat > tests/...`) resolved under the repo root and fired.
+# It denied an adversarial mutation pass twice; the evaluator rerouted and finished
+# anyway, i.e. the guard trained the bypass reflex it exists to prevent. A relative target is
+# now resolved against the command's EFFECTIVE cwd; when that cannot be determined with
+# confidence the target is dropped, never guessed (T06b precision bias, S8 backstop).
+
+
+def test_bash_guard_cd_into_scratch_then_relative_write_allowed(repo: FixtureRepo, tmp_path: Path) -> None:
+    # recorded denial #1, replayed: a probe test written into a throwaway mutation copy.
+    cmd = f"cd {tmp_path / 'mut'} && cat > tests/integration/x_test.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) is None
+
+
+def test_bash_guard_cd_into_scratch_dissolves_the_compound_veto(repo: FixtureRepo, tmp_path: Path) -> None:
+    # recorded denial #2, replayed: the real mutations are in src/, and the command died only
+    # because a leading `rm -f tests/...` shared the line. A PreToolUse hook can only allow or
+    # deny the whole call, so the fix is that BOTH targets now resolve into the /tmp copy.
+    cmd = f"cd {tmp_path / 'mut'} && rm -f tests/x.py && cat > src/y.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) is None
+
+
+def test_bash_guard_relative_write_without_cd_still_denied(repo: FixtureRepo) -> None:
+    # No cd: the session cwd IS the repo, so the protection is exactly as before.
+    assert decision(_run_anchored("cat > tests/x.py", agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_cd_does_not_excuse_an_absolute_in_repo_target(repo: FixtureRepo, tmp_path: Path) -> None:
+    # T06e's anchoring is untouched: an absolute target ignores the effective cwd.
+    cmd = f"cd {tmp_path / 'mut'} && cat > {repo.root}/tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_cd_out_and_back_in_still_denied(repo: FixtureRepo) -> None:
+    # The escalate-if case of T06f: cd-tracking must NOT open `cd .. && > <repo>/tests/x`.
+    # Resolution narrows, ownership does not: the target lands back inside the repo and fires.
+    cmd = f"cd .. && cat > {repo.root.name}/tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_cd_from_scratch_into_the_repo_is_denied(repo: FixtureRepo, tmp_path: Path) -> None:
+    # The mirror image: a relative target resolves INTO the repo through the cd, and fires.
+    # The session cwd is the scratch tree, so only the cd tells the guard where the write lands.
+    scratch = tmp_path / "mut"
+    scratch.mkdir()
+    cmd = f"cd {repo.root}/tests && cat > x.py"
+    proc = run_hook("bash_guard.py", _bash(cmd, "evaluator"), cwd=scratch, env={"CLAUDE_PROJECT_DIR": str(repo.root)})
+    assert decision(proc) == "deny"
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "cd &&",  # bare cd -> the home directory
+        "cd - &&",  # the previous directory
+        "cd $SCRATCH &&",  # an expansion this guard cannot evaluate
+        "cd ~/mut &&",  # an unexpanded ~
+        "pushd /x >/dev/null && popd >/dev/null &&",  # a stack this guard does not model
+    ],
+)
+def test_bash_guard_indeterminate_cwd_does_not_fire(repo: FixtureRepo, prefix: str) -> None:
+    # Precision bias: an effective cwd that cannot be determined drops the relative target
+    # rather than guessing the session cwd. The gate's baseline diff backstops the miss (S8).
+    assert decision(_run_anchored(f"{prefix} cat > tests/x.py", agent_type="evaluator", root=repo.root)) is None
+
+
+def test_bash_guard_cd_in_a_subshell_does_not_fire(repo: FixtureRepo, tmp_path: Path) -> None:
+    # `(cd x && …)` scopes the cd to a subshell — beyond a one-line model, so indeterminate.
+    cmd = f"(cd {tmp_path / 'mut'} && cat > tests/x.py)"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) is None
+
+
+def test_bash_guard_cd_preserves_the_owned_tree_allowance(repo: FixtureRepo) -> None:
+    # T06d survives: the test-author still writes its own tree through a cd-prefixed command.
+    cmd = f"cd {repo.root} && cat > tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="test-author", root=repo.root)) is None
+
+
+# =======================================================================================
+# bash_guard — fragments match path COMPONENTS, not bare substrings (T06f)
+# =======================================================================================
+#
+# `change.md` is a filename relative to the repo root, so a file whose name merely CONTAINS
+# it is not it. Found building T10e: `git show … > .claude/tools/fixtures/a-change.md`
+# was reported as a write to `change.md`, which sent the builder renaming the fixture. That
+# path is in fact protected — it lives under `.claude/tools` — and the denial now says so.
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo x > notes/a-change.md",  # not a change.md
+        "echo x > notes/verdict.md.draft",  # not a verdict.md
+        "sed -i '' 's/a/b/' pyproject.toml.bak",  # not pyproject.toml
+        "echo x > notes/mycriteria.md",  # not a criteria.md
+    ],
+)
+def test_bash_guard_filename_fragment_needs_a_whole_component(repo: FixtureRepo, command: str) -> None:
+    assert decision(_run_anchored(command, agent_type="test-author", root=repo.root)) is None, command
+
+
+def test_bash_guard_real_change_md_still_denied(repo: FixtureRepo) -> None:
+    cmd = "echo x > specs/demo/changes/001-thing/change.md"
+    assert decision(_run_anchored(cmd, agent_type="test-author", root=repo.root)) == "deny"
+
+
+def test_bash_guard_protected_dir_denial_names_the_directory(repo: FixtureRepo) -> None:
+    # The T10e write: still denied — `.claude/tools` is a protected tree whoever the fixture
+    # is named for — but the reported fragment is now the real reason, not the filename.
+    cmd = "git show HEAD:x > .claude/tools/fixtures/a-change.md"
+    proc = _run_anchored(cmd, agent_type="test-author", root=repo.root)
+    assert decision(proc) == "deny"
+    assert ".claude/tools" in proc.stdout and "(change.md)" not in proc.stdout, proc.stdout
+
+
+# =======================================================================================
+# bash_guard — a heredoc BODY is data, not command (T06g)
+# =======================================================================================
+#
+# `git commit -F - <<'EOF' … EOF` is how every agent in this repo writes a multi-line message,
+# and the tokeniser read the body as part of the command — so prose that happened to contain
+# `>` followed by a protected path was denied as a redirect, while the identical idiom with a
+# clean message passed. It fired on message CONTENT, not command shape (hence "unreproducible").
+# Bodies are now stripped before tokenising; the opener's own line stays, so a real redirect
+# there still fires — that boundary is the whole correctness question of the fix.
+
+COMMIT_HEREDOC = "git commit -F - <<'EOF'\nfix: something\n\nthe prose mentions > tests/x.py as an example\nEOF"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # the verbatim reproduction: a redirect-looking token inside the message body
+        COMMIT_HEREDOC,
+        # unterminated: the remainder is body, and an unresolvable command never fires (S8)
+        "git commit -F - <<'EOF'\nthe prose mentions > tests/x.py\n",
+        # two heredocs in one command — the SECOND body carries the protected token
+        "cmd <<A <<B\nbodyA\nA\nthe prose mentions > tests/x.py\nB",
+        # `<<-` strips tabs, so its terminator may be indented
+        "git commit -F - <<-EOF\n\tthe prose mentions > tests/x.py\n\tEOF",
+        # the body's own quoting must not matter either (an apostrophe used to break shlex)
+        "git commit -F - <<'EOF'\ndon't hand-edit > tests/x.py\nEOF",
+    ],
+)
+def test_bash_guard_heredoc_body_is_not_a_write(repo: FixtureRepo, command: str) -> None:
+    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) is None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > tests/x.py <<'EOF'\nbody\nEOF",  # the `>` precedes the heredoc tag
+        "cat <<'EOF' > tests/x.py\nbody\nEOF",  # ... and after it: still the command line
+        "cat <<EOF >> tests/x.py\nbody\nEOF",  # append form, bare tag
+        "git commit -F - <<'EOF'\nmsg\nEOF\nrm tests/y.py",  # a real write AFTER the terminator
+    ],
+)
+def test_bash_guard_redirect_on_the_heredoc_command_line_still_fires(repo: FixtureRepo, command: str) -> None:
+    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) == "deny", command
+
+
+def test_bash_guard_herestring_is_not_a_heredoc(repo: FixtureRepo) -> None:
+    # `<<<` is a different construct (one shlex word, no body): the redirect after it still fires.
+    cmd = "grep foo <<< 'a b' > tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_heredoc_preserves_cd_awareness(repo: FixtureRepo, tmp_path: Path) -> None:
+    # T06f regression: cd-tracking and heredoc-stripping compose — the body is dropped and the
+    # opener line's relative target still resolves against the EFFECTIVE cwd, not the session one.
+    scratch = f"cd {tmp_path / 'mut'} && cat > tests/x.py <<'EOF'\nbody\nEOF"
+    assert decision(_run_anchored(scratch, agent_type="evaluator", root=repo.root)) is None
+    in_repo = "cat > tests/x.py <<'EOF'\nbody\nEOF"
+    assert decision(_run_anchored(in_repo, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+def test_bash_guard_heredoc_preserves_the_owned_tree_allowance(repo: FixtureRepo) -> None:
+    # T06d regression: the owner still writes its own tree through a heredoc.
+    cmd = "cat > tests/x.py <<'EOF'\nbody\nEOF"
+    assert decision(_run_anchored(cmd, agent_type="test-author", root=repo.root)) is None
+
+
+# =======================================================================================
+# bash_guard — the real tokeniser (T06i)
+# =======================================================================================
+#
+# The six point fixes above each closed one variant and left the next to be discovered by the
+# agent it blocked. The seventh arrived while the decision task was open, so the shape changed
+# instead of growing a seventh patch: quoted spans are masked (a quoted operator is data),
+# `shlex(punctuation_chars=…)` yields the shell operators as their own tokens, the stream is split
+# into simple commands, and a mutator counts only in COMMAND POSITION. Every case above passed the
+# rewrite unchanged — that suite is the specification of what the guard means. What follows pins
+# the two variants that motivated it plus the classes the new shape closes as a side effect.
+
+
+def test_bash_guard_control_operator_glued_to_a_quoted_word(repo: FixtureRepo) -> None:
+    # Variant 6, verbatim (cost a builder two denied commands): the `;` glued to `"$S"` was no
+    # CONTROL token, so `rm`'s target slice ran to the end of the line and swallowed the later
+    # `cp`'s SOURCE — a path the command only READS — which is then what the denial blamed.
+    swallow = 'rm -rf "$S"; cp .claude/tools/x.py "$S/x.py"'
+    assert decision(_run_anchored(swallow, agent_type="v3-builder", root=repo.root)) is None
+    # ... and a single space before the `;` used to flip the verdict. Now both read the same.
+    spaced = 'rm -rf "$S" ; cp .claude/tools/x.py "$S/x.py"'
+    assert decision(_run_anchored(spaced, agent_type="v3-builder", root=repo.root)) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -rf tests/x.py; cp /tmp/a /tmp/b",  # the rm's OWN target is protected
+        "mkdir -p /tmp/x; echo x > tests/y.py",  # ... and so is the second command's redirect
+    ],
+)
+def test_bash_guard_segmenting_does_not_open_the_protected_tree(repo: FixtureRepo, command: str) -> None:
+    # Bounding the argument slice at `;` must not lose the write that really is in the tree.
+    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) == "deny", command
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        # the literal spelling of the same path is still protected for a non-owner
+        ("rm -f specs/demo/changes/001-x/ESCALATE", "test-author"),
+        # an expansion BELOW the anchoring components leaves the location known
+        ("rm -f tests/$name.py", "evaluator"),
+        ('rm -f "tests/$name.py"', "evaluator"),
+        # `$'…'` is quoting, not an expansion — the target is fully determined
+        ("echo x > $'tests/x.py'", "evaluator"),
+    ],
+)
+def test_bash_guard_determinable_target_still_fires(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) == "deny", command
+
+
+def test_bash_guard_bare_operator_beside_a_quoted_one_still_fires(repo: FixtureRepo) -> None:
+    # The discriminating pair: the quoted `>` is data, the bare one is the redirect.
+    cmd = "echo '>' > tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("grep -rn rm tests/", None),  # `rm` as a search pattern removes nothing
+        ("sudo rm tests/x.py", "deny"),  # ... but a wrapped mutator is still the mutator
+        ("VAR=1 rm tests/x.py", "deny"),
+        ("if true; then rm tests/x.py; fi", "deny"),
+        ("tee -a tests/x.py < /tmp/log", "deny"),
+    ],
+)
+def test_bash_guard_mutator_counts_in_command_position(repo: FixtureRepo, command: str, expected: str | None) -> None:
+    # The two ALLOW rows this table used to carry — a trailing `# rm …` comment and an INPUT
+    # redirect's operand — are recorded false positives (variants 11 and 12) and now live in
+    # RECORDED_FALSE_POSITIVES below, with the rest of the family. `grep -rn rm tests/` stays
+    # here: it is the command-position property, not a false positive — measured against the
+    # pre-T06i parser it never fired (its target is a bare directory, T06f's component rule).
+    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) == expected, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo a\nrm tests/x.py",  # a newline ends a command: `rm` is in command position
+        "rm \\\n tests/x.py",  # ... but a line continuation does not: one command, one target
+        "echo x >| tests/x.py",  # noclobber-override redirect
+        "echo x &> tests/x.py",  # stdout+stderr redirect
+        "echo x &>> tests/x.py",
+    ],
+)
+def test_bash_guard_operator_inventory(repo: FixtureRepo, command: str) -> None:
+    assert decision(_run_anchored(command, agent_type="evaluator", root=repo.root)) == "deny", command
+
+
+# --- the family, replayed: all TWELVE variants -------------------------------------------
+#
+# One list of every false positive the tokeniser family was paid for, so a future rewrite is
+# measured against the family rather than against the fix at hand. That is the list's stated
+# purpose (T06i) and its name promises it — but it shipped holding the SEVEN filed variants
+# only, while the five T06i *measured* (differential-testing the old parser against the new
+# over ~120 commands) sat in three separate tests. So "run the RECORDED_FALSE_POSITIVES pins"
+# checked 7 of 12, and a name that under-delivers is how the next rewrite misses variant 13.
+# Consolidated by T06l — the one place in this suite where editing existing lines is sanctioned.
+#
+# Numbering follows T06i's table (1-7 filed, 8-12 measured). Where a variant was observed in
+# more than one spelling all of them are kept: each was separately measured, and which spelling
+# a future parser breaks on is not predictable.
+
+RECORDED_FALSE_POSITIVES = [
+    # 1 · T06b — a protected fragment and a `>` inside a quoted commit message
+    ('git commit -m "msg with <brackets> and .claude/hooks"', "test-author"),
+    # 2 · T06e — an absolute path outside the repo that merely contains `tests/`
+    ("cat > /tmp/x/tests/conftest.py", "test-author"),
+    # 3 · T06f A — a relative target inside a scratch tree reached by `cd`
+    ("cd /tmp/mut && cat > tests/integration/x_test.py", "evaluator"),
+    # 4 · T06f A — a filename that merely CONTAINS a protected filename
+    ("echo x > notes/a-change.md", "test-author"),
+    # 5 · T06g — a heredoc BODY read as command
+    (COMMIT_HEREDOC, "evaluator"),
+    # 6 · T06i variant 6 — `;` glued to a quoted word; the reason blamed the `cp`'s source
+    ('rm -rf "$S"; cp .claude/tools/x.py "$S/x.py"', "v3-builder"),
+    # 7 · T06i variant 7 — an unexpanded variable resolved against the repo root. An expansion
+    #     in the target's FIRST component anchors the path nowhere, so it is dropped rather than
+    #     joined onto the repo root (precision bias; the deny direction is pinned by
+    #     test_bash_guard_determinable_target_still_fires).
+    ('rm -f "$CD/specs/demo/changes/001-x/ESCALATE"', "v3-builder"),
+    # 8 · T06i measured — a leading `~` the guard would have to expand itself
+    ("cat > ~/scratch/tests/x.py", "evaluator"),
+    # 9 · T06i measured — the `${VAR}` brace form of variant 7 ...
+    ("echo x > ${SCRATCH}/tests/x.py", "evaluator"),
+    #     ... and its command-substitution spelling
+    ("cat > `pwd`/tests/x.py", "evaluator"),
+    # 10 · T06i measured — a QUOTED operator read as an operator, which then blamed the file the
+    #      command only reads. Masking quoted spans before lexing is what makes this structural
+    #      rather than one more special case (the bare-beside-quoted pair is pinned separately).
+    ("grep '>' tests/x.py", "evaluator"),
+    ("git commit -m 'body: ; rm tests/x.py'", "evaluator"),  # a whole command inside a message
+    ('git commit -m "see > tests/x.py"', "evaluator"),
+    # 11 · T06i measured — a trailing `# comment` read as a command
+    ("echo done # rm tests/x.py", "evaluator"),
+    # 12 · T06i measured — an INPUT redirect's operand read as a write; an input file is a read
+    ("tee -a /tmp/log < tests/x.py", "evaluator"),
+]
+
+
+@pytest.mark.parametrize(("command", "role"), RECORDED_FALSE_POSITIVES)
+def test_bash_guard_no_recorded_false_positive_fires(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) is None, command
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        ("cat > tests/x.py", "evaluator"),  # a non-owner writing tests/ in the repo
+        ("echo x > specs/demo/changes/001-thing/change.md", "test-author"),  # spec prose is /spec's
+        ("rm -rf .claude/tools/gate.py", "implementer"),  # the enforcement tree
+    ],
+)
+def test_bash_guard_in_repo_denials_survive_the_rewrite(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) == "deny", command
+
+
+def test_bash_guard_cd_out_and_back_in_survives_the_rewrite(repo: FixtureRepo) -> None:
+    # The escalate-if case of the whole family: narrowing resolution must never open the tree.
+    cmd = f"cd .. && cat > {repo.root.name}/tests/x.py"
+    assert decision(_run_anchored(cmd, agent_type="evaluator", root=repo.root)) == "deny"
+
+
+# =======================================================================================
+# bash_guard — the write-op inventory: cp / install / dd / truncate (T06k)
+# =======================================================================================
+#
+# The tokeniser (T06i) resolves each write op's target; WHICH operations count as writing is a
+# separate, policy question, and `cp` / `install` / `dd of=` / `truncate` were missing from the
+# list — so `cp /tmp/evil.py .claude/tools/gate.py` was allowed for every role. Ergonomics, not
+# trust: the gate's self-hash catches a substituted gate.py post-hoc (S8); what the miss cost was
+# the early, legible denial. The trap is that `mv`'s "every non-flag argument" rule cannot be
+# reused — the copy family's sources are READS, so each operation gets its own argument rule and
+# each is pinned in BOTH directions here. The read direction is the point of these cases: without
+# it, the fix would be variant 6 (a denial naming a path the command only reads) re-created by
+# policy rather than by the parser.
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        # cp: the destination is the last operand ...
+        ("cp /tmp/x.py .claude/tools/gate.py", "v3-builder"),
+        ("cp -f /tmp/x.py .claude/hooks/bash_guard.py", "implementer"),
+        # ... or, with `-t`, the flag's operand while every positional is a source
+        ("cp -t .claude/tools /tmp/x.py", "implementer"),
+        ("cp --target-directory=.claude/hooks /tmp/x.py", "implementer"),
+        # install: same shape, plus value-taking options whose operand is not a path
+        ("install -m 644 /tmp/x.py tests/test_x.py", "evaluator"),
+        ("install -t specs/demo /tmp/core.md", "test-author"),
+        # dd: the `of=` operand, in either argument order
+        ("dd if=/dev/zero of=tests/test_x.py", "evaluator"),
+        ("dd of=.claude/settings.json if=/tmp/x", "implementer"),
+        # truncate: the file operands; `-s` takes a size, `-r` a reference file
+        ("truncate -s 0 tests/test_x.py", "evaluator"),
+        ("truncate --size=0 pyproject.toml", "implementer"),
+        ("truncate -r /tmp/ref -s 0 specs/demo/core.md", "test-author"),
+    ],
+)
+def test_bash_guard_write_op_inventory_denies_the_write_direction(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) == "deny", command
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        # THE read-direction pin: a protected file copied OUT writes nothing protected. Under
+        # `mv`'s rule this is variant 6 all over again — a denial blaming `gate.py` for a read.
+        ("cp .claude/tools/gate.py /tmp/backup.py", "v3-builder"),
+        ("cp -a specs/demo /tmp/spec-snapshot", "test-author"),
+        ("cp tests/test_core.py /tmp/keep.py", "evaluator"),
+        ("install -m 644 .claude/tools/gate.py /tmp/x.py", "implementer"),
+        ("dd if=.claude/tools/gate.py of=/tmp/gate.bak", "v3-builder"),
+        # `-r` names a reference file to READ, so it is not a target
+        ("truncate -r pyproject.toml -s 0 /tmp/x", "implementer"),
+        # a backup COPY of a protected file is a new, unprotected name (T06f component rule)
+        ("cp pyproject.toml pyproject.toml.bak", "implementer"),
+        # no destination named at all: nothing is guessed from the single operand
+        ("cp .claude/tools/gate.py", "v3-builder"),
+        ("dd if=tests/test_core.py", "evaluator"),
+    ],
+)
+def test_bash_guard_write_op_inventory_allows_the_read_direction(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) is None, command
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        ("cp /tmp/x.py tests/test_x.py", "test-author"),
+        ("install -m 644 /tmp/x.py tests/test_x.py", "test-author"),
+        ("dd if=/tmp/x of=src/app/core.py", "implementer"),
+        ("truncate -s 0 specs/demo/changes/001-thing/verdict.md", "evaluator"),
+    ],
+)
+def test_bash_guard_write_op_inventory_preserves_the_owned_tree(repo: FixtureRepo, command: str, role: str) -> None:
+    # T06d survives the new operations: the owner still reaches its own tree through the shell.
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) is None, command
+
+
+def test_bash_guard_copy_family_target_is_the_destination_only() -> None:
+    # The rules at unit level, so a future edit cannot quietly widen `cp` back to `mv`'s rule.
+    mod = _load_hook("bash_guard")
+    assert mod._mutator_targets("cp", ["a.py", "b.py"]) == ["b.py"]
+    assert mod._mutator_targets("cp", ["-r", "a", "b"]) == ["b"]
+    assert mod._mutator_targets("cp", ["-t", "d", "a.py", "b.py"]) == ["d"]
+    assert mod._mutator_targets("cp", ["--target-directory=d", "a.py"]) == ["d"]
+    assert mod._mutator_targets("cp", ["a.py"]) == []  # no destination named
+    assert mod._mutator_targets("install", ["-m", "644", "a.py", "b.py"]) == ["b.py"]
+    assert mod._mutator_targets("install", ["-m", "644", "a.py"]) == []  # `644` is not a path
+    assert mod._mutator_targets("dd", ["if=a", "of=b"]) == ["b"]
+    assert mod._mutator_targets("dd", ["if=a"]) == []
+    assert mod._mutator_targets("dd", ["oflag=direct", "of=b"]) == ["b"]  # `oflag=` is not `of=`
+    assert mod._mutator_targets("truncate", ["-s", "0", "a.py"]) == ["a.py"]
+    assert mod._mutator_targets("truncate", ["-r", "ref", "-s", "0", "a.py"]) == ["a.py"]
+    assert mod._mutator_targets("truncate", ["--size=0", "a.py", "b.py"]) == ["a.py", "b.py"]
+
+
+def test_bash_guard_new_ops_keep_the_tokeniser_properties(repo: FixtureRepo) -> None:
+    # The T06i properties hold for the added operations too, or the inventory re-opens the family.
+    # Command position: `cp` as a grep pattern copies nothing.
+    assert decision(_run_anchored("grep -rn cp tests/", agent_type="evaluator", root=repo.root)) is None
+    # Masking: a quoted destination is still one word, and an unexpandable first component drops.
+    assert decision(_run_anchored('cp /tmp/x "$S/tests/x.py"', agent_type="evaluator", root=repo.root)) is None
+    # First-component expansion: the literal prefix still anchors the location.
+    assert decision(_run_anchored("cp /tmp/x tests/$name.py", agent_type="evaluator", root=repo.root)) == "deny"
+    # Segmenting: the copy's own destination is found beside another command.
+    assert decision(_run_anchored("mkdir -p /tmp/x; cp /tmp/x tests/y.py", agent_type="evaluator", root=repo.root)) == (
+        "deny"
+    )
+
+
+# =======================================================================================
+# bash_guard — `git rm` is a write op, `--cached` included (T06l)
+# =======================================================================================
+#
+# The last inventory gap, and the one with evidence rather than speculation: `git rm` is a
+# DOCUMENTED instruction in this repo ("use `git rm` so the commit is reviewable"), so protected
+# files have actually been removed with it while the identical plain `rm` was denied. Measured
+# history, because it is not the "never covered" story the filing assumed: the pre-T06i parser
+# denied `git rm tests/x.py` incidentally — it read the mutator word at ANY token position — and
+# T06i's command-position anchoring (the fix that correctly stopped `grep -rn rm tests/` reading
+# as a removal) dropped it. Unlike `cp` there is no read direction to get wrong: both ends of a
+# `git rm` are removals, so the rule is plain `rm`'s. `--cached` is ruled a WRITE — it mutates
+# *tracked* state, which is exactly what integrity.protected-trees compares. Ergonomics, not
+# trust (the gate backstops either way, S8); what the miss cost is the early, legible denial.
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        ("git rm tests/x.py", "evaluator"),  # a non-owner removing a test
+        ("git rm -r tests/integration", "implementer"),
+        # `--cached` leaves the file on disk and still removes it from the index
+        ("git rm --cached .claude/tools/gate.py", "v3-builder"),
+        ("git rm -r --cached specs/demo", "test-author"),
+        # `--` respected: everything past it is a pathspec
+        ("git rm -- tests/x.py", "evaluator"),
+        ("git rm -f -- specs/demo/changes/001-thing/criteria.md", "test-author"),
+    ],
+)
+def test_bash_guard_git_rm_denies_the_write_direction(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) == "deny", command
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        # T06d survives the new operation: the owner still removes its own files through the shell
+        ("git rm tests/test_core.py", "test-author"),
+        ("git rm --cached tests/test_core.py", "test-author"),
+        ("git rm specs/demo/changes/001-thing/verdict.md", "evaluator"),
+        ("git rm src/app/core.py", "implementer"),
+        # a target that resolves OUTSIDE the repo never fires (T06e), the new op included
+        ("git rm /tmp/scratch/tests/x.py", "evaluator"),
+    ],
+)
+def test_bash_guard_git_rm_allows_owned_and_out_of_repo(repo: FixtureRepo, command: str, role: str) -> None:
+    assert decision(_run_anchored(command, agent_type=role, root=repo.root)) is None, command
+
+
+def test_bash_guard_git_rm_keeps_the_tokeniser_properties(repo: FixtureRepo) -> None:
+    # The T06i properties must hold for the added operation too, or the inventory re-opens the
+    # family it took a rewrite to close.
+    # Masking: `git rm …` inside a quoted commit message is data, not a command.
+    quoted = 'git commit -m "then git rm tests/x.py"'
+    assert decision(_run_anchored(quoted, agent_type="evaluator", root=repo.root)) is None
+    # First-component expansion: an unexpandable prefix anchors the path nowhere.
+    assert decision(_run_anchored('git rm "$S/tests/x.py"', agent_type="evaluator", root=repo.root)) is None
+    # ... while a literal prefix still anchors it, expansion below and all.
+    assert decision(_run_anchored("git rm tests/$name.py", agent_type="evaluator", root=repo.root)) == "deny"
+    # Segmenting: the removal's own target is found beside another command.
+    assert decision(_run_anchored("mkdir -p /tmp/x; git rm tests/y.py", agent_type="evaluator", root=repo.root)) == (
+        "deny"
+    )
+    # Command position: `git` as a grep pattern removes nothing.
+    assert decision(_run_anchored('grep -rn "git rm" notes/', agent_type="evaluator", root=repo.root)) is None
+    # cd-awareness: a removal inside a scratch copy of the tree resolves outside the repo.
+    assert decision(_run_anchored("cd /tmp/mut && git rm tests/x.py", agent_type="evaluator", root=repo.root)) is None
+
+
+def test_bash_guard_git_rm_takes_every_operand() -> None:
+    # The rule at unit level, so a future edit cannot quietly narrow it to `cp`'s last-operand
+    # rule (there is no read direction here) nor re-classify `--cached` as a read.
+    mod = _load_hook("bash_guard")
+    assert mod._mutator_targets("git", ["rm", "a.py", "b.py"]) == ["a.py", "b.py"]
+    assert mod._mutator_targets("git", ["rm", "-r", "-f", "d"]) == ["d"]
+    assert mod._mutator_targets("git", ["rm", "--cached", "a.py"]) == ["a.py"]
+    assert mod._mutator_targets("git", ["rm", "--", "-weird.py"]) == ["-weird.py"]  # past `--`, a path
+    assert mod._mutator_targets("git", ["rm"]) == []  # nothing named
+    # ... and no other subcommand became a write by accident
+    assert mod._mutator_targets("git", ["status"]) == []
+    assert mod._mutator_targets("git", ["commit", "-m", "rm tests/x.py"]) == []
+    assert mod._mutator_targets("git", ["mv", "a.py", "b.py"]) == []  # deliberately NOT modelled (T06l)
 
 
 # =======================================================================================
@@ -479,17 +1084,89 @@ def test_subagent_stop_writes_escalate_at_ceiling(repo: FixtureRepo) -> None:
     assert "gate.py stayed RED" in escalate.read_text(encoding="utf-8")
 
 
+# T06h — the ESCALATE must be a COMMIT. An untracked file is invisible to gate.py (git retains
+# nothing about it) and to any acceptance run in a fresh worktree, so §5.3's human-only lock was
+# unenforceable no matter what the gate checked.
+
+ESCALATE_REL = "specs/demo/changes/001-thing/ESCALATE"
+
+
+def _escalate_at_ceiling(repo: FixtureRepo) -> subprocess.CompletedProcess[str]:
+    repo.write("src/app/main.py", SRC_MAIN_BROKEN)  # gate RED, and an uncommitted src/ edit
+    return run_hook(
+        "subagent_stop.py",
+        _implementer({"cwd": str(repo.root), "stop_hook_active": True}),
+        cwd=repo.root,
+        env={"WORKFLOW_STOP_CEILING": "0"},  # escalate immediately
+    )
+
+
+def test_subagent_stop_commits_the_escalate(repo: FixtureRepo) -> None:
+    proc = _escalate_at_ceiling(repo)
+    assert proc.returncode == 0, proc.stderr
+    assert (repo.root / ESCALATE_REL).exists()
+    # tracked at HEAD — the only state in which gate.py can ever see the file disappear
+    assert repo.git("ls-tree", "--name-only", "HEAD", "--", ESCALATE_REL).strip() == ESCALATE_REL
+
+
+def test_subagent_stop_escalate_commit_is_scoped_to_that_one_path(repo: FixtureRepo) -> None:
+    # `-A` would sweep the implementer's unfinished src/** into a commit the hook does not own
+    # (D4) — and at an escalation an unfinished src/ is exactly what is lying around.
+    proc = _escalate_at_ceiling(repo)
+    assert proc.returncode == 0, proc.stderr
+    touched = [ln for ln in repo.git("show", "--name-only", "--format=", "HEAD").splitlines() if ln.strip()]
+    assert touched == [ESCALATE_REL], touched
+    assert "src/app/main.py" in repo.git("status", "--porcelain")  # still uncommitted
+
+
+def test_subagent_stop_never_loses_the_escalation_when_the_commit_fails(repo: FixtureRepo) -> None:
+    # A tree git cannot commit in (here: no repository at all — a project not yet under git, or a
+    # missing identity in a consumer). The escalation must still reach the human, with the reason
+    # the lock is not yet enforceable stated instead of swallowed (the T06j rule).
+    shutil.rmtree(repo.root / ".git")
+    proc = _escalate_at_ceiling(repo)
+    assert proc.returncode == 0, proc.stderr
+    assert (repo.root / ESCALATE_REL).exists(), "the file must survive a failed commit"
+    message = json.loads(proc.stdout)["systemMessage"]
+    assert "iteration ceiling" in message
+    assert "could not be COMMITTED" in message
+    assert "git commit --" in message  # what to do about it
+
+
+def test_subagent_stop_gate_path_prefers_the_plugin_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # T15/D4: installed as a plugin the gate is NOT under the project, so CLAUDE_PLUGIN_ROOT wins
+    # — but only when it really holds one, otherwise the checked-out location is the answer.
+    mod = _load_hook("subagent_stop")
+    root = tmp_path / "project"
+    root.mkdir()
+
+    monkeypatch.delenv("CLAUDE_PLUGIN_ROOT", raising=False)
+    assert mod.gate_path(root) == root / ".claude" / "tools" / "gate.py"
+
+    plugin = tmp_path / "plugins" / "adw"
+    (plugin / "tools").mkdir(parents=True)
+    (plugin / "tools" / "gate.py").write_text("")
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(plugin))
+    assert mod.gate_path(root) == plugin / "tools" / "gate.py"
+
+    # a relative value (the workflow's own repo sets `.claude`) resolves against the acting root
+    checked_out = root / ".claude" / "tools"
+    checked_out.mkdir(parents=True)
+    (checked_out / "gate.py").write_text("")
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", ".claude")
+    assert mod.gate_path(root) == checked_out / "gate.py"
+
+    # a value that names no tools directory must not defeat the fallback
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path / "nowhere"))
+    assert mod.gate_path(root) == root / ".claude" / "tools" / "gate.py"
+
+
 def test_subagent_stop_gate_python_prefers_venv(tmp_path: Path) -> None:
     # F7: the hook re-runs gate.py, whose toolchain/smoke need the app's deps. Claude Code
     # launches the hook with the ambient system python (no fastapi), so it must prefer the
     # project's .venv interpreter, falling back to the launching interpreter only when no
     # venv exists (test fixtures have a pyproject but no venv — the fallback keeps them as-is).
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("subagent_stop_mod", HOOKS_DIR / "subagent_stop.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = _load_hook("subagent_stop")
 
     # no venv in the tree -> fall back to the launching interpreter
     assert mod.gate_python(tmp_path) == sys.executable
@@ -526,6 +1203,112 @@ def test_subagent_stop_passes_through_when_agent_type_absent(repo: FixtureRepo) 
     proc = run_hook("subagent_stop.py", {"cwd": str(repo.root), "stop_hook_active": False}, cwd=repo.root)
     assert proc.returncode == 0, proc.stderr
     assert decision(proc) is None, proc.stdout
+
+
+# T15/D1 — installed as a plugin the payload says `adw:implementer`. Comparing the whole string
+# would release the implementer on every RED gate, i.e. silently undo T06c in every consumer.
+
+
+def test_subagent_stop_holds_a_namespaced_implementer(repo: FixtureRepo) -> None:
+    repo.write("src/app/main.py", SRC_MAIN_BROKEN)  # gate is RED
+    proc = run_hook(
+        "subagent_stop.py",
+        {"cwd": str(repo.root), "stop_hook_active": False, "agent_type": "adw:implementer"},
+        cwd=repo.root,
+    )
+    assert decision(proc) == "block", proc.stdout
+    assert "smoke.construct" in proc.stdout
+
+
+def test_subagent_stop_passes_through_a_namespaced_non_implementer(repo: FixtureRepo) -> None:
+    repo.write("src/app/main.py", SRC_MAIN_BROKEN)  # gate is RED
+    proc = run_hook(
+        "subagent_stop.py",
+        {"cwd": str(repo.root), "stop_hook_active": False, "agent_type": "adw:test-author"},
+        cwd=repo.root,
+    )
+    assert decision(proc) is None, proc.stdout
+    assert not proc.stdout.strip(), "no gate run, no output for a non-implementer stop"
+
+
+def test_subagent_stop_is_implementer_reads_both_forms() -> None:
+    mod = _load_hook("subagent_stop")
+    assert mod.is_implementer("implementer")
+    assert mod.is_implementer("adw:implementer")
+    assert not mod.is_implementer("adw:test-author")
+    assert not mod.is_implementer("implementer-helper")
+    assert not mod.is_implementer(None)
+    assert not mod.is_implementer("")
+
+
+# T06j — a gate that CANNOT RUN is not a RED: its sentence must reach the human, and it must
+# not cost the implementer an iteration of a ceiling it can never work its way out of.
+
+
+def _bare_venv(root: Path) -> None:
+    """A real interpreter with no mypy/ruff/pytest — the consumer's first-run environment.
+
+    Placed at <root>/.venv so gate_python() picks it exactly as it would in a real project (F7):
+    the gate then genuinely aborts on its own toolchain preflight (T12b), no stubbing involved.
+    """
+    proc = subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(root / ".venv")], capture_output=True)
+    if proc.returncode != 0:  # pragma: no cover — environment without ensurepip/venv
+        pytest.skip("python -m venv unavailable")
+
+
+def test_subagent_stop_surfaces_unrunnable_gate_without_spending_a_block(repo: FixtureRepo) -> None:
+    # The gate aborts (exit 2, no verdict.json) because the project's environment lacks the
+    # toolchain. Before T06j the hook read only verdict.json, reported `gate produced no
+    # verdict.json`, blocked — and did so three times before writing an ESCALATE for a defect
+    # no src/** edit can clear. Now the gate's own sentence comes out, once, and costs nothing.
+    _bare_venv(repo.root)
+    (repo.root / ".gate").mkdir(exist_ok=True)
+    (repo.root / ".gate/subagent-stop-count").write_text("2\n", encoding="utf-8")  # 2 blocks already spent
+
+    proc = run_hook("subagent_stop.py", _implementer({"cwd": str(repo.root), "stop_hook_active": False}), cwd=repo.root)
+
+    assert proc.returncode == 0, proc.stderr
+    assert decision(proc) != "block", proc.stdout  # released, not held
+    message = json.loads(proc.stdout)["systemMessage"]
+    assert "toolchain missing from this project's environment" in message
+    for tool in ("mypy", "ruff", "pytest"):
+        assert tool in message
+    assert "uv sync" in message  # the fix, not just the symptom
+    assert "gate produced no verdict.json" not in message  # the swallowed-diagnostic wording is gone
+    # the ceiling is untouched: not spent (this was no iteration), not reset (no free unblock)
+    assert (repo.root / ".gate/subagent-stop-count").read_text(encoding="utf-8").strip() == "2"
+    assert not (repo.root / "specs/demo/changes/001-thing/ESCALATE").exists()
+
+
+def test_subagent_stop_surfaces_a_crashed_gate_too(repo: FixtureRepo) -> None:
+    # Exit 2 is the deliberate abort; any other exit with no verdict is a crash. Both are
+    # "the gate could not answer" — the implementer is released either way, with the tail.
+    repo.write(
+        ".claude/tools/gate.py",
+        "import sys\nprint('boom: gate exploded', file=sys.stderr)\nsys.exit(1)\n",
+    )
+    proc = run_hook("subagent_stop.py", _implementer({"cwd": str(repo.root), "stop_hook_active": False}), cwd=repo.root)
+
+    assert proc.returncode == 0, proc.stderr
+    assert decision(proc) != "block", proc.stdout
+    message = json.loads(proc.stdout)["systemMessage"]
+    assert "boom: gate exploded" in message
+    assert "exit 1" in message
+    assert not (repo.root / ".gate/subagent-stop-count").exists()  # never counted
+
+
+def test_unrunnable_message_names_the_abort_and_keeps_the_gate_wording() -> None:
+    mod = _load_hook("subagent_stop")
+    aborted = mod.unrunnable_message(2, "", "error: toolchain missing from this project's environment (...): ruff")
+    assert "aborted (exit 2)" in aborted
+    assert "toolchain missing from this project's environment" in aborted
+
+    crashed = mod.unrunnable_message(1, "stdout tail", "")
+    assert "exit 1" in crashed
+    assert "stdout tail" in crashed  # falls back to stdout when stderr is empty
+
+    silent = mod.unrunnable_message(9, "", "")
+    assert "no output" in silent  # a silent failure still says something
 
 
 # =======================================================================================

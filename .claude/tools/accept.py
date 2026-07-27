@@ -13,6 +13,8 @@ Usage:
 
   check mode (default): run every gate, print the results AND the prepared merge diff for
                         the human. Touches nothing.
+  --base <branch>:      the S9 base branch. Omitted, it is DERIVED from the branch graph
+                        (derive_base below) — never defaulted to a guessed name (T10g).
   --execute:            perform the post-approval actions (§5.4) ONLY when no gate FAILs —
                         merge criteria into capability invariants, merge the branch to the
                         base, tag, delete the change dir, then run and print the §5.5 drift
@@ -29,19 +31,44 @@ Gates, in the §5.4 order:
      verdict-SHA..HEAD diff intersects the change's files (L-04).
   2. gate.py GREEN on the branch; a DOCKER SKIPPED / docker-exempt integration run is
      surfaced as an EXPLICIT flag (T04b — accepting a skipped Docker tier is a conscious
-     human decision, never a silent default); no ESCALATE file; Companion accepted.
+     human decision, never a silent default); no ESCALATE lock — neither standing in the tree
+     nor committed-then-deleted on this branch (T06h: the file is committed by the hook, so the
+     question is a history question and a detached worktree sees it too); Companion accepted.
   3. Affects-intersection vs in-flight changes → flag list (L-03).
   4. merge-fidelity pre-check: every acceptance criterion of the delta is findable in the
      prepared capability-file merge diff (L-11) — the human's stamp lands on a verified diff.
   5. spec-lint: dangling refs, duplicate capabilities, >300-line files, a capability missing
      from overview.md (L-07/O-13).
   6. orphan sweep (removal flavour): removed behaviour lingers neither in spec text nor as
-     dead src symbols (V-02/§5.4).
+     dead src symbols (V-02/§5.4). The vocabulary is spec §3.1's — the `REMOVED` marker on the
+     `Class:` line plus the `## Removed` section `.claude/templates/change.md` ships — and every
+     way of missing it is FLAGged rather than silently understood or silently ignored: another
+     wording on the `Class:` line, a declared removal with no filled `## Removed` section, or a
+     section whose body names no harvestable symbol. The sweep never reads free prose, so the
+     human sees when V-02 did not run (S4).
 
 Plus one cross-§ gate on the evaluator↔accept seam T09 opened (spec §6 step 4): the
 `## Adversarial review` section of verdict.md must be filled when the change class demands the
 adversarial pass (M/L depth or the first change of a capability) — a structural hold on the
 pass having run, since criteria_guard cannot tell a human evaluator from a self-certifying one.
+
+THE UNDETERMINED-INPUT RULE (T10f, notes/19_accept_gate_audit.md)
+
+    A gate whose input could not be DETERMINED returns FAIL if it guards trust, FLAG if it is
+    a review aid. Never PASS, never absent from the report.
+
+An audit of this script's own gates found seven fail-open paths, all one sentence in different
+clothes: a helper that cannot determine its input returned an empty/neutral value, and the gate
+read "empty" as "nothing wrong" instead of "nothing known". So every helper that can fail to
+determine its input now says so in its return type — `Targets.known`, `Provenance.evidence`, a
+loud `AcceptError` for an unusable git result — and `GATES` below registers each gate's
+direction, walked by `test_no_gate_passes_on_undetermined_input` so a gate added later is
+covered by construction.
+
+The S9 base branch is the same kind of input, one level up: it feeds EVERY `base...HEAD` diff,
+so a guessed base is a wrong answer to every gate that reads one. It is therefore derived from
+the branch graph and never defaulted to a name (T10g, derive_base) — an underivable base is a
+loud `AcceptError`, not a fallback.
 
 Stdlib-only. gate.py and criteria_lint.py are imported from this directory — the criteria
 grammar and the junit-backing checker have exactly one home (C7).
@@ -71,6 +98,45 @@ VERDICT_BASENAME = "verdict.md"
 
 PASS, FAIL, FLAG, SKIP = "PASS", "FAIL", "FLAG", "SKIP"
 
+# The two gate classes the undetermined-input rule (module docstring, T10f) distinguishes.
+TRUST, REVIEW = "trust", "review"
+
+# Every gate this script can report, and what it guards. A gate whose input could not be
+# determined must return FAIL when its class is TRUST and FLAG when it is REVIEW — never PASS,
+# and never be silently absent from the report.
+#   TRUST  — the merge is not allowed to happen on unknown input (freshness, criteria,
+#            provenance, adversarial presence, merge fidelity).
+#   REVIEW — a human-facing review aid; unknown input is surfaced, not blocking.
+# `merge.placement` is REVIEW here because spec §5.4 splits its two halves deliberately: check
+# mode FLAGs a multi-target `Affects` with no approved map, and `--execute` refuses it outright
+# (run(), pinned by test_multi_target_execute_without_map_is_refused) — so nothing merges on an
+# undetermined placement even though the check-mode status is a FLAG.
+# Re-opened and re-closed as REVIEW (T10i item 1) — do not "promote" it to TRUST: check mode is
+# what `/accept-change` step 1 runs, and its step 4 (propose a placement map for the human) is
+# only reached on a non-denied run. A TRUST classification would therefore DENY the very change
+# whose map the command exists to produce, deadlocking every multi-target acceptance — while
+# §5.4 says accept.py «при multi-target только флагует распределение». What was genuinely
+# missing is legibility, not severity: the check-mode verdict line now says the map is still
+# owed (run(), pinned by test_multi_target_check_mode_flags_need_for_placement_map), so nobody
+# reads a bare "ACCEPTABLE" on a change `--execute` will refuse.
+GATES: dict[str, str] = {
+    "escalate": TRUST,
+    "criteria.complete": TRUST,
+    "verdict.freshness": TRUST,
+    "companion": TRUST,
+    "adversarial.presence": TRUST,
+    "gate.green": TRUST,
+    "docker.tier": REVIEW,
+    "criteria.junit-backing": TRUST,
+    "criteria.manual-verdict": TRUST,
+    "invariant.provenance": TRUST,
+    "affects.intersection": REVIEW,
+    "merge.fidelity": TRUST,
+    "merge.placement": REVIEW,
+    "spec.lint": REVIEW,
+    "orphan.sweep": REVIEW,
+}
+
 
 @dataclass
 class Result:
@@ -90,8 +156,8 @@ def _tools() -> tuple[object, object]:
     """Import gate.py + criteria_lint.py from this directory (one home for the grammar)."""
     if not _MODULES:
         sys.path.insert(0, str(TOOLS_DIR))
-        import criteria_lint  # noqa: PLC0415 — stdlib-sibling import, path just set
-        import gate  # noqa: PLC0415
+        import criteria_lint  # stdlib-sibling import, path just set
+        import gate
 
         _MODULES["gate"] = gate
         _MODULES["criteria_lint"] = criteria_lint
@@ -110,27 +176,73 @@ def _git(tree: Path, *args: str, check: bool = False) -> tuple[int, str]:
     return proc.returncode, proc.stdout
 
 
+_HEADING = re.compile(r"^(#+)[ \t]+(.*)$")
+
+
 def _section(text: str, heading: str) -> str:
-    """Return the body of a `## <heading>` section up to the next `## ` heading."""
-    lines = text.splitlines()
+    """Return the body of a `#+ <heading>` section, up to the next same-or-shallower heading.
+
+    The heading is matched at ANY depth: the question every call site asks is "did the author
+    write this section", not "at what depth did they write it". A `## `-only match found a
+    `### Interface sketch` as NOTHING, and an empty Interface sketch reads as S depth — so the
+    mandatory adversarial pass was skipped for an M/L change (T10h; the existing-capability half
+    of T10f's F-02). Termination is same-or-shallower, never any `#+`: a `### F1 …` subheading
+    inside `## Adversarial review` (a real verdict's own shape) must stay part of its
+    parent section instead of ending it.
+
+    Heading TEXT still has to match in full, case-insensitively. The tolerant `#+ <name>…` form
+    that also accepts trailing text after the name lives in `red_check.section_body` and in
+    `_REMOVED_HEADING` below; the three parsers differ in that tolerance and in first-vs-all
+    matching only — see the note at `_REMOVED_HEADING` for why they stay three (T03c/T10h).
+    Widening this one would change which headings match, which is not its question.
+    """
     out: list[str] = []
-    collecting = False
-    for line in lines:
-        if line.strip().lower().startswith("## "):
-            if collecting:
-                break
-            collecting = line.strip()[3:].strip().lower() == heading.lower()
+    depth = 0
+    for line in text.splitlines():
+        match = _HEADING.match(line.strip())
+        if match and not depth:
+            if match.group(2).strip().lower() == heading.lower():
+                depth = len(match.group(1))
             continue
-        if collecting:
+        if match and len(match.group(1)) <= depth:
+            break
+        if depth:
             out.append(line)
     return "\n".join(out)
+
+
+def _uncomment(text: str, replacement: str = "") -> str:
+    """Delete `<!-- ... -->` spans from a TEXT-shaped read. The line count is NOT preserved.
+
+    The layer's other grammar is `criteria_lint.strip_html_comments`, which BLANKS spans in place
+    and keeps the line count — the contract T10k made public, and the one every caller that
+    reports a line number or subtracts comment lines from a count must use (gate.py's criteria and
+    provenance checks; `_spec_lint` and `_overview_capability_tokens` in this file, whose S7 size
+    check and duplicate-capability check both depend on it).
+
+    The callers of THIS helper ask text-shaped questions — "does this section carry content beyond
+    the template comment", "which tokens does it name", "is the `REMOVED` marker on the `Class:`
+    line", "which `*.md` does `Affects:` name" — and none of them counts or reports a line. It stays
+    a second grammar rather than being routed through the shared helper for one reason, and the
+    reason has a direction: an UNTERMINATED `<!--` blanks the rest of the document under the
+    line-preserving helper, so `classify_removal` would stop seeing a `## Removed` heading below a
+    malformed comment and the orphan sweep would silently not run — notes/19's fail-open direction,
+    on the one gate here whose whole job is to notice something missing. Deleting only well-formed
+    spans leaves the heading visible. C7 is satisfied by ONE implementation per grammar, not one in
+    total — the same ruling the three section parses got (T03c, see the `_REMOVED_HEADING` note);
+    what is forbidden is a fifth copy of either regex.
+
+    `replacement` is a space wherever the result is TOKENISED: `foo<!--c-->bar` must not collapse
+    into the single token `foobar`.
+    """
+    return re.sub(r"<!--.*?-->", replacement, text, flags=re.DOTALL)
 
 
 def _significant_tokens(text: str) -> set[str]:
     """Content-bearing tokens for token-set matching (numbers kept even when short)."""
     toks = set()
     # strip html comments so a placeholder comment never counts as content
-    text = re.sub(r"<!--.*?-->", " ", text, flags=re.DOTALL)
+    text = _uncomment(text, " ")
     for raw in re.findall(r"[A-Za-z0-9_]+", text.lower()):
         if raw.isdigit() or len(raw) >= 3:
             toks.add(raw)
@@ -142,17 +254,49 @@ def _significant_tokens(text: str) -> set[str]:
 # ---------------------------------------------------------------------------------------
 
 
-def junit_ac_test_ids(gate_dir: Path) -> dict[str, str]:
-    """Map each ac-id to a PASSED test node-id, correlating the ac-marked junit testcases
-    with the collected node-ids in the gate's inventory. The provenance mark an invariant
-    carries (verified by: <node-id>) must be a real node-id gate.py's L-06 check can grep."""
-    import json  # noqa: PLC0415
+@dataclass(frozen=True)
+class Provenance:
+    """ac-id -> PASSED test node-id, plus what could NOT be determined (T10f F-06).
+
+    `evidence`     — this run's junit report was found at all. Without it nothing is known
+                     about provenance; an empty `node_ids` then means "unknown", not "none".
+    `uncorrelated` — ac-ids whose passed junit testcase matched no single node-id in the
+                     gate's inventory (missing inventory, or an ambiguous same-named test).
+    An invariant may only be written with a resolvable node-id: `gate.py`'s L-06 check greps
+    the test corpus for the referenced test, so a `(verified by: ?)` merged into a capability
+    file turns the BASE branch's own gate RED — the acceptance script breaking S9.
+    """
+
+    node_ids: dict[str, str]
+    evidence: bool
+    uncorrelated: tuple[str, ...] = ()
+
+
+def _node_classname(node_id: str) -> str:
+    """The junit `classname` a pytest node-id maps to: `tests/a/b.py::C::test_x` -> `tests.a.b.C`."""
+    parts = node_id.split("::")
+    module = parts[0][:-3] if parts[0].endswith(".py") else parts[0]
+    return ".".join([module.replace("\\", "/").replace("/", "."), *parts[1:-1]])
+
+
+def junit_ac_test_ids(gate_dir: Path) -> Provenance:
+    """Correlate the ac-marked, PASSED junit testcases with the collected node-ids in the
+    gate's inventory. The provenance mark an invariant carries (verified by: <node-id>) must be
+    a real node-id gate.py's L-06 check can grep.
+
+    Correlation is on junit's (classname, name) pair, not on the function name alone: two
+    same-named tests in different files (`tests/unit/...::test_create` and
+    `tests/integration/...::test_create` — not an exotic shape) otherwise attributed the
+    invariant to whichever node-id sorted first, i.e. to the wrong file (T10f F-06). A junit
+    without usable classnames still correlates when exactly ONE passed node-id carries the
+    name; anything ambiguous is reported as uncorrelated instead of guessed."""
+    import json
 
     junit = gate_dir / "last-run.xml"
     inventory = gate_dir / "inventory.json"
     if not junit.exists():
-        return {}
-    ac_to_name: dict[str, str] = {}
+        return Provenance({}, evidence=False)
+    ac_to_case: dict[str, tuple[str, str]] = {}
     root = ET.parse(junit).getroot()
     for tc in root.iter("testcase"):
         if any(tc.find(t) is not None for t in ("failure", "error", "skipped")):
@@ -160,18 +304,24 @@ def junit_ac_test_ids(gate_dir: Path) -> dict[str, str]:
         name = tc.get("name")
         for prop in tc.iter("property"):
             if prop.get("name") == "ac" and prop.get("value") and name:
-                ac_to_name.setdefault(str(prop.get("value")), name)
+                ac_to_case.setdefault(str(prop.get("value")), (tc.get("classname") or "", name))
     outcomes: dict[str, str] = {}
     if inventory.exists():
         data = json.loads(inventory.read_text(encoding="utf-8"))
         outcomes = dict(data.get("outcomes", {}))
+    passed = [node_id for node_id, outcome in sorted(outcomes.items()) if outcome == "passed"]
     result: dict[str, str] = {}
-    for ac_id, name in ac_to_name.items():
-        for node_id, outcome in outcomes.items():
-            if outcome == "passed" and node_id.rsplit("::", 1)[-1] == name:
-                result[ac_id] = node_id
-                break
-    return result
+    unresolved: list[str] = []
+    for ac_id, (classname, name) in sorted(ac_to_case.items()):
+        candidates = [n for n in passed if n.rsplit("::", 1)[-1] == name]
+        exact = [n for n in candidates if _node_classname(n) == classname]
+        if len(exact) == 1:
+            result[ac_id] = exact[0]
+        elif len(candidates) == 1:
+            result[ac_id] = candidates[0]
+        else:
+            unresolved.append(ac_id)
+    return Provenance(result, evidence=True, uncorrelated=tuple(unresolved))
 
 
 # ---------------------------------------------------------------------------------------
@@ -198,8 +348,24 @@ def build_invariants(criteria: list, ac_ids: dict[str, str]) -> list[str]:
 
 def instantiate_capability(ctx: str, capability: str) -> str:
     """A NEW capability file is born from the template — /spec never creates capability
-    files, this script is the template's sole consumer (T03 finding 6)."""
-    template = (TEMPLATES_DIR / "capability.md").read_text(encoding="utf-8")
+    files, this script is the template's sole consumer (T03 finding 6).
+
+    The template's HTML comments are copied VERBATIM, on purpose (T10j): this script is the
+    template's only consumer, so a comment stripped here serves nobody, and those comments are
+    the only orientation whoever opens a freshly born file gets ("50-300 lines — cut it", who
+    owns which section). The obligation the birth path carries instead is that the template
+    must hold no data-shaped specimen — a `verified by:` example in parentheses was read by
+    gate.py's L-06 check as a real, rotted provenance reference and turned the base branch RED
+    after every capability birth. gate.py now strips comments before matching (the load-bearing
+    half of the fix); the template's wording is the second lock, not the first.
+    """
+    template_path = TEMPLATES_DIR / "capability.md"
+    if not template_path.exists():
+        raise AcceptError(
+            f"capability template {template_path} not found — a capability-birthing change cannot be "
+            "merged without it (is the .claude/ plugin tree complete?)"
+        )
+    template = template_path.read_text(encoding="utf-8")
     name = capability[:-3] if capability.endswith(".md") else capability
     return template.replace("<context>", ctx, 1).replace("<capability>", name, 1)
 
@@ -212,21 +378,54 @@ def append_invariants(text: str, invariants: list[str]) -> str:
     return text.rstrip() + "\n" + "\n".join(invariants) + "\n"
 
 
-def _overview_capabilities(tree: Path, ctx: str) -> list[str]:
-    """The `*.md` capability files named in overview.md's `## Capabilities` list — the context
-    map the /spec session authors, so it carries the human's chosen capability name."""
+def _overview_capability_tokens(tree: Path, ctx: str) -> list[str]:
+    """Every `*.md` token in overview.md's `## Capabilities` list, IN ORDER and WITH repeats —
+    the raw list, so spec-lint can see a capability listed twice (T10f F-03).
+
+    A comment is not content (T10k — the same rule as gate.py's L-06 and _spec_lint, and this was
+    the last reader still on raw text): a `<!-- see `foo.md` for the shape -->` line inside the
+    Capabilities section used to yield `foo.md` as a capability token. Not a lint nit, because
+    this list feeds `_overview_capabilities` -> `resolve_targets` -> the capability-BIRTH path: a
+    comment could name the file an acceptance creates, or fake a "names X more than once" finding.
+
+    Comments are blanked, never dropped, so order and repeats — which the duplicate-capability
+    check reads (T10f F-03) — survive untouched.
+    """
     overview = tree / "specs" / ctx / "overview.md"
     if not overview.exists():
         return []
-    body = _section(overview.read_text(encoding="utf-8"), "Capabilities")
+    _, criteria_lint = _tools()
+    kept = criteria_lint.strip_html_comments(overview.read_text(encoding="utf-8").splitlines())
+    body = _section("\n".join(kept), "Capabilities")
+    return [tok for tok in re.findall(r"`?([A-Za-z0-9_.\-]+\.md)`?", body) if tok != "overview.md"]
+
+
+def _overview_capabilities(tree: Path, ctx: str) -> list[str]:
+    """The `*.md` capability files named in overview.md's `## Capabilities` list — the context
+    map the /spec session authors, so it carries the human's chosen capability name."""
     files: list[str] = []
-    for tok in re.findall(r"`?([A-Za-z0-9_.\-]+\.md)`?", body):
-        if tok != "overview.md" and tok not in files:
+    for tok in _overview_capability_tokens(tree, ctx):
+        if tok not in files:
             files.append(tok)
     return files
 
 
-def resolve_targets(tree: Path, ctx: str, change_md: str, birth_slug: str | None = None) -> list[str]:
+@dataclass(frozen=True)
+class Targets:
+    """The capability files a change's invariants merge into (T10f F-02).
+
+    `known` is False when the target could NOT BE DETERMINED — never "this change targets
+    nothing": every change merges into at least one capability file, so an empty resolution is
+    missing knowledge and every caller must treat it as such. The empty list read as "nothing
+    to worry about" is what let a capability-birthing change skip the mandatory adversarial
+    pass, and what makes an unresolvable in-flight `Affects` unable to intersect.
+    """
+
+    files: tuple[str, ...]
+    known: bool
+
+
+def resolve_targets(tree: Path, ctx: str, change_md: str, birth_slug: str | None = None) -> Targets:
     """Capability files the invariants merge into: the Affects line, else the single existing
     capability of the context, else — for the FIRST change of a context, whose acceptance BIRTHS
     the capability file — the capability the /spec author DECLARED in overview.md's Capabilities
@@ -239,7 +438,7 @@ def resolve_targets(tree: Path, ctx: str, change_md: str, birth_slug: str | None
     m = re.search(r"(?m)^Affects:\s*(.+?)\s*$", change_md)
     files: list[str] = []
     if m:
-        line = re.sub(r"<!--.*?-->", "", m.group(1))
+        line = _uncomment(m.group(1))
         for tok in re.split(r"[,\s]+", line.strip()):
             tok = tok.strip().strip("`")
             if tok.endswith(".md"):
@@ -256,7 +455,7 @@ def resolve_targets(tree: Path, ctx: str, change_md: str, birth_slug: str | None
                 derived = re.sub(r"^\d+-", "", birth_slug).strip()
                 if derived:
                     files = [f"{derived}.md"]
-    return files
+    return Targets(tuple(files), known=bool(files))
 
 
 @dataclass
@@ -288,14 +487,15 @@ def compute_merge(
     map is needed (`needs_placement`), with an invalid map it refuses (`placement_error`).
     `birth_slug` (the change dir name) lets a capability-birthing first change derive its target
     when it carries no Affects line — see resolve_targets."""
-    targets = resolve_targets(tree, ctx, change_md, birth_slug)
-    if not targets:
+    resolved = resolve_targets(tree, ctx, change_md, birth_slug)
+    if not resolved.known:
         return MergePlan(
             [],
             "",
             [],
             "cannot determine target capability file — add an 'Affects: <capability>.md' line to change.md",
         )
+    targets = list(resolved.files)
     inv_pairs = build_invariant_lines(criteria, ac_ids)
     invariants = [line for _, line in inv_pairs]
 
@@ -367,11 +567,24 @@ def merge_fidelity_violations(ac_texts: list[tuple[str, str]], merged_text: str)
 
     Token-set matching (the §5.4 grep-class, deliberately weakened from substring per the
     task's Escalate-if: robust to backtick/punctuation drift between change.md and the merged
-    invariant, still catches a criterion that produced no invariant at all)."""
+    invariant, still catches a criterion that produced no invariant at all).
+
+    Both vacuous inputs are violations, not a pass (T10f F-04): with no criterion at all the
+    gate has verified nothing, and a criterion whose whole text carries no comparable token has
+    an empty token set — so it can never be "missing" from any merge, whatever the merge says."""
     merged = _significant_tokens(merged_text)
     out: list[str] = []
+    if not ac_texts:
+        return [
+            "no acceptance criteria could be read from change.md or criteria.md — merge fidelity is "
+            "unverifiable, so the merge is not proven to carry anything (L-11)"
+        ]
     for ac_id, text in ac_texts:
-        missing = _significant_tokens(text) - merged
+        tokens = _significant_tokens(text)
+        if not tokens:
+            out.append(f"{ac_id}: carries no comparable token — its presence in the merge is unverifiable (L-11)")
+            continue
+        missing = tokens - merged
         if missing:
             out.append(f"{ac_id}: not found in the prepared merge (missing tokens: {sorted(missing)})")
     return out
@@ -382,7 +595,7 @@ def parse_verdict_sha(verdict_text: str) -> str | None:
 
     Tolerant to markdown around the hex: the template renders a bare `SHA: <hex>`, but an
     evaluator that wraps it in backticks or emphasis (`` SHA: `246f84…` ``) must not be
-    silently denied over cosmetics (T10c). Match the first 7–40 hex run after the `SHA:`
+    silently denied over cosmetics (T10c). Match the first 7-40 hex run after the `SHA:`
     token, skipping any backticks / emphasis punctuation between them. Freshness still
     requires the hex to resolve to a real commit downstream — this widens the parse, not the
     semantics; a verdict with no hex anywhere still yields None (and FAILs freshness)."""
@@ -452,6 +665,93 @@ def rebase_freshness_state(
     )
 
 
+@dataclass(frozen=True)
+class RemovalFlavour:
+    """Structural classification of a change as removal-flavour, plus the symbols to sweep.
+
+    `by_class`  — the `Class:` line carries spec §3.1's pinned marker, `REMOVED`.
+    `unpinned`  — the other removal wording found on the `Class:` line when the marker is
+                  absent ("" otherwise). Not a classification: a reportable authoring slip.
+    `sections`  — the body under every FILLED `#+ Removed…` heading (the ONLY place terms are
+                  harvested from). A heading whose body is nothing but the template's own
+                  instruction comment is not a declaration, so an undeleted skeleton section in
+                  a non-removal change stays silent.
+    `terms`     — node-ids / backticked symbol names found in those sections.
+    """
+
+    by_class: bool
+    unpinned: str
+    sections: tuple[str, ...]
+    terms: tuple[str, ...]
+
+    @property
+    def fires(self) -> bool:
+        return self.by_class or bool(self.sections)
+
+
+# The removal flavour is declared structurally, never grepped out of prose (T10e): either the
+# `Class:` line carries the marker or the change.md has a REAL heading — `#+`, one-or-more, so a
+# wrapped sketch line starting with "removed …" cannot pass for one. The pre-T10e classifier used
+# `#*` (zero-or-more) and matched exactly that.
+#
+# ONE spelling, and it is spec §3.1's: «Removal-вкус (`REMOVED`)». `.claude/templates/change.md`
+# teaches that literal marker (`Class: behavioral, REMOVED`) beside the `## Removed` section this
+# harvests, so author and script now read the same rule out of one home (C7). Case-sensitive on
+# purpose — the marker is a tag, not prose, and lowercase "removes the legacy export" on the
+# `Class:` line is authoring drift to report, not a second dialect to support (T03c).
+_REMOVED_MARKER = re.compile(r"(?m)^Class:[^\n]*\bREMOVED\b")
+# Every OTHER removal wording on the `Class:` line: the pre-T03c documents said "removal flavour"
+# and `/spec` said only "listed explicitly", so such change.md files exist. Narrowing the
+# classifier without reporting them would swap T10e's false positive for a silent false negative —
+# the sweep simply not running on a genuine removal, which is the fail-open direction notes/19 is
+# about. So this feeds a FLAG, never a classification.
+_UNPINNED_ON_CLASS_LINE = re.compile(r"(?im)^Class:[^\n]*?\b(remov(?:al|als|ed|es|ing))\b")
+#
+# THREE section parses live in this repo, and they stay three deliberately (T10h finding 3's C7
+# smell, ruled on here because T03c ships the `## Removed` skeleton and so owns this one):
+#   `_section`                 — full heading text, any depth, same-or-shallower, FIRST match;
+#   `red_check.section_body`   — name PREFIX (trailing text tolerated), any depth, FIRST match;
+#   `_REMOVED_HEADING` here    — name prefix, any depth, same-or-shallower, and EVERY match.
+# Unifying them would change which headings match: `_section("Context")` would start matching
+# `## Context of the change`, and this parse would stop seeing a second `## Removed (tests)`
+# section. What was a real defect — and is fixed — is the terminator: all three now agree that a
+# section ends at a same-or-shallower heading, so no `### ` sub-entry truncates its parent.
+_REMOVED_HEADING = re.compile(r"(?m)^(#+)[ \t]*Removed\b[^\n]*$")
+
+
+def classify_removal(change_md: str) -> RemovalFlavour:
+    """Classify a change's removal flavour from STRUCTURE and harvest the removed symbols
+    from the matched heading's own section only.
+
+    Two defects this replaces (both blocked a real change that removes nothing):
+    a classifier that fired on any line beginning with "removed", and a term capture anchored
+    on the FIRST "removed" anywhere in the file — which harvested half the Interface sketch
+    (`id`, `save`, `None`, …) and would drown a genuine removal's real signal too.
+
+    A `Removed` heading is matched at ANY depth and terminated at a SAME-OR-SHALLOWER one, the
+    way `_section` and `red_check.section_body` do it: the naive `#+` terminator this replaced
+    let a `### ` sub-entry truncate its own parent section, so a nested list of removed symbols
+    was harvested in part and the sweep under-swept in silence (T10h finding 3).
+    """
+    text = _uncomment(change_md)  # the template's own comment teaches the marker
+    by_class = bool(_REMOVED_MARKER.search(text))
+    unpinned = ""
+    if not by_class and (slip := _UNPINNED_ON_CLASS_LINE.search(text)):
+        unpinned = slip.group(1)
+    sections: list[str] = []
+    for match in _REMOVED_HEADING.finditer(text):
+        rest = text[match.end() :]
+        nxt = re.search(rf"(?m)^#{{1,{len(match.group(1))}}}[ \t]", rest)
+        body = rest[: nxt.start()] if nxt else rest
+        if body.strip():  # comments are already gone: an unfilled skeleton section declares nothing
+            sections.append(body)
+    terms: list[str] = []
+    for body in sections:
+        terms += re.findall(r"::(\w+)", body)
+        terms += re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", body)
+    return RemovalFlavour(by_class=by_class, unpinned=unpinned, sections=tuple(sections), terms=tuple(terms))
+
+
 def orphan_violations(removed_terms: list[str], spec_text: str, src_text: str) -> list[str]:
     """A removal-flavour change's removed behaviour must survive nowhere (V-02)."""
     out: list[str] = []
@@ -473,7 +773,7 @@ def orphan_violations(removed_terms: list[str], spec_text: str, src_text: str) -
 
 def _has_real_content(section_body: str) -> bool:
     """True when a section carries content beyond template HTML comments / whitespace."""
-    return bool(re.sub(r"<!--.*?-->", "", section_body, flags=re.DOTALL).strip())
+    return bool(_uncomment(section_body).strip())
 
 
 def adversarial_required(change_md: str, creates_new_capability: bool) -> tuple[bool, str]:
@@ -513,7 +813,7 @@ def adversarial_section_filled(verdict_text: str | None) -> bool:
     Reads either `## Adversarial review` or `## Adversarial pass` (T10c)."""
     if verdict_text is None:
         return False
-    stripped = re.sub(r"<!--.*?-->", "", _adversarial_body(verdict_text), flags=re.DOTALL).strip()
+    stripped = _uncomment(_adversarial_body(verdict_text)).strip()
     if not stripped:
         return False
     return re.match(r"(?i)n/?a\b", stripped) is None
@@ -537,9 +837,73 @@ class AcceptContext:
     change_md: str
     criteria_text: str
     verdict_text: str | None
+    base_derived: bool = False
 
 
-def resolve(tree: Path, change_id: str, base: str) -> AcceptContext:
+# `change/<context>-NNN` is the workflow's own branch name (S9). A change branch is never the
+# thing another change merges INTO, so it is never a base candidate — and the acceptance run
+# itself is usually detached at, or standing on, exactly such a branch.
+CHANGE_BRANCH_PREFIX = "change/"
+
+
+def _is_ancestor(tree: Path, older: str, newer: str) -> bool:
+    rc, _ = _git(tree, "merge-base", "--is-ancestor", older, newer)
+    if rc > 1:  # 0 = yes, 1 = no, anything else = git could not answer (undetermined input)
+        raise AcceptError(f"git merge-base --is-ancestor {older} {newer} failed in {tree}")
+    return rc == 0
+
+
+def derive_base(tree: Path) -> str:
+    """The S9 base branch of whatever is checked out at HEAD, read off the branch graph.
+
+    There is no default base name to fall back on: `main` is right for most projects and wrong
+    for this one (its S9 base is `markdown-specs`; `main` is the v2 archive), a consumer project
+    may be on `master` or `trunk`, and `origin/HEAD` records the *repo's* default branch, not the
+    branch this change was cut from — this repo is the counterexample to both (T10g). Hardcoding
+    any of them is the C6 scope-overclaim, and a wrong base silently re-answers every
+    `base...HEAD` gate.
+
+    What IS knowable is what S9 actually says: a change branch is cut from its base and merges
+    back into it, so the base is the branch whose fork point with HEAD is the most recent —
+    every other branch's history joins HEAD's further back. Ambiguity (two branches equally
+    close, or nothing sharing history) is reported, never guessed: the human passes --base.
+    """
+    rc, out = _git(tree, "symbolic-ref", "--quiet", "--short", "HEAD")
+    current = out.strip() if rc == 0 else ""  # empty on a detached HEAD (a worktree acceptance)
+    rc, out = _git(tree, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    if rc != 0:
+        raise AcceptError(f"git for-each-ref refs/heads failed in {tree} — cannot derive the S9 base branch")
+    candidates = [
+        name
+        for name in (line.strip() for line in out.splitlines())
+        if name and name != current and not name.startswith(CHANGE_BRANCH_PREFIX)
+    ]
+    forks: dict[str, str] = {}
+    for name in candidates:
+        rc, out = _git(tree, "merge-base", "HEAD", name)
+        if rc == 0 and out.strip():
+            forks[name] = out.strip()
+    if not forks:
+        raise AcceptError(
+            f"the S9 base branch could not be derived in {tree}: no local branch outside "
+            f"'{CHANGE_BRANCH_PREFIX}*' shares history with HEAD — name it with --base <branch>"
+        )
+    # Keep the branches whose fork point nothing else's fork point descends from.
+    nearest = sorted(
+        name
+        for name, fork in forks.items()
+        if not any(other != fork and _is_ancestor(tree, fork, other) for other in forks.values())
+    )
+    if len(nearest) != 1:
+        detail = ", ".join(f"{name} (forked at {forks[name][:12]})" for name in nearest)
+        raise AcceptError(
+            f"the S9 base branch could not be derived in {tree}: {detail} are equally close to "
+            "HEAD — name the one to accept into with --base <branch>"
+        )
+    return nearest[0]
+
+
+def resolve(tree: Path, change_id: str, base: str | None) -> AcceptContext:
     m = re.fullmatch(r"([A-Za-z0-9_-]+)/(\d+)", change_id)
     if not m:
         raise AcceptError(f"change id must look like <context>/NNN, got {change_id!r}")
@@ -553,6 +917,18 @@ def resolve(tree: Path, change_id: str, base: str) -> AcceptContext:
     if not change_md_path.exists() or not criteria_path.exists():
         raise AcceptError(f"{change_dir} is missing change.md and/or criteria.md")
     verdict_path = change_dir / VERDICT_BASENAME
+    # The base must resolve BEFORE any gate runs: every `base...HEAD` diff below is a gate's
+    # EVIDENCE, and an unresolvable base used to yield an empty diff that read as "nothing
+    # intersects" — one CLI typo turning an L-04 deny into ACCEPTABLE (T10f F-01). With no
+    # --base the base is derived from the branch graph, loudly (T10g) — never guessed by name.
+    base_derived = base is None
+    if base is None:
+        base = derive_base(tree)
+    if _git(tree, "rev-parse", "--verify", f"{base}^{{commit}}")[0] != 0:
+        raise AcceptError(
+            f"base branch {base!r} does not resolve to a commit in {tree} — pass the S9 base with "
+            "--base <branch>; acceptance cannot be judged against a base it cannot see"
+        )
     _, head = _git(tree, "rev-parse", "HEAD", check=True)
     _, branch = _git(tree, "rev-parse", "--abbrev-ref", "HEAD", check=True)
     return AcceptContext(
@@ -567,13 +943,14 @@ def resolve(tree: Path, change_id: str, base: str) -> AcceptContext:
         change_md=change_md_path.read_text(encoding="utf-8"),
         criteria_text=criteria_path.read_text(encoding="utf-8"),
         verdict_text=verdict_path.read_text(encoding="utf-8") if verdict_path.exists() else None,
+        base_derived=base_derived,
     )
 
 
 def run_gate(actx: AcceptContext) -> dict:
     """Run gate.py --criteria in-process at HEAD; return its verdict.json (the fresh
     GREEN/RED authority + junit backing this run leans on — one implementation, imported)."""
-    import json  # noqa: PLC0415
+    import json
 
     gate, _ = _tools()
     gate.run_gate(actx.tree, criteria=True, baseline_arg=None, change_arg=actx.change_id)
@@ -586,13 +963,35 @@ def run_gate(actx: AcceptContext) -> dict:
 # ---------------------------------------------------------------------------------------
 
 
+def _escalate_anchor(actx: AcceptContext) -> str:
+    """Where the ESCALATE history question starts: the change's baseline tag, else the base.
+
+    The baseline tag is the right anchor because it is what the sanctioned clearing step MOVES —
+    `red_check --clear-escalate` re-anchors the baseline onto the commit that removes the lock, so
+    a legally cleared change asks about an EMPTY range and the gate goes quiet. Anchoring on the
+    base branch instead would deny such a change forever, since the adding commit never leaves
+    `base..HEAD`. With no baseline tag there is nothing a clearing could have re-anchored, so the
+    base branch is the honest fallback: a committed-then-deleted lock in the branch's own history
+    still denies.
+    """
+    tag = "baseline/" + actx.change_id.replace("/", "-")
+    if _git(actx.tree, "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}")[0] == 0:
+        return tag
+    return actx.base
+
+
 def prechecks(actx: AcceptContext) -> list[Result]:
     """Cheap structural gates that need no gate.py run — a FAIL here short-circuits the
     expensive gate run (there is no point gating an already-denied change)."""
     _, criteria_lint = _tools()
     results: list[Result] = []
 
-    # gate 2: ESCALATE file (hook-written at the iteration ceiling; human removes it — E-08).
+    # gate 2: ESCALATE (hook-COMMITTED at the iteration ceiling; a human clears it — E-08).
+    # Two questions, one gate: does a lock STAND right now, and was one committed on this branch
+    # and then made to disappear? The second is gate.py's `integrity.escalate-intact` question,
+    # asked through gate.py's own helper (C7, one implementation) so the denial NAMES the lock
+    # here instead of reaching the human as an opaque RED-gate line further down. The gate run
+    # would deny either way — this precheck is about the reason being legible (notes/19).
     escalate = actx.change_dir / "ESCALATE"
     if escalate.exists():
         results.append(
@@ -603,10 +1002,29 @@ def prechecks(actx: AcceptContext) -> list[Result]:
             )
         )
     else:
-        results.append(Result("escalate", PASS, "no ESCALATE file"))
+        gate, _ = _tools()
+        anchor = _escalate_anchor(actx)
+        state = gate.escalate_state(actx.tree, anchor)
+        mine = str(actx.change_dir.relative_to(actx.tree)) + "/ESCALATE"
+        if state.error:
+            # TRUST class: an unanswerable git call means the lock's fate is UNKNOWN, which must
+            # never read as "no lock" (the undetermined-input rule, module docstring).
+            results.append(Result("escalate", FAIL, f"the ESCALATE history could not be read:\n{state.error}"))
+        elif mine in state.missing:
+            results.append(
+                Result(
+                    "escalate",
+                    FAIL,
+                    f"{mine} was committed on this branch since {anchor} and has since been REMOVED — only a "
+                    "human clears a lock, and clearing it re-baselines the change over the removal commit "
+                    f"(`red_check.py --change {actx.change_id} --clear-escalate`, §5.3/E-08)",
+                )
+            )
+        else:
+            results.append(Result("escalate", PASS, f"no ESCALATE file, and none committed since {anchor}"))
 
     # gate 1a: no open [ ] criteria.
-    lines = criteria_lint._strip_html_comments(actx.criteria_text.splitlines())
+    lines = criteria_lint.strip_html_comments(actx.criteria_text.splitlines())
     criteria = criteria_lint.iter_criteria(lines)
     open_ids = [c.ac_id for c in criteria if c.state == " "]
     if not criteria:
@@ -622,8 +1040,10 @@ def prechecks(actx: AcceptContext) -> list[Result]:
     else:
         verdict_sha = parse_verdict_sha(actx.verdict_text)
         verdict_rel = str((actx.change_dir / VERDICT_BASENAME).relative_to(actx.tree))
-        # the verdict.md commit itself is metadata, never a reason to recompute the verdict
-        _, out = _git(actx.tree, "diff", "--name-only", f"{actx.base}...{actx.head}")
+        # the verdict.md commit itself is metadata, never a reason to recompute the verdict.
+        # check=True: this diff IS the freshness gate's evidence — an unusable git result must
+        # abort loudly, never degrade into an empty (== "nothing intersects") set (T10f F-01).
+        _, out = _git(actx.tree, "diff", "--name-only", f"{actx.base}...{actx.head}", check=True)
         change_files = {line for line in out.splitlines() if line.strip() and line != verdict_rel}
         if verdict_sha is None or verdict_sha == actx.head:
             status, detail = freshness_state(verdict_sha, actx.head, set(), change_files)
@@ -660,16 +1080,27 @@ def prechecks(actx: AcceptContext) -> list[Result]:
                 Result(
                     "companion",
                     FAIL,
-                    f"companion {comp} not yet accepted — accept both together (T10); tag {tag} missing or its change dir still present",
+                    f"companion {comp} not yet accepted — accept both together (T10); tag {tag} missing "
+                    "or its change dir still present",
                 )
             )
 
     # gate (spec §6 step 4): the adversarial-pass section is present when the change class
     # demands it (M/L or first-change-of-a-capability). This is the accept side of the
     # evaluator↔accept seam T09 opened — /implement writes the section, accept checks it.
-    targets = resolve_targets(actx.tree, actx.ctx, actx.change_md)
-    creates_new = any(not (actx.tree / "specs" / actx.ctx / name).exists() for name in targets) if targets else False
+    # birth_slug is passed exactly as compute_merge passes it — one derivation, one home (C7).
+    # Before T10f this call site omitted it and read an empty resolution as `creates_new=False`,
+    # so a capability-BIRTHING first change (the F1 primary path) was reported as "S depth on an
+    # existing capability" and escaped the pass the spec makes mandatory for it (F-02). Unknown
+    # is now treated as a birth: a spurious adversarial pass costs one agent run, a skipped one
+    # on a capability birth means an unreviewed first change.
+    targets = resolve_targets(actx.tree, actx.ctx, actx.change_md, actx.change_dir.name)
+    creates_new = not targets.known or any(
+        not (actx.tree / "specs" / actx.ctx / name).exists() for name in targets.files
+    )
     required, why = adversarial_required(actx.change_md, creates_new)
+    if not targets.known:
+        why = "the target capability file could not be determined — assuming a capability birth"
     if not required:
         results.append(Result("adversarial.presence", PASS, f"adversarial pass not required — {why}"))
     elif adversarial_section_filled(actx.verdict_text):
@@ -703,13 +1134,27 @@ def gate_dependent_checks(
 
     # gate 2: Docker-exempt integration tests surfaced EXPLICITLY (T04b).
     exempt = verdict.get("docker_exempt") or []
-    docker_detail = next((c["detail"] for c in verdict.get("checks", []) if c["id"] == "docker.alembic"), "")
-    if exempt:
+    docker_check = check_by_id.get("docker.alembic")
+    docker_detail = docker_check["detail"] if docker_check else ""
+    if docker_check is None and not exempt:
+        # T04b's whole point is that a skipped Docker tier is never a silent default. An ABSENT
+        # check used to fall through to PASS "Docker tier ran" — asserting a tier ran on the
+        # evidence of its absence (T10f F-07).
         results.append(
             Result(
                 "docker.tier",
                 FLAG,
-                f"accepting with a SKIPPED Docker tier — {len(exempt)} integration test(s) not run: {', '.join(exempt)} (conscious human decision, T04b)",
+                "the gate verdict carries no docker.alembic check — whether the Docker/migration tier "
+                "ran cannot be determined from this run (T04b)",
+            )
+        )
+    elif exempt:
+        results.append(
+            Result(
+                "docker.tier",
+                FLAG,
+                f"accepting with a SKIPPED Docker tier — {len(exempt)} integration test(s) not run: "
+                f"{', '.join(exempt)} (conscious human decision, T04b)",
             )
         )
     elif "DOCKER SKIPPED" in docker_detail:
@@ -717,7 +1162,8 @@ def gate_dependent_checks(
             Result(
                 "docker.tier",
                 FLAG,
-                f"Docker tier SKIPPED ({docker_detail}) — accepting without the migration tier is a conscious human decision (T04b)",
+                f"Docker tier SKIPPED ({docker_detail}) — accepting without the migration tier is a "
+                "conscious human decision (T04b)",
             )
         )
     else:
@@ -737,17 +1183,44 @@ def gate_dependent_checks(
             results.append(Result(label, FAIL, c["detail"].splitlines()[0]))
 
     # prepare the merge (needs junit-derived provenance).
-    lines = criteria_lint._strip_html_comments(actx.criteria_text.splitlines())
+    lines = criteria_lint.strip_html_comments(actx.criteria_text.splitlines())
     criteria = criteria_lint.iter_criteria(lines)
-    ac_ids = junit_ac_test_ids(actx.tree / GATE_DIR_NAME)
-    plan = compute_merge(actx.tree, actx.ctx, actx.change_md, criteria, ac_ids, placement, actx.change_dir.name)
-    if plan.error:
-        results.append(Result("merge.fidelity", FAIL, plan.error))
-        return results, None
+    prov = junit_ac_test_ids(actx.tree / GATE_DIR_NAME)
+
+    # gate 1d: every PROVEN criterion resolves to a real test node-id (T10f F-06). Without it an
+    # invariant merges as `(verified by: ?)`, which gate.py's L-06 check cannot resolve — i.e.
+    # this script would push spec content that turns the base branch's own gate RED (S9).
+    proven = [c.ac_id for c in criteria if c.state == "x"]
+    unresolved = [ac for ac in proven if ac not in prov.node_ids]
+    if unresolved:
+        reason = (
+            "no junit report from this run in .gate/"
+            if not prov.evidence
+            else f"uncorrelated in the gate's test inventory: {', '.join(prov.uncorrelated) or 'no ac-marked testcase'}"
+        )
+        results.append(
+            Result(
+                "invariant.provenance",
+                FAIL,
+                f"{len(unresolved)} proven criterion/criteria have no resolvable test node-id ({reason}): "
+                f"{', '.join(unresolved)} — their invariants would merge as '(verified by: ?)', which makes "
+                "gate.py's spec.invariant-tests (L-06) RED on the base branch",
+            )
+        )
+    else:
+        results.append(
+            Result("invariant.provenance", PASS, f"all {len(proven)} proven criteria resolve to a passed test node-id")
+        )
+
+    plan = compute_merge(actx.tree, actx.ctx, actx.change_md, criteria, prov.node_ids, placement, actx.change_dir.name)
+    # An unresolved target FAILs merge-fidelity — but it must not ERASE the remaining gates from
+    # the human's output (T10f F-09): they are computed and reported below either way.
+    born = () if plan.error else tuple(n for n in plan.targets if not (actx.tree / "specs" / actx.ctx / n).exists())
 
     # gate 3: Affects-intersection vs in-flight changes → flag list (L-03).
-    _, my_affects = _affects_set(actx.tree, actx.ctx, actx.change_md)
+    my_affects, my_known = _affects_paths(actx.tree, actx.ctx, actx.change_md, actx.change_dir.name)
     intersections: list[str] = []
+    undetermined: list[str] = []
     for other in sorted((actx.tree / "specs").glob("*/changes/*")):
         if not other.is_dir() or other == actx.change_dir:
             continue
@@ -755,44 +1228,61 @@ def gate_dependent_checks(
         if not other_md.exists():
             continue
         o_ctx = other.parent.parent.name
-        _, o_aff = _affects_set(actx.tree, o_ctx, other_md.read_text(encoding="utf-8"))
+        rel = str(other.relative_to(actx.tree))
+        o_aff, o_known = _affects_paths(actx.tree, o_ctx, other_md.read_text(encoding="utf-8"), other.name)
+        if not o_known:
+            # an in-flight change whose own Affects cannot be resolved contributes an empty set,
+            # so it could never intersect — L-03 silently skipped it (T10f F-07).
+            undetermined.append(rel)
+            continue
         shared = my_affects & o_aff
         if shared:
-            rel = str(other.relative_to(actx.tree))
             intersections.append(f"{rel} shares {', '.join(sorted(shared))}")
-    if intersections:
+    if not my_known:
         results.append(
             Result(
                 "affects.intersection",
                 FLAG,
-                "in-flight changes touch the same capability files — re-review their criteria (L-03): "
-                + "; ".join(intersections),
+                "this change's own Affects could not be determined, so an intersection with an in-flight "
+                "change cannot be ruled out (L-03)",
             )
         )
+    elif intersections or undetermined:
+        detail = "in-flight changes touch the same capability files — re-review their criteria (L-03): "
+        parts = list(intersections)
+        parts += [f"{rel} has an undeterminable Affects — intersection cannot be ruled out" for rel in undetermined]
+        results.append(Result("affects.intersection", FLAG, detail + "; ".join(parts)))
     else:
         results.append(Result("affects.intersection", PASS, "no in-flight change intersects this change's Affects"))
 
     # gate 4: merge-fidelity.
-    ac_texts = _change_ac_texts(actx.change_md)
-    if not ac_texts:
-        # fall back to criteria.md texts so the gate still asserts every criterion landed
-        ac_texts = [(c.ac_id, c.text) for c in criteria]
-    violations = merge_fidelity_violations(ac_texts, "\n".join(plan.invariants))
-    if violations:
-        results.append(
-            Result(
-                "merge.fidelity",
-                FAIL,
-                "acceptance criteria absent from the prepared merge (L-11):\n" + "\n".join(violations),
-            )
-        )
+    if plan.error:
+        results.append(Result("merge.fidelity", FAIL, plan.error))
     else:
-        results.append(
-            Result(
-                "merge.fidelity", PASS, f"all {len(ac_texts)} acceptance criteria are present in the merge diff (L-11)"
+        ac_texts = _change_ac_texts(actx.change_md)
+        if not ac_texts:
+            # fall back to criteria.md texts so the gate still asserts every criterion landed
+            ac_texts = [(c.ac_id, c.text) for c in criteria]
+        violations = merge_fidelity_violations(ac_texts, "\n".join(plan.invariants))
+        if violations:
+            results.append(
+                Result(
+                    "merge.fidelity",
+                    FAIL,
+                    "acceptance criteria absent from the prepared merge (L-11):\n" + "\n".join(violations),
+                )
             )
-        )
-    if plan.placement_error:
+        else:
+            results.append(
+                Result(
+                    "merge.fidelity",
+                    PASS,
+                    f"all {len(ac_texts)} acceptance criteria are present in the merge diff (L-11)",
+                )
+            )
+    if plan.error:
+        results.append(Result("merge.placement", SKIP, "no target capability file resolved — nothing to place"))
+    elif plan.placement_error:
         results.append(Result("merge.placement", FAIL, plan.placement_error))
     elif plan.needs_placement:
         results.append(
@@ -814,19 +1304,28 @@ def gate_dependent_checks(
                 "invariants distributed across " + ", ".join(plan.targets) + " per the approved placement map",
             )
         )
+    else:
+        results.append(
+            Result("merge.placement", PASS, f"single-target Affects ({plan.targets[0]}) — placement is deterministic")
+        )
 
     # gate 5: spec-lint (surfaced for the human's review diff — L-07/O-13).
-    results.append(_spec_lint(actx))
+    results.append(_spec_lint(actx, born))
 
     # gate 6: orphan sweep for removal-flavour changes (V-02).
     results.append(_orphan_sweep(actx))
 
-    return results, plan
+    return results, (None if plan.error else plan)
 
 
-def _affects_set(tree: Path, ctx: str, change_md: str) -> tuple[str, set[str]]:
-    targets = resolve_targets(tree, ctx, change_md)
-    return ctx, {f"specs/{ctx}/{t}" for t in targets}
+def _affects_paths(tree: Path, ctx: str, change_md: str, birth_slug: str | None = None) -> tuple[set[str], bool]:
+    """(capability paths the change affects, whether they could be determined at all).
+
+    `birth_slug` is the change dir's name, passed for THIS change and for every in-flight one:
+    the same derivation prechecks and compute_merge use, so a capability-birthing change is not
+    reported as "Affects undeterminable" on the workflow's primary path (C7)."""
+    targets = resolve_targets(tree, ctx, change_md, birth_slug)
+    return {f"specs/{ctx}/{t}" for t in targets.files}, targets.known
 
 
 def _change_ac_texts(change_md: str) -> list[tuple[str, str]]:
@@ -834,29 +1333,66 @@ def _change_ac_texts(change_md: str) -> list[tuple[str, str]]:
     return [(m.group(1), m.group(2).strip()) for m in re.finditer(r"(?m)^-\s*(AC-\d+):\s*(.+?)\s*$", section)]
 
 
-def _spec_lint(actx: AcceptContext) -> Result:
+def _spec_lint(actx: AcceptContext, born: tuple[str, ...] = ()) -> Result:
+    """§5.4 item 5: dangling refs, duplicate capabilities, >300-line files, a capability missing
+    from overview.md — over the tree AS THIS ACCEPTANCE WILL LEAVE IT.
+
+    `born` names the capability files this acceptance creates. Reading only the pre-merge tree
+    made the greenfield birth case produce a FALSE dangling-ref finding (overview.md points at
+    the capability the merge is about to write) and let a born capability skip the overview-map
+    check entirely (T10f F-03c). Three more holes closed here (F-03/F-10): a missing overview.md
+    used to DISABLE the coverage check by its own `if overview_text` guard and report "clean";
+    the duplicate check compared filesystem names, which are unique by construction, so it was
+    dead code — the duplicate a human can actually create is a repeated entry in the
+    `## Capabilities` list; and findings were emitted once per occurrence, not per (file, ref).
+
+    A comment is not content (T10i item 4, the same mistake T10j fixed in gate.py's L-06 check
+    one function over): both scans below read the file with its HTML comments blanked out, via
+    the single stripper `criteria_lint.strip_html_comments` (C7 — one grammar, one home). Every
+    born capability file ships the template's comment block, so an unstripped read counted ~20
+    lines of documentation toward the S7 cut threshold and would report a backticked `*.md` named
+    in a comment as a dangling reference."""
+    _, criteria_lint = _tools()
     ctx_dir = actx.tree / "specs" / actx.ctx
     findings: list[str] = []
     overview = ctx_dir / "overview.md"
-    overview_text = overview.read_text(encoding="utf-8") if overview.exists() else ""
-    cap_files = [p for p in sorted(ctx_dir.glob("*.md")) if p.name != "overview.md"]
-    seen: set[str] = set()
-    for path in ctx_dir.rglob("*.md"):
+    listed_tokens = _overview_capability_tokens(actx.tree, actx.ctx)
+    listed = set(listed_tokens)
+    known: set[str] = {p.name for p in ctx_dir.glob("*.md")} | set(born)
+    for path in sorted(ctx_dir.rglob("*.md")):
         if "changes" in path.parts:
             continue
-        text = path.read_text(encoding="utf-8")
-        if len(text.splitlines()) > 300:
-            findings.append(f"{path.relative_to(actx.tree)} exceeds 300 lines — cut it (S7)")
-        for ref in re.findall(r"`([A-Za-z0-9_./-]+\.md)`", text):
+        raw_lines = path.read_text(encoding="utf-8").splitlines()
+        kept_lines = criteria_lint.strip_html_comments(raw_lines)
+        # the stripper preserves line count (it blanks spans), so the comment-only lines are the
+        # ones that carried text before and none after: subtracting them keeps the S7 threshold a
+        # count of the file's own lines, blank ones included, minus its documentation.
+        comment_only = sum(
+            1 for raw, kept in zip(raw_lines, kept_lines, strict=True) if raw.strip() and not kept.strip()
+        )
+        if len(raw_lines) - comment_only > 300:
+            findings.append(f"{path.relative_to(actx.tree)} exceeds 300 lines of content — cut it (S7)")
+        for ref in re.findall(r"`([A-Za-z0-9_./-]+\.md)`", "\n".join(kept_lines)):
             base = ref.split("/")[-1]
-            if not (ctx_dir / base).exists() and not (actx.tree / ref).exists():
-                findings.append(f"{path.relative_to(actx.tree)} references missing spec file `{ref}`")
-    for cap in cap_files:
-        if cap.name in seen:
-            findings.append(f"duplicate capability file listing: {cap.name}")
-        seen.add(cap.name)
-        if overview_text and cap.name not in overview_text:
-            findings.append(f"capability {cap.name} is missing from overview.md's map")
+            if base in known or (actx.tree / ref).exists():
+                continue
+            findings.append(f"{path.relative_to(actx.tree)} references missing spec file `{ref}`")
+    if not overview.exists():
+        findings.append(
+            f"specs/{actx.ctx}/overview.md is absent — the context map cannot be checked, so nothing here "
+            "says whether the context's capabilities are listed (L-07/O-13)"
+        )
+    else:
+        for name in sorted({t for t in listed_tokens if listed_tokens.count(t) > 1}):
+            findings.append(f"overview.md's Capabilities list names `{name}` more than once")
+        for name in sorted(n for n in known if n != "overview.md"):
+            if name not in listed:
+                findings.append(f"capability {name} is missing from overview.md's map")
+    # One line per distinct finding, in the order found (T10i item 3): a reference repeated in a
+    # file used to print twice, which is noise in the human's review output and reads as two
+    # problems. Deduping the LIST rather than each scan keeps one mechanism for every finding
+    # kind, including the ones added next.
+    findings = list(dict.fromkeys(findings))
     if findings:
         return Result("spec.lint", FLAG, "spec-lint findings for the review diff (L-07/O-13):\n" + "\n".join(findings))
     return Result(
@@ -865,16 +1401,59 @@ def _spec_lint(actx: AcceptContext) -> Result:
 
 
 def _orphan_sweep(actx: AcceptContext) -> Result:
-    if not re.search(r"(?im)^#*\s*removed\b|removal flavour|`REMOVED`", actx.change_md):
-        return Result("orphan.sweep", SKIP, "not a removal-flavour change")
-    # terms = node-ids / symbol names listed under a "Removed" list in change.md
-    removed_section = ""
-    m = re.search(r"(?is)removed[^\n]*\n(.*?)(?:\n##|\Z)", actx.change_md)
-    if m:
-        removed_section = m.group(1)
-    terms = re.findall(r"::(\w+)", removed_section) + re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", removed_section)
+    flavour = classify_removal(actx.change_md)
+    if not flavour.fires:
+        if flavour.unpinned:
+            # The `Class:` line talks about removal in a wording the pinned vocabulary does not
+            # include. FLAG, never SKIP: read as a non-removal it would be exactly the silent
+            # false negative narrowing the classifier could have introduced (T03c).
+            return Result(
+                "orphan.sweep",
+                FLAG,
+                f"the `Class:` line says '{flavour.unpinned}' but carries no `REMOVED` marker, and no filled "
+                "`## Removed` section either — V-02 did NOT run. Spec §3.1 pins one spelling: write "
+                "`Class: behavioral, REMOVED` plus the `## Removed` section of "
+                "`.claude/templates/change.md`, listing the removed symbols/node-ids; or, if this change "
+                "removes nothing, drop the removal wording from the `Class:` line",
+            )
+        return Result(
+            "orphan.sweep",
+            SKIP,
+            "not a removal-flavour change (no `REMOVED` marker on the `Class:` line, no filled `Removed` section)",
+        )
+    if not flavour.sections:
+        # FLAG, not SKIP: the change DECLARES a removal, so V-02 is owed — but there is no
+        # structural list to sweep (the sweep never harvests free prose). Non-blocking on
+        # purpose: a removal that genuinely has no sweepable symbol must not be deadlocked into
+        # routing around the gate. Surfaced-but-non-blocking keeps the absent sweep visible in
+        # the human's review output instead of silently not running (S4: a gate that can quietly
+        # not-run does not exist).
+        return Result(
+            "orphan.sweep",
+            FLAG,
+            "the `Class:` line declares `REMOVED` but change.md carries no filled `## Removed` section "
+            "(absent, or still holding only the template's instruction comment) — V-02 did NOT run: there "
+            "is no structural list of removed behaviour to sweep (the sweep never harvests free prose). "
+            "Fill the `## Removed` section of `.claude/templates/change.md` with the removed "
+            "symbols/node-ids, or confirm in review that nothing is orphaned",
+        )
+    terms = list(flavour.terms)
     if not terms:
-        return Result("orphan.sweep", PASS, "removal-flavour change lists no concrete removed symbols to sweep")
+        # FLAG for the same reason the missing-section case is one (T06f part B): the sweep did
+        # not run. The old PASS read as "the sweep ran and found nothing" while a prose-only
+        # `## Removed` ("the legacy export endpoint, entirely") left V-02 silently unchecked
+        # (T10f F-05). Still FLAG rather than FAIL now that the template ships the skeleton and
+        # says what to list: a removal whose behaviour has no symbol to name (a route string, a
+        # config key) is legitimate, and failing it would train the routing-around T10e's
+        # inversion warns about. What the template changed is that the FLAG is now actionable —
+        # the author was told the grammar, so an empty list is a visible authoring choice.
+        return Result(
+            "orphan.sweep",
+            FLAG,
+            "change.md has a `## Removed` section but its body names no symbol the sweep can use "
+            "(node-ids or `backticked` names) — V-02 did NOT run: prose is never harvested. List the "
+            "removed symbols/node-ids under the heading, or confirm in review that nothing is orphaned",
+        )
     spec_text = "\n".join(
         p.read_text(encoding="utf-8") for p in (actx.tree / "specs" / actx.ctx).glob("*.md") if p.name != "overview.md"
     )
@@ -894,7 +1473,13 @@ def _orphan_sweep(actx: AcceptContext) -> Result:
 
 
 def execute(actx: AcceptContext, plan: MergePlan) -> str:
-    rc, status = _git(actx.tree, "status", "--porcelain")
+    # `check=True`, not a discarded rc: this is the last precondition before a DESTRUCTIVE
+    # sequence (write invariants, rmtree the change dir, commit, checkout, merge, tag), and
+    # `_git` returns stdout only — so a `git status` that could not run yields `""`, which the
+    # emptiness test below reads as "clean". That is the undetermined-input rule's fail-open
+    # (module docstring / notes/19) on the one gate that cannot be re-run: it decides whether to
+    # mutate the base branch. Found by ruff's RUF059 on the unused `rc` (T04g).
+    _, status = _git(actx.tree, "status", "--porcelain", check=True)
     if status.strip():
         raise AcceptError("work tree is not clean — commit or stash before --execute")
     # 1. apply invariants on the branch, delete the change dir, commit.
@@ -918,28 +1503,74 @@ def execute(actx: AcceptContext, plan: MergePlan) -> str:
     # 3. tag.
     tag = "change/" + actx.change_id.replace("/", "-")
     _git(actx.tree, "tag", tag, check=True)
-    # 4. drift check on the base.
-    return drift_report(actx.tree, actx.base)
+    # 4. what happened, said by the code that did it (T09j), then the drift check on the base.
+    # The sentence used to live in `run()`, which printed it unconditionally — including on the
+    # branch where no plan existed and NOTHING was merged. A report of an act belongs to the act:
+    # there is now exactly one place that can claim a merge, and it is reached only by merging.
+    done = f"merged {actx.branch} into {actx.base}, tagged {tag}, deleted the change dir"
+    return done + "\n" + drift_report(actx.tree, actx.base)
 
 
-def drift_report(tree: Path, base: str) -> str:
-    out = [f"drift-check on {base} (spec §5.5):"]
-    _, tags = _git(tree, "tag", "--list", "change/*")
+@dataclass
+class HotfixDrift:
+    """The hotfix half's answer: `determined` says whether the question was answered at all."""
+
+    status: str  # PASS | FLAG
+    determined: bool
+    lines: list[str]
+
+
+def hotfix_drift_lines(tree: Path, base: str) -> HotfixDrift:
+    """The hotfix half of §5.5: src commits on `base` reachable from no `change/*` tag.
+
+    Returns the status, whether it was determined, and the indented report lines, so both readers
+    use ONE implementation (C7): `drift_report` prints the lines after an `--execute`, and
+    `drift.py` — which owns the OpenAPI half because that half needs a constructed app, which this
+    script never builds — invokes this function instead of restating it.
+
+    The status is PASS or FLAG, never FAIL: a hotfix past the workflow is legal, it is only not
+    silent (`/adw:spec --retro` legalises it, §5.5). And nothing here raises — `drift_report` runs
+    AFTER the merge has already happened, so an unanswerable git question must degrade into a
+    reported unknown rather than a traceback over a completed acceptance.
+
+    Both git calls are therefore guarded rather than trusted: an unresolvable base or an unreadable
+    tag list yields an EMPTY commit list, which read as "every src commit is attached" — notes/19's
+    fail-open sentence in §5.5 clothes. The honest answer is that the question was not answered.
+    """
+    rc_tags, tags = _git(tree, "tag", "--list", "change/*")
+    rc_log, log = _git(tree, "log", base, "--format=%H", "--", "src")
+    if rc_tags != 0 or rc_log != 0:
+        failed = "git tag --list 'change/*'" if rc_tags != 0 else f"git log {base} -- src"
+        return HotfixDrift(
+            FLAG,
+            False,
+            [
+                f"  UNDETERMINED — {failed} failed in {tree}: the src-commit vs change-tag comparison",
+                "  did not run, which is NOT the same as 'no drift' (name the base with --base)",
+            ],
+        )
     tag_list = [t for t in tags.split() if t]
-    _, log = _git(tree, "log", base, "--format=%H", "--", "src")
     commits = [c for c in log.split() if c]
     unlinked = []
     for c in commits:
         if not any(_git(tree, "merge-base", "--is-ancestor", c, t)[0] == 0 for t in tag_list):
             unlinked.append(c)
-    if unlinked:
-        out.append(
-            f"  {len(unlinked)} src commit(s) not reachable from any change/* tag — possible hotfix drift (L-02/O-08):"
-        )
-        out += [f"    {c[:12]}" for c in unlinked[:20]]
-    else:
-        out.append("  every src commit is attached to a change/* tag")
-    out.append("  OpenAPI route⊆operation drift is surfaced by /orient (needs a constructed app); not re-run here")
+    if not unlinked:
+        return HotfixDrift(PASS, True, ["  every src commit is attached to a change/* tag"])
+    return HotfixDrift(
+        FLAG,
+        True,
+        [
+            f"  {len(unlinked)} src commit(s) not reachable from any change/* tag — possible hotfix drift (L-02/O-08):",
+            *[f"    {c[:12]}" for c in unlinked[:20]],
+        ],
+    )
+
+
+def drift_report(tree: Path, base: str) -> str:
+    out = [f"drift-check on {base} (spec §5.5):"]
+    out += hotfix_drift_lines(tree, base).lines
+    out.append("  OpenAPI route⊆operation drift needs a constructed app: `adw.py drift` (/adw:orient runs it)")
     return "\n".join(out)
 
 
@@ -948,26 +1579,23 @@ def drift_report(tree: Path, base: str) -> str:
 # ---------------------------------------------------------------------------------------
 
 
-def run(tree: Path, change_id: str, base: str, do_execute: bool, placement: dict[str, str] | None = None) -> int:
+def run(tree: Path, change_id: str, base: str | None, do_execute: bool, placement: dict[str, str] | None = None) -> int:
     actx = resolve(tree, change_id, base)
     results = prechecks(actx)
     plan: MergePlan | None = None
     gate_blocked = any(r.status == FAIL for r in results)
 
-    print(f"accept.py — {actx.change_id} on branch {actx.branch} (base {actx.base}, HEAD {actx.head[:12]})")
+    how = " (derived)" if actx.base_derived else ""
+    print(f"accept.py — {actx.change_id} on branch {actx.branch} (base {actx.base}{how}, HEAD {actx.head[:12]})")
     print()
 
     if gate_blocked:
-        for cid in (
-            "gate.green",
-            "docker.tier",
-            "criteria.junit-backing",
-            "criteria.manual-verdict",
-            "merge.fidelity",
-            "spec.lint",
-            "orphan.sweep",
-        ):
-            results.append(Result(cid, SKIP, "gate.py + merge not run — a structural precondition already denied"))
+        # Every registered gate that did not run is still REPORTED, as SKIP — derived from GATES
+        # so a gate added later cannot quietly vanish from a denied run's output (T10f).
+        reported = {r.id for r in results}
+        for cid in GATES:
+            if cid not in reported:
+                results.append(Result(cid, SKIP, "gate.py + merge not run — a structural precondition already denied"))
     else:
         verdict = run_gate(actx)
         print()
@@ -993,7 +1621,16 @@ def run(tree: Path, change_id: str, base: str, do_execute: bool, placement: dict
     print("== ACCEPT ==")
     for r in flags:
         print(f"FLAG: {r.id} — {r.detail.splitlines()[0]}")
-    print(f"verdict: {'DENIED' if denied else 'ACCEPTABLE'}")
+    if denied:
+        print("verdict: DENIED")
+    elif plan is not None and plan.needs_placement:
+        # A multi-target change is ACCEPTABLE and NOT yet executable: the placement map is a
+        # semantic act §5.4 gives to /accept-change, so check mode flags rather than denies
+        # (see the GATES note on merge.placement). Saying only "ACCEPTABLE" invited the next
+        # step to be `--execute`, which then refuses — the verdict line names the missing input.
+        print("verdict: ACCEPTABLE — pending the placement map --execute requires (merge.placement FLAG)")
+    else:
+        print("verdict: ACCEPTABLE")
 
     if do_execute:
         if denied:
@@ -1007,13 +1644,27 @@ def run(tree: Path, change_id: str, base: str, do_execute: bool, placement: dict
                 "every invariant into the first file (spec §5.4)"
             )
             return 1
-        report = execute(actx, plan) if plan is not None else drift_report(tree, base)
+        # No plan means no merge was ever prepared, so nothing is merged, tagged or deleted here:
+        # the only thing left worth running is the §5.5 drift check on the base. The merge sentence
+        # lives in `execute()` — the code that performs the act — so this branch cannot claim it,
+        # and the two reports cannot drift apart (T09j).
+        #
+        # `actx.tree` / `actx.base`, never the raw arguments (T10k): `base` is Optional (T10g
+        # derives it) and `tree` is pre-resolution, so this branch used to hand `drift_report`
+        # a `None` base and die inside subprocess. Unreachable today — `plan is None` implies a
+        # FAIL implies the deny above — which is exactly why it is fixed rather than relied on.
         print()
-        print("== EXECUTED ==")
-        print(
-            f"merged {actx.branch} into {actx.base}, tagged change/{actx.change_id.replace('/', '-')}, deleted the change dir"
-        )
-        print(report)
+        if plan is not None:
+            print("== EXECUTED ==")
+            print(execute(actx, plan))
+        else:
+            print("== NOT EXECUTED ==")
+            print(
+                f"no merge plan was produced for {actx.change_id}, so nothing was applied: the "
+                f"branch stays on its own tip, no tag was created, {actx.change_dir.name}/ is "
+                "intact; only the drift check below ran"
+            )
+            print(drift_report(actx.tree, actx.base))
         return 0
 
     return 1 if denied else 0
@@ -1026,7 +1677,13 @@ def main(argv: list[str] | None = None) -> int:
         "(with --execute) merge criteria into capability invariants and the branch into the base.",
     )
     parser.add_argument("change", metavar="CTX/NNN", help="change id, e.g. meetings/003")
-    parser.add_argument("--base", default="main", help="the S9 base branch to merge into (default: main)")
+    parser.add_argument(
+        "--base",
+        default=None,
+        help="the S9 base branch to merge into; omitted, it is derived from the branch graph "
+        "(the branch whose fork point with HEAD is the most recent) and an ambiguous or "
+        "underivable base is an error, never a guess",
+    )
     parser.add_argument("--execute", action="store_true", help="perform the post-approval actions when no gate FAILs")
     parser.add_argument("--tree", default=".", help="work-tree root (default: cwd)")
     parser.add_argument(
@@ -1046,7 +1703,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     placement: dict[str, str] | None = None
     if args.placement is not None:
-        import json  # noqa: PLC0415
+        import json
 
         raw = args.placement
         try:

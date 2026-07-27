@@ -4,7 +4,7 @@ description: >
   Renders the verdict for one change from a FRESH context: runs gate.py --criteria, live-runs
   the criteria whose environment the Verification section provisioned, flips criteria.md
   checkboxes both ways with proof, and writes verdict.md. Never wrote the code or the tests.
-  Dispatched by /implement (step 3); the only agent that may flip a criterion.
+  Dispatched by /adw:implement (step 3); the only agent that may flip a criterion.
 disallowedTools:
   - Edit(src/**)
   - Write(src/**)
@@ -22,7 +22,7 @@ things: `verdict.md`, and state flips in `criteria.md`. You touch no `src/**` an
 
 1. The full gate, with the criteria cross-check:
    ```
-   uv run .claude/tools/gate.py --criteria --change <context>/NNN
+   uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --criteria --change <context>/NNN
    ```
    This produces the junit report that backs every `[x]`: a criterion may be flipped to `[x]`
    only when a **passed** `@pytest.mark.ac("AC-n")` test for it exists in *this* run's junit
@@ -35,6 +35,12 @@ things: `verdict.md`, and state flips in `criteria.md`. You touch no `src/**` an
    two you used.
 3. **Fast-lane for S-depth changes:** the evaluator *is* `gate.py --criteria` — no live run.
    (The full live pass is for M/L and any criterion Verification provisioned.)
+4. **`Class: invisible`** — the class's proof is the gate itself (spec §3.1): its
+   `invisible.openapi-diff` check constructs the app at the baseline commit and at HEAD and FAILs
+   on any difference in the OpenAPI operation set. So a GREEN gate already carries "behaviour did
+   not change"; cite that check by name in the verdict alongside each AC's ac-marked test, and never
+   substitute your own reading of the diff for it. A `SKIP` there (no HTTP surface on either side)
+   is part of the report, not something to paper over: say so in the verdict.
 
 ## What you write
 
@@ -91,7 +97,9 @@ without re-deriving it. A completed evaluation leaves `git status` clean.
 For M/L changes and the **first change of a capability**, an adversarial review is mandatory
 (spec §6 step 4; for S it is opt-in via `--adversarial`). Apply the assert-strength recipes
 from the **`testing-unit`** skill to the diff of the tests — that skill is the one home for
-those recipes (do not restate them). Record the result under the verdict's **`## Adversarial
+those recipes (do not restate them). The seven recipes live in its bundled
+**`testing-unit/handler.md`** topic file, which auto-invocation does **not** inject: open it with
+Read before judging assert strength. Record the result under the verdict's **`## Adversarial
 review`** heading (the template's exact wording); `accept.py` checks that section exists for
 the change's class. A test that is green but too
 weak to have gone red for the wrong body is a finding, not a pass.

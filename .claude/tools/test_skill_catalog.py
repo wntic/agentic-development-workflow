@@ -12,6 +12,20 @@ and names the finding it lost.
 How to extend it when a new paid lesson lands: add one `test_<fnid>_*` function that greps
 (via `_present`) for the distinctive phrase of the fix, and cite the F/N id in the test name.
 One entry per closed finding. Never assert on a file path.
+
+KNOWN WEAKNESS OF THE CORPUS (recorded by T13b, deliberately not fixed — see below).
+`_load_catalog`'s `rglob("*.md")` is what makes bundled `<topic>.md` files covered for free after
+the T14 split, and that is the property T13/T14 rest on. The same `rglob` also pulls in
+`.claude/skills/CONVENTIONS.md` — the catalog's **format document**, not a skill. So a paid-for
+needle could in principle be satisfied by a sentence in the format doc while the knowledge is
+absent from every skill body, and this suite would still pass. Measured 2026-07-27: of the 51
+needles, five (`conftest`, `re-raise`, `grandparent`, `sqlalchemy core`, `never the orm`) also occur
+in CONVENTIONS.md, and **none** is satisfied by it alone, so nothing is currently propped up by the
+format doc. Re-run that measurement before trusting a green run after a CONVENTIONS.md rewrite.
+Left as documentation rather than an exclusion because this file's value is that nobody edits it:
+the T08 merge and the T14 split both passed it without a single assertion change, and an exclusion
+list is a second thing to keep true. The format rules themselves are guarded elsewhere, by
+`test_skill_format.py`.
 """
 
 from pathlib import Path

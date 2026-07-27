@@ -4,6 +4,10 @@ description: "Abandon change/<context>-NNN: record the reason in tag abandoned/<
 
 # /abandon <context>/NNN
 
+> Invoked as `/adw:abandon` when the workflow is installed as a plugin, `/abandon` when it is
+> loaded from a project's own `.claude/` — as in the workflow's own repo. The two forms name
+> this same file; other commands are referred to below in the `/adw:` form.
+
 A change that will not be finished is dropped cleanly. Because one change = one branch and its
 red tests, code, and verdict live only on that branch, abandoning is trivial: `main` never saw
 them (S9). The only thing that must survive is **why** it was abandoned — recorded in a git
@@ -25,7 +29,7 @@ tag so the number is not silently reused and the decision is auditable.
    ```
    git tag -a abandoned/<context>-NNN change/<context>-NNN -m "<reason>"
    ```
-   The number is **not** reused — `/spec` allocates `NNN = max(existing ∪ tags) + 1`, and this
+   The number is **not** reused — `/adw:spec` allocates `NNN = max(existing ∪ tags) + 1`, and this
    tag counts (spec §6).
 
 4. **Delete the branch.** `git branch -D change/<context>-NNN`. The change directory
@@ -40,6 +44,6 @@ tag so the number is not silently reused and the decision is auditable.
 ## Notes
 
 - Abandon is not acceptance in disguise — nothing merges. If the work was actually good, it
-  should go through `/accept-change`, not here.
+  should go through `/adw:accept-change`, not here.
 - If a paired `Companion:` change exists, decide its fate explicitly with the human: a
   companion is accepted-together or abandoned-together, never left half-alive.

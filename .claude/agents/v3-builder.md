@@ -4,8 +4,8 @@ description: >
   Executes ONE v3 build task file from tasks/ (the workflow_v3_spec.md §10 decomposition):
   reads the task and everything its "Read first" section names, implements exactly its
   Deliverables, runs every command in its Verification section, and reports honestly.
-  Use via /build-task; one task per dispatch. Not for design work, not for running the
-  v3 loop itself (/spec, /implement, /accept-change are main-session commands).
+  Use via /adw:build-task; one task per dispatch. Not for design work, not for running the
+  v3 loop itself (/adw:spec, /adw:implement, /adw:accept-change are main-session commands).
 tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 

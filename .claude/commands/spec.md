@@ -4,6 +4,10 @@ description: "Interview the human into one change spec — change.md + criteria.
 
 # /spec [<context>] [<description>] [--retro]
 
+> Invoked as `/adw:spec` when the workflow is installed as a plugin, `/spec` when it is
+> loaded from a project's own `.claude/` — as in the workflow's own repo. The two forms name
+> this same file; other commands are referred to below in the `/adw:` form.
+
 Interactive — this is the **spec-author** session (human + you, spec §4). It produces exactly
 one change: a delta spec living on its own branch. Your lane: files under `specs/` plus branch
 creation — you never write code or tests (advice is enough here; the session runs under the
@@ -34,8 +38,24 @@ sections: `.claude/templates/change.md` (sections, classes, binding/non-binding 
 3. **Interview.** Ask the human about every ambiguity (AskUserQuestion) — idempotency,
    permissions, failure modes, limits — until the acceptance criteria write themselves. Then
    propose, human decides:
-   - **Class** — behavioral (default) / bugfix / invisible; definitions live in the change.md
-     template. A removal is behavioral with the removed behaviour listed explicitly.
+   - **Class** — behavioral (default) / bugfix / invisible / hardening; definitions live in the
+     change.md template. A **removal** is behavioral carrying spec §3.1's pinned marker — you
+     write `Class: behavioral, REMOVED` *and* fill the template's `## Removed` section, which is
+     where the removed behaviour is "listed explicitly": the removed symbols and the obsolete
+     tests' node-ids, in the grammar the template's own comment specifies. Both are owed here and
+     only here — change.md freezes at the baseline commit and no agent inside the cycle may edit
+     it, and the orphan sweep understands no other wording.
+     A **hardening** change (the tests get stronger, behaviour stays identical — normally the
+     follow-up an adversarial pass earns) additionally needs a `## Mutations` section: **you and
+     the human write it here**, lifting the surviving mutations from the `## Adversarial review`
+     table of the change that found them. It is the class's baseline proof, so an agent inside the
+     cycle must never author it — the template states what `red_check` then enforces.
+     An **invisible** change (refactor / dependency upgrade / performance) writes its AC as the
+     behaviour that must stay **unchanged**, phrased so a test can pin it *before* the refactor:
+     its proof is a green gate plus an empty before/after OpenAPI diff (`gate.py`'s
+     `invisible.openapi-diff`), and `red_check` asks that the ac-marked tests already **pass** at
+     the baseline. So it is brownfield-only by construction — behaviour that does not exist yet
+     cannot be left unchanged.
    - **Depth** — S/M/L (spec §3.2); litmus: if the diff fits one sentence, S is enough. Only
      Acceptance criteria are mandatory; do not inflate ceremony.
    - **Interface sketch** (M/L) — propose module/class names + ctor dependencies; once the
@@ -55,7 +75,7 @@ sections: `.claude/templates/change.md` (sections, classes, binding/non-binding 
    `AC-n` items.
 
 7. **Exit gate** — the session does not end until all of this holds:
-   - `uv run .claude/tools/criteria_lint.py specs/<context>/changes/NNN-<slug>/criteria.md`
+   - `uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" criteria-lint specs/<context>/changes/NNN-<slug>/criteria.md`
      is green — a vague criterion does not enter work; rewrite with the human until it names
      observable artifacts;
    - Verification answers "how do we prove it is done": required for M/L; every criterion
@@ -63,10 +83,14 @@ sections: `.claude/templates/change.md` (sections, classes, binding/non-binding 
      tokens) — an unprovisioned criterion is proven by its ac-marked test alone, and a
      criterion neither can prove is flagged now as an `[m]` candidate. For S depth the answer
      is the fast-lane itself (`gate.py --criteria` over ac-marked tests);
+   - a **removal** carries both halves of the vocabulary: the `REMOVED` marker on the `Class:`
+     line and a `## Removed` section that actually lists something (a section left holding only
+     the template comment counts as unfilled). `accept.py`'s orphan sweep FLAGs a half-written
+     pair at acceptance, but by then change.md is frozen — so it is fixed here;
    - `change.md` + `criteria.md` (+ the overview skeleton, if step 2 ran) are committed on
      the change branch.
 
-8. **Hand off.** Tell the human the change id and the next step: `/implement <context>/NNN`.
+8. **Hand off.** Tell the human the change id and the next step: `/adw:implement <context>/NNN`.
 
 ## `--retro` — hotfix legalisation (spec §5.5)
 
@@ -77,8 +101,8 @@ with three differences:
   change legalises, so the drift-check can tie them to a change tag;
 - the criteria describe the behaviour the hotfix already established — they lint like any
   other criteria;
-- the change then flows through the normal cycle: `/implement` pins the behaviour with
-  ac-marked tests, `/accept-change` merges its essence into the capability files.
+- the change then flows through the normal cycle: `/adw:implement` pins the behaviour with
+  ac-marked tests, `/adw:accept-change` merges its essence into the capability files.
 
 ## Re-cutting capabilities (a /spec right, spec §2.1)
 

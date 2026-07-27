@@ -54,6 +54,25 @@ something exercises it — add that exercise (the app-construction smoke test). 
 no-op — an under-specified body fails loud, it does not pass quietly. *Why:* mypy, ruff, and the unit
 tests all stayed green while `create_app()` raised. `v3 §0, §3.1, §5.1`
 
+**A5 · A narrowing fix must be verified in BOTH directions, over EVERY input form.** *Trigger:* a fix
+makes a check fire less often — a match anchored, a parse tightened, a false positive removed.
+*Litmus:* "the existing N cases still pass" **cannot see coverage no case pinned**, so it is not
+evidence. Before calling it closed: (a) enumerate every *input form* the match accepts — absolute,
+relative, basename, quoted, heredoc, variable, comment; (b) run the differential in the *deny*
+direction too, not only over the false positives that motivated the fix. *Why:* paid for four times.
+`bash_guard`'s tokeniser produced **twelve** measured false positives across seven point fixes, each
+closing one form and leaving another (T06b → T06e → T06f → T06g → T06i → T06k → T06l); T06e closed the
+absolute-path variant and never checked the relative one; and **T06i, a correct fix, silently deleted a
+deny it had — pre-T06i `git rm tests/x.py` was DENIED, after it was ALLOWED** — because its acceptance
+criterion was "all 116 cases still pass" and its differential ran allow-direction only. Same shape in
+the specs: T10e's classifier fixed one variant of its own defect and opened another.
+*Corollary — do not prescribe the fixture, prescribe the property and demand the pre-fix failure.* A
+plausible-sounding specimen often passes under **both** behaviours: T09j's task asked for "a multi-line
+comment followed by content", which is identical under the deleting and the blanking grammar (deletion
+only joins lines when the closer is not at end-of-line, and the template puts `-->` at EOL) — the
+builder had to *measure* to find a case that discriminates. A pin nobody proved red beforehand is
+decoration. `notes/19`
+
 ---
 
 ## S. The spec, the criteria, the gates (replaces the v2 B-series)
@@ -127,6 +146,10 @@ vs the `/spec` session); coupling it to one orchestration leaks a layer. `v3 §7
 layer. *Litmus:* a skill covers one coherent theme an agent can pick by its `description` /
 `when_to_use` (post-merge granularity: `domain-model`, `restapi`, `testing-unit`, …); if its hard
 stops fire, the task asked for the wrong artifact — switch to the right skill, don't stretch this one.
+"One theme" permits **bundled per-topic reference files loaded on demand**: the theme is one
+auto-invocation entry (one `SKILL.md`, one frontmatter, one index line), not necessarily one file, so a
+theme past the size threshold keeps a thin `SKILL.md` router beside one `<topic>.md` per artifact
+(shape + threshold: `.claude/skills/CONVENTIONS.md`, "Skill format").
 *Why:* narrow, non-overlapping scope is what makes auto-invocation load the right knowledge. `v3 §7`
 
 **C3 · The human-onboarding purity test.** *Trigger:* any line in a skill. *Litmus:* would a new human

@@ -2,6 +2,10 @@
 description: Lint, stage, and commit specified files or previously introduced changes
 ---
 
+> Invoked as `/adw:commit` when the workflow is installed as a plugin, `/commit` when it is
+> loaded from a project's own `.claude/` — as in the workflow's own repo. The two forms name
+> this same file; other commands are referred to below in the `/adw:` form.
+
 ## Argument interpretation
 
 `$ARGUMENTS` can be:
