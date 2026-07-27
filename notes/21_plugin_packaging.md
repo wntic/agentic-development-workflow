@@ -300,6 +300,23 @@ a rehearsal catalog whose plugin source is `file://<that clone>`), which establi
 3. `file://` is accepted as a **plugin** source and rejected as a **marketplace** source, which is
    why the marketplace-add half cannot be rehearsed locally against a git URL.
 
+### 5d. The nested-layout rehearsal (2026-07-27)
+
+The install a consumer will actually get, from a clone of this repo through a rehearsal catalog
+(`file://` `url` source, catalog `name` bumped so it cannot squat the real one):
+
+1. Installed at `~/.claude/plugins/cache/adw-rehearsal3/adw/0a3c831dbd1b` — version directory named
+   by the commit SHA, **`.git` present**, and **both root symlinks preserved as relative symlinks**
+   (`agents -> plugins/adw/agents`, `hooks -> plugins/adw/hooks`).
+2. `claude plugin details adw` — **Skills (21)** (14 skills + 7 commands, from the manifest's
+   `./plugins/adw/…` paths), **Agents (4)** (`v3-builder`, `evaluator`, `test-author`,
+   `implementer`, through the root symlink), **Hooks (3)** events covering all four scripts
+   (`PreToolUse` carries `bash_guard` + `criteria_guard`).
+3. `CLAUDE_PLUGIN_ROOT=<cache dir> uv run "<cache dir>/plugins/adw/bin/adw.py" gate` →
+   **`[PASS] integrity.self-hash — all 14 enforcement anchor(s) match git HEAD (E-02)`**, GATE: GREEN.
+4. Both manifests validate; the plugin half warns that a root `CLAUDE.md` is not loaded as project
+   context, which is the runtime confirming §1's claim about the dev record shipping inert.
+
 ### 5b. The same rehearsal on the root layout (2026-07-27)
 
 No `subtree split`: a clone of THIS repo *is* the plugin, and a rehearsal catalog points at it with
