@@ -273,10 +273,20 @@ catalog (`file://` plugin source; the catalog's `name` bumped so it cannot squat
 `file://` is accepted as a *plugin* source and **rejected as a marketplace** source, which is why
 the marketplace-add half can only be rehearsed by path.
 
-**Current layout — `plugins/adw/`, relative source, digest anchor.** See the run recorded in the
-commit that carries this note: install → `claude plugin details adw` (skills, agents and hooks all
-present, from their default locations) → the gate run from the installed copy, whose self-hash line
-names `anchors.json` rather than git.
+**Current layout — `plugins/adw/`, relative source, digest anchor.**
+
+1. Installed at `~/.claude/plugins/cache/adw-plain-rehearsal/adw/71b6c1e4e64c`. The cache holds
+   `plugins/adw/`'s content and **nothing else** — no `notes/`, no `tasks/`, no `.git` — which is
+   the ship rule visible on disk.
+2. `claude plugin details adw` → **Skills (21)** (14 skills + 7 commands), **Agents (4)**,
+   **Hooks (3)** events covering all four scripts. Every one from its default location: no
+   symlinks, no declared paths.
+3. The gate from that copy:
+   `[PASS] integrity.self-hash — all 13 enforcement anchor(s) match .claude-plugin/anchors.json
+   (E-02; no git here, so the shipped digest is the anchor)`, GATE: GREEN.
+4. Then the case the anchor exists for, run for real: `echo '# patched' >> <cache>/tools/gate.py`
+   → `[FAIL] integrity.self-hash — tools/gate.py: content differs from the digest — the
+   enforcement layer was modified`, GATE: RED.
 
 **Whole-repo source, assets at the repository root (superseded).** Installed at
 `~/.claude/plugins/cache/adw-rehearsal3/adw/0a3c831dbd1b` — version directory named by the commit
