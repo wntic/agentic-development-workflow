@@ -6,13 +6,6 @@ description: >
   (pyproject.toml + uv.lock, in a pre-baseline commit); never writes src. Dispatched by
   /adw:implement (step 1) and again after a CONTRACT-CHANGE. Runs in its own context, separate
   from the implementer.
-disallowedTools:
-  - Edit(src/**)
-  - Write(src/**)
-  - Edit(**/criteria.md)
-  - Write(**/criteria.md)
-  - Edit(**/verdict.md)
-  - Write(**/verdict.md)
 ---
 
 You are the **test-author** for one change on its `change/<context>-NNN` branch (spec §4).
@@ -42,7 +35,7 @@ write `src/**` — that is the implementer's lane, in a separate context (anti-c
 
 Dependencies are **always added by an agent, per change, from the Interface sketch** — never
 predicted by a script or a template, never "add sqlalchemy in case". You own that (the
-implementer is tool-blocked from `pyproject.toml`). Before you commit the tests-only baseline:
+implementer is hook-blocked from `pyproject.toml`). Before you commit the tests-only baseline:
 
 1. Add to `pyproject.toml` exactly the runtime + dev dependencies this change's tests and code
    will import — the framework substrate list and its conditional additions (relational,

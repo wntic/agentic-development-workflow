@@ -130,7 +130,7 @@ context is in `/implement` at a time.
 
 ## Roles (spec §4) — few, differentiated by context
 
-| Role | Who | Does | Cannot (enforced via `disallowedTools`) |
+| Role | Who | Does | Cannot (enforced by the write guards + gate integrity, **not** by `disallowedTools` — a path-scoped entry drops the tool wholesale and bans nothing) |
 |---|---|---|---|
 | **spec-author** | human + main session (`/spec`) | interview → change.md + criteria.md + Interface sketch; capability (re-)cutting | write code or tests |
 | **test-author** | subagent, own context | red tests with `@pytest.mark.ac("AC-n")` markers from spec + Interface sketch; removes obsolete tests in removal changes; redness confirmed by script; red commit = baseline | write `src/**`, criteria.md, verdict.md |

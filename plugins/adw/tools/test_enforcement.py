@@ -202,6 +202,251 @@ def test_criteria_guard_case_variant_path_reword_denied(repo: FixtureRepo) -> No
 
 
 # =======================================================================================
+# criteria_guard — the ROLE LANE on the Edit|Write path
+# =======================================================================================
+#
+# Until the `disallowedTools` removal, the three cycle roles carried path-scoped entries
+# (`Write(tests/**)`, …) that were believed to enforce their lanes and did not: the harness reads
+# only the tool NAME, so such an entry drops Write/Edit WHOLESALE. The roles therefore had no
+# editor at all and this hook's Edit|Write matcher could never fire for them. The lanes moved
+# here, onto the same table bash_guard reads (`owned_or_offending`, C7).
+#
+# A5 — verified in BOTH directions, and every deny below is a case the PRE-change hook ALLOWED
+# (it returned early on any file that was not criteria.md). `test_lane_denies_are_new_behaviour`
+# pins exactly that against the previous committed revision, so this suite cannot be mistaken
+# for one that merely re-asserts what already held.
+
+
+def _lane_payload(repo: FixtureRepo, rel: str, role: str | None, *, tool: str = "Write") -> dict:
+    payload: dict = {
+        "tool_name": tool,
+        "tool_input": {"file_path": str(repo.root / rel), "content": "x = 1\n"},
+        "cwd": str(repo.root),
+    }
+    if role is not None:
+        payload["agent_type"] = role
+    return payload
+
+
+def run_lane(repo: FixtureRepo, rel: str, role: str | None, *, tool: str = "Write"):
+    # CLAUDE_PROJECT_DIR pinned to the fixture, exactly as run_bash_guard does: the match is
+    # repo-relative (T06e), so an ambient value from the developer's own session would anchor
+    # the fragments to the WRONG tree and quietly turn every case into "outside the repo".
+    return run_hook(
+        "criteria_guard.py",
+        _lane_payload(repo, rel, role, tool=tool),
+        cwd=repo.root,
+        env={"CLAUDE_PROJECT_DIR": str(repo.root)},
+    )
+
+
+# --- the deny direction: a protected tree the acting role does not own ---------------------
+
+
+@pytest.mark.parametrize(
+    ("role", "rel"),
+    [
+        ("implementer", "tests/test_core.py"),  # tests are the test-author's (D4)
+        ("implementer", "specs/demo/changes/001-thing/change.md"),
+        ("implementer", "pyproject.toml"),  # deps are the test-author's pre-baseline lane
+        ("implementer", ".claude/settings.json"),
+        ("test-author", "src/app/core.py"),  # SRC_CLOSED_TO
+        ("test-author", "specs/demo/core.md"),
+        ("evaluator", "tests/test_core.py"),
+        ("evaluator", "src/app/core.py"),  # SRC_CLOSED_TO
+        ("adw:implementer", "tests/test_core.py"),  # namespaced form (T15/D1)
+        ("adw:test-author", "src/app/core.py"),
+    ],
+)
+def test_lane_denies_foreign_tree(repo: FixtureRepo, role: str, rel: str) -> None:
+    proc = run_lane(repo, rel, role)
+    assert decision(proc) == "deny", f"{role} -> {rel}\n{proc.stdout}"
+    reason = json.loads(proc.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+    # The bare role name is what the table keys on, so it is what the message must name — a
+    # message saying 'default' would mean agent_type never reached the guard (the probe that
+    # measured this whole defect keyed on exactly that word).
+    assert f"role '{role.rsplit(':', 1)[-1]}'" in reason, reason
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+def test_lane_denies_on_both_edit_and_write(repo: FixtureRepo, tool: str) -> None:
+    # The matcher covers Edit|Write; a lane that fired on one and not the other would leave the
+    # exact hole this policy exists to close.
+    assert decision(run_lane(repo, "tests/test_core.py", "implementer", tool=tool)) == "deny"
+
+
+# --- the allow direction: never over-strict ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("role", "rel"),
+    [
+        ("implementer", "src/app/core.py"),  # own lane
+        ("implementer", "src/app/new_module.py"),  # own lane, file does not exist yet
+        ("test-author", "tests/test_core.py"),
+        ("test-author", "tests/integration/api/test_new.py"),
+        ("test-author", "pyproject.toml"),  # owns the deps commit
+        ("test-author", "uv.lock"),
+        ("evaluator", "specs/demo/changes/001-thing/verdict.md"),
+        ("adw:evaluator", "specs/demo/changes/001-thing/verdict.md"),
+        ("implementer", "README.md"),  # in-repo but unprotected
+        ("implementer", "alembic/versions/0001_init.py"),  # the revision it owns (unprotected)
+    ],
+)
+def test_lane_allows_owned_and_unprotected(repo: FixtureRepo, role: str, rel: str) -> None:
+    proc = run_lane(repo, rel, role)
+    assert decision(proc) is None, f"{role} -> {rel}\n{proc.stdout}"
+
+
+@pytest.mark.parametrize("rel", ["tests/test_core.py", "specs/demo/core.md", "pyproject.toml"])
+def test_lane_allows_when_no_agent_type(repo: FixtureRepo, rel: str) -> None:
+    """The deliberate asymmetry with bash_guard: an unidentified caller is the main session.
+
+    That is the human's own hands and `/adw:spec`, whose lane IS spec prose — denying the editor
+    there is obstruction, not ergonomics, and it would block `/adw:spec` from authoring the
+    change dir. Nothing is unprotected either way: the gate diffs these trees regardless (S8).
+    """
+    assert decision(run_lane(repo, rel, None)) is None
+
+
+def test_lane_ignores_target_outside_the_repo(repo: FixtureRepo, tmp_path: Path) -> None:
+    # T06e: the fragments are anchored to the repo root, so a scratch `tests/` elsewhere on the
+    # filesystem is none of this guard's business.
+    outside = tmp_path / "elsewhere" / "tests" / "x.py"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "tool_name": "Write",
+        "agent_type": "implementer",
+        "cwd": str(repo.root),
+        "tool_input": {"file_path": str(outside), "content": "x = 1\n"},
+    }
+    proc = run_hook("criteria_guard.py", payload, cwd=repo.root, env={"CLAUDE_PROJECT_DIR": str(repo.root)})
+    assert decision(proc) is None, proc.stdout
+
+
+def test_lane_ignores_relative_file_path(repo: FixtureRepo) -> None:
+    # Documented drop: a relative target cannot be anchored without the caller's effective cwd,
+    # so it is not fired on rather than guessed at (the T06f rule, one level down).
+    payload = {
+        "tool_name": "Write",
+        "agent_type": "implementer",
+        "cwd": str(repo.root),
+        "tool_input": {"file_path": "tests/test_core.py", "content": "x = 1\n"},
+    }
+    proc = run_hook("criteria_guard.py", payload, cwd=repo.root, env={"CLAUDE_PROJECT_DIR": str(repo.root)})
+    assert decision(proc) is None, proc.stdout
+
+
+# --- the two policies compose, and it is visible WHICH one fired --------------------------
+
+
+def test_lane_denies_test_author_on_criteria_before_content_policy(repo: FixtureRepo) -> None:
+    """A non-owner reworking criteria.md is denied by the LANE, not by the content policy.
+
+    Both would deny, so the assertion is on the reason: if the content policy answered first,
+    the test-author would be told "route the wording through /spec" when the real answer is
+    "criteria.md is not your file at all".
+    """
+    reworded = CRITERIA_MD.replace("returns the sum `3`", "returns any value")
+    payload = {
+        "tool_name": "Write",
+        "agent_type": "test-author",
+        "cwd": str(repo.root),
+        "tool_input": {"file_path": str(repo.root / CRITERIA_REL), "content": reworded},
+    }
+    proc = run_hook("criteria_guard.py", payload, cwd=repo.root, env={"CLAUDE_PROJECT_DIR": str(repo.root)})
+    assert decision(proc) == "deny"
+    reason = json.loads(proc.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "write to a protected path" in reason and "role 'test-author'" in reason, reason
+
+
+def test_content_policy_still_bites_inside_the_evaluators_own_lane(repo: FixtureRepo) -> None:
+    """The evaluator OWNS criteria.md, so the lane passes — and §5.2 must still restrict it.
+
+    This is the ordering guarantee: owning a file buys the right to write it, never the right to
+    reword a criterion (S3). A lane check that short-circuited to allow would silently delete
+    the whole criteria policy for the one role that actually edits the file.
+    """
+    reworded = CRITERIA_MD.replace("returns the sum `3`", "returns any value")
+    payload = {
+        "tool_name": "Write",
+        "agent_type": "adw:evaluator",
+        "cwd": str(repo.root),
+        "tool_input": {"file_path": str(repo.root / CRITERIA_REL), "content": reworded},
+    }
+    proc = run_hook("criteria_guard.py", payload, cwd=repo.root, env={"CLAUDE_PROJECT_DIR": str(repo.root)})
+    assert decision(proc) == "deny"
+    reason = json.loads(proc.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "criteria.md Write denied" in reason, reason
+
+
+def test_evaluator_state_flip_passes_both_policies(repo: FixtureRepo) -> None:
+    flipped = CRITERIA_MD.replace("- [ ] AC-1:", "- [x] AC-1:", 1)
+    payload = {
+        "tool_name": "Write",
+        "agent_type": "adw:evaluator",
+        "cwd": str(repo.root),
+        "tool_input": {"file_path": str(repo.root / CRITERIA_REL), "content": flipped},
+    }
+    proc = run_hook("criteria_guard.py", payload, cwd=repo.root, env={"CLAUDE_PROJECT_DIR": str(repo.root)})
+    assert decision(proc) is None, proc.stdout
+
+
+# --- the lane table has ONE home (C7) -----------------------------------------------------
+
+
+def test_lane_table_is_bash_guards_own() -> None:
+    """criteria_guard must READ bash_guard's table, never carry a copy of it.
+
+    A second copy is how the shell path and the editor path drift: a lane opened for one and
+    forgotten for the other is precisely the failure this policy was added to prevent.
+    """
+    source = (HOOKS_DIR / "criteria_guard.py").read_text(encoding="utf-8")
+    assert "import bash_guard" in source
+    for name in ("ROLE_OWNED", "SRC_CLOSED_TO", "PROTECTED_FRAGMENTS"):
+        assert f"{name} =" not in source, f"{name} is redefined in criteria_guard — C7 violation"
+
+
+def test_lane_denies_are_new_behaviour(repo: FixtureRepo, tmp_path: Path) -> None:
+    """A5: prove the pre-change hook ALLOWED what this suite now denies.
+
+    Without this, every deny above could be re-asserting behaviour that already held, and the
+    suite would be decoration. The previous revision is fetched from git rather than reasoned
+    about — and it is run on the same payload, so the comparison is behavioural, not textual.
+    """
+    prev = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "show", "HEAD:plugins/adw/hooks/criteria_guard.py"],
+        capture_output=True,
+        text=True,
+    )
+    if prev.returncode != 0:
+        pytest.skip("previous revision of criteria_guard.py unavailable (not a git checkout)")
+    old_dir = tmp_path / "old_hooks"
+    old_dir.mkdir()
+    (old_dir / "criteria_guard.py").write_text(prev.stdout, encoding="utf-8")
+    # bash_guard alongside it: if HEAD's criteria_guard already imports it, the copy must resolve.
+    shutil.copy(HOOKS_DIR / "bash_guard.py", old_dir / "bash_guard.py")
+
+    payload = _lane_payload(repo, "tests/test_core.py", "implementer")
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(repo.root)
+    env.pop("CLAUDE_PLUGIN_ROOT", None)
+    before = subprocess.run(
+        [sys.executable, str(old_dir / "criteria_guard.py")],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        cwd=str(repo.root),
+        env=env,
+    )
+    assert decision(before) is None, (
+        "the previous revision already denied this — the lane policy is not the change under "
+        f"test, so this suite proves nothing: {before.stdout}"
+    )
+    assert decision(run_lane(repo, "tests/test_core.py", "implementer")) == "deny"
+
+
+# =======================================================================================
 # bash_guard — ergonomics
 # =======================================================================================
 #

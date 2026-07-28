@@ -98,10 +98,14 @@ in-place `sed -i`, `git checkout -- <paths>`, `git restore <paths>`, `git rm [--
 Protected paths: tests/**, specs/<ctx>/*.md, changes/*/criteria.md|change.md|verdict.md,
 .claude/tools|hooks/**, .claude/settings.json, pyproject.toml.
 
-Role-aware owned-tree write path (T06d). The cycle subagents have NO Write/Edit tool at all
-(a path-scoped `disallowedTools: Write(...)` entry drops the tool wholesale in a subagent —
-the harness reads only the tool NAME, not the glob), so the shell is their ONLY write path to
-the very trees they own. Denying it deadlocked them into a hook bypass on every /implement run.
+Role-aware owned-tree write path (T06d). The shell is not the roles' only write path any more —
+they carry `Write`/`Edit` again, and `criteria_guard.py` applies THIS SAME lane table on that
+path via `path_offence()` (the two are one rule, `owned_or_offending`, per C7). It was for a
+while: a path-scoped `disallowedTools: Write(tests/**)` entry drops the tool WHOLESALE in a
+subagent (the harness reads only the tool NAME, not the glob), so the roles had no editor and
+reached even their own trees through `cat >` heredocs. Denying the shell too deadlocked them
+into a hook bypass on every /implement run — hence this owned-tree carve-out, which outlives
+the entries that motivated it because the shell remains a legitimate write path.
 So the guard reads the acting role from the PreToolUse payload's `agent_type` (the base hook
 input carries it, same field SubagentStop uses, F-2 — namespaced as `adw:<role>` when the
 workflow is installed as a plugin, bare when loaded from project config, T15/D1) and does NOT
@@ -758,8 +762,6 @@ def offending(
     A target the acting `role` OWNS is never offending (owned overrides protected, T06d) — so
     the owner reaches its tree through the shell instead of a hook bypass.
     """
-    owned = ROLE_OWNED.get(role or "", ())
-    protected = _protected_for(role, repo_root)
     cwd = cwd or os.getcwd()
     for target in _write_targets(command, cwd):
         token = _anchorable(target.token)
@@ -772,12 +774,49 @@ def offending(
             if rel is None:
                 continue  # outside the repo tree, or unresolvable — never fires (T06e/T06f)
             candidate = rel
-        if any(_matches(frag, candidate) for frag in owned):
-            continue  # the acting role owns this tree — sanctioned write path
-        for frag in protected:
-            if _matches(frag, candidate):
-                return frag
+        frag = owned_or_offending(candidate, role, repo_root=repo_root)
+        if frag is not None:
+            return frag
     return None
+
+
+def owned_or_offending(candidate: str, role: str | None, *, repo_root: str | None) -> str | None:
+    """The protected fragment `candidate` hits that `role` does not own, or None.
+
+    `candidate` is a repo-relative POSIX path (or, in the `repo_root is None` fallback, a raw
+    token). This is the ONE implementation of "owned overrides protected" (T06d) — both write
+    paths route through it: `offending()` for the shell, `path_offence()` for Edit|Write. Per C7
+    the table has one home, and so does the rule that reads it: a lane opened for the shell and
+    forgotten for the editor is exactly the drift this function exists to make impossible.
+    """
+    if any(_matches(frag, candidate) for frag in ROLE_OWNED.get(role or "", ())):
+        return None  # the acting role owns this tree — sanctioned write path
+    for frag in _protected_for(role, repo_root):
+        if _matches(frag, candidate):
+            return frag
+    return None
+
+
+def path_offence(file_path: str, role: str | None, *, cwd: str | None = None) -> str | None:
+    """The Edit|Write counterpart of `offending()`: the fragment an edited file hits, or None.
+
+    Same table, same owned-overrides-protected rule, and **no tokenising** — an Edit/Write
+    payload names its target outright in `file_path`, so the shell grammar that produced seven
+    rounds of false positives (A5) has no part in this path at all.
+
+    `file_path` is expected absolute (the Edit/Write tools require it). A relative one cannot be
+    anchored without the caller's effective cwd, so it is dropped — the same "do not fire"
+    answer T06f gives an unknown cwd, never a guess.
+    """
+    root = _repo_root(cwd or os.getcwd())
+    if root is None:
+        candidate = file_path  # fallback: root-insensitive, exactly as `offending()` degrades
+    else:
+        rel = _repo_relative(file_path, None, root)
+        if rel is None:
+            return None  # outside the repo tree, or relative-and-unanchorable (T06e/T06f)
+        candidate = rel
+    return owned_or_offending(candidate, role, repo_root=root)
 
 
 def deny(reason: str) -> None:

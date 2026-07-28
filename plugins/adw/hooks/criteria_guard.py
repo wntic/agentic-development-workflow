@@ -1,12 +1,36 @@
 #!/usr/bin/env python3
-"""criteria_guard.py — PreToolUse ergonomics for criteria.md (workflow v3, spec §5.2).
+"""criteria_guard.py — PreToolUse(Edit|Write) ergonomics: file ownership, then criteria policy.
 
 THIS IS ERGONOMICS — a fast, explained denial so the agent learns "why not" *before*, not
 after. The trust anchor is gate.py's integrity check against the git baseline (S8): a hook
-bypass (Bash, whole-file Write that dodges this matcher, conftest, editing the gate itself)
-only gets the result invalidated at the gate — criteria.md is a protected tree there.
+bypass (Bash, conftest, editing the gate itself) only gets the result invalidated at the gate.
 
-Policy (spec §5.2):
+TWO policies, in this order:
+
+1. **Role lane (T06d's table, on the Edit|Write path).** A role may write only the trees it
+   owns: test-author -> tests/** + pyproject.toml/uv.lock; implementer -> src/**;
+   evaluator -> criteria.md/verdict.md. A write to a protected tree the acting role does not
+   own is denied. The lane table is IMPORTED from `bash_guard`, never restated (C7: one home) —
+   so the shell path and the editor path cannot drift apart.
+
+   Why this policy lives here at all. Until this change the three cycle roles carried
+   path-scoped `disallowedTools` entries (`Write(tests/**)`, …) that were believed to enforce
+   the lanes. They did not: the harness reads only the tool NAME, not the glob, so a
+   path-scoped entry drops `Write`/`Edit` WHOLESALE. The measured consequence was that the
+   roles had no editor at all, wrote every file through `cat >` heredocs, and this hook's
+   `Edit|Write` matcher could never fire for the very agents it was written for. Removing
+   those entries gives the roles their editor back — and moves the lane question here, where
+   the payload carries a literal `file_path` and there is no shell grammar to tokenise (which
+   is the whole false-positive class bash_guard has paid for seven times, A5).
+
+   Deliberate asymmetry with bash_guard: when `agent_type` is ABSENT this guard allows, where
+   bash_guard denies. An unidentified caller is the main session — the human's own hands and
+   `/adw:spec`, whose lane IS spec prose. Denying the editor there is not ergonomics but
+   obstruction, and it would block `/adw:spec` from authoring the change dir. The lanes exist
+   to keep two SUBAGENTS out of each other's trees (D3/D4); nothing is unprotected either way,
+   because the gate diffs the protected trees against the baseline regardless (S8).
+
+2. **criteria.md content policy (spec §5.2)**, applied after the lane check passes:
   - editing an existing criteria.md is allowed ONLY as a checkbox state flip in place
     (`[ ]` <-> `[x]`; `[m]` is deferred — a PreToolUse hook cannot tell a subagent from the
     human, F-2, so the [m] legitimacy check lives in gate.py --criteria / the verdict);
@@ -29,10 +53,19 @@ import re
 import subprocess
 import sys
 
+# The sibling hook, imported for the role/lane table and the one implementation of
+# "owned overrides protected" (C7 — the table has exactly one home, `bash_guard.ROLE_OWNED`).
+# `hooks/` is sys.path[0] whenever this file is run as a script, which is the only way a hook
+# ever runs — including under `-S`, which the stdlib-only test uses. Imported at module scope on
+# purpose: if it cannot be imported, this hook must fail LOUDLY (a visible hookError) rather
+# than silently degrade to allowing every foreign-lane write (notes/19 — an unanswerable check
+# must never read as "nothing is wrong"). Both files are anchored, so a missing one is also RED.
+import bash_guard
+
 DESCRIBE = (
-    "criteria_guard.py: PreToolUse(Edit|Write) — allows only checkbox state flips in "
-    "criteria.md; reword/renumber -> /spec; creation only before the baseline tag "
-    "(ergonomics, trust is gate.py, S8)."
+    "criteria_guard.py: PreToolUse(Edit|Write) — denies a write to a protected tree the acting "
+    "role does not own, then allows only checkbox state flips in criteria.md; reword/renumber "
+    "-> /spec; creation only before the baseline tag (ergonomics, trust is gate.py, S8)."
 )
 
 # A criteria checkbox line: leading marker `- [ ]` / `- [x]` / `- [m]` (case-insensitive).
@@ -134,7 +167,28 @@ def main() -> int:
 
     tool_input = payload.get("tool_input") or {}
     file_path = tool_input.get("file_path")
-    if not file_path or not is_criteria(file_path):
+    if not file_path:
+        return 0  # nothing named — allow
+
+    # --- policy 1: the role lane ---------------------------------------------------------
+    # `adw:implementer` and `implementer` are one role (T15/D1). A role of None is the main
+    # session — the human and /adw:spec — and is NOT lane-checked; see the module docstring for
+    # why this is deliberately the opposite of bash_guard's default.
+    role = bash_guard.acting_role(payload.get("agent_type"))
+    if role is not None:
+        frag = bash_guard.path_offence(file_path, role, cwd=payload.get("cwd"))
+        if frag is not None:
+            deny(
+                f"write to a protected path ({frag}) denied for role '{role}'. Owned write "
+                "paths: test-author -> tests/** + pyproject.toml/uv.lock; implementer -> "
+                "src/**; evaluator -> criteria.md/verdict.md; spec prose via /adw:spec. Do not "
+                "route around this through Bash — bash_guard applies the same table, and the "
+                "gate diffs these trees against the baseline regardless (S8). If the contract "
+                "genuinely does not fit, raise a CONTRACT-CHANGE instead of a workaround."
+            )
+
+    # --- policy 2: criteria.md content ---------------------------------------------------
+    if not is_criteria(file_path):
         return 0  # not our file — allow
 
     real = os.path.realpath(file_path)

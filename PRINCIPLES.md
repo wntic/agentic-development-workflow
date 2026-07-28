@@ -197,7 +197,7 @@ rule. *Why:* a restated derivation drifts out of sync; this is the no-two-source
 **D1 · Few roles, differentiated by context.** *Trigger:* wanting a new agent for a new component or
 task type. *Do:* don't — the roles are **spec-author** (human + main session), **test-author**,
 **implementer**, **evaluator**, differentiated by context (which skills auto-load + which spec slice
-is fed) and by `disallowedTools`, never by a forked per-component prompt. *Why:* proliferating
+is fed) and by their enforced write lane, never by a forked per-component prompt. *Why:* proliferating
 per-component personas was the chief mistake of the first prototype. `v3 §4`
 
 **D3 · Anti-collusion on tests.** *Trigger:* authoring tests or judging done-ness. *Do:* the
@@ -212,7 +212,9 @@ loops. `v3 §3.3, §4`
 `tests/**` belongs to the test-author (including deleting obsolete tests in a removal-class change);
 `src/**` belongs to the implementer (including the Alembic revision); `verdict.md` + criteria flips
 belong to the evaluator; canonical spec files are written only by `accept.py` and the `/spec` session.
-The boundary is enforced (`disallowedTools` + gate integrity), not conventional. *Why:* v2's
+The boundary is enforced (the `bash_guard`/`criteria_guard` lane table on the shell and editor
+paths + gate integrity), not conventional — and **not** by `disallowedTools`: a path-scoped
+`Write(glob)` entry drops the tool WHOLESALE, so it bans nothing and merely removes the editor. *Why:* v2's
 declarative-vs-body line died with the scaffolder; the tests-vs-src line is what makes collusion and
 self-grading structurally impossible. `v3 §4`
 

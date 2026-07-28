@@ -15,7 +15,8 @@ role agents and route their results. Trust lives in `gate.py` and the git baseli
 in what an agent reports — every "done" is re-derived from a gate run.
 
 Subagents run **sequentially, one dispatch at a time** (per-dispatch tool tuning is not a
-thing — each role is a distinct agent definition with its own `disallowedTools`, notes/15
+thing — each role is a distinct agent definition, and its write lane is enforced by the
+`bash_guard`/`criteria_guard` pair plus the gate, not by per-dispatch tool tuning, notes/15
 F-7). At most **one change per context** is in `/implement` at a time (spec §6).
 
 ## 0. Orient and reset the ceiling
@@ -61,7 +62,7 @@ Dispatch the **test-author** subagent for `<context>/NNN`. It:
    sketch; the substrate list lives in the `conventions` skill §D, names only), refreshes
    `uv.lock` (`uv lock`), and commits that as a **distinct pre-baseline `deps:` commit** — a
    greenfield first change adds the whole framework substrate, a brownfield change adds only
-   what it newly imports (often nothing). The implementer is tool-blocked from `pyproject.toml`,
+   what it newly imports (often nothing). The implementer is hook-blocked from `pyproject.toml`,
    so deps are the test-author's lane.
 2. Writes red `@pytest.mark.ac` tests from `criteria.md` + the Interface sketch (and, for a
    removal change, deletes the obsolete tests whose node-ids `change.md`'s `## Removed` section
@@ -150,7 +151,7 @@ until `gate.py` is GREEN, running `uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gat
 **greenfield first change** it first writes the behaviorless app shell (`create_app()` +
 container + error handler + `domain/exceptions.py` + `restapi/schemas/errors.py`) from the
 `architecture`/`restapi` skills, then the change's behaviour on top; brownfield changes add only
-behaviour. It stays tool-blocked from `pyproject.toml` — an unforeseen dependency is a
+behaviour. It stays hook-blocked from `pyproject.toml` — an unforeseen dependency is a
 CONTRACT-CHANGE back to the test-author, never a `uv add`. The
 SubagentStop hook holds it while the gate is red and, at the internal ceiling (**3 blocks per
 red test**), the hook itself writes `changes/NNN-<slug>/ESCALATE` and releases it (spec §5.3).

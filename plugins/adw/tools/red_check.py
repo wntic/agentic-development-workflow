@@ -15,14 +15,15 @@ conftest/pyproject does not work, E-05 class), then asserts:
      flagged as green-before-implementation; a skipped/xfail one cannot prove redness either.
   3. tests-only baseline — the commit about to be tagged touches `tests/**` only, and no commit
      between the change's own boundary and it wrote anything outside the pre-baseline lanes
-     (`tests/**`, the declared deps files, `specs/**`). The test-author's `disallowedTools`
-     denies Edit/Write on `src/**`, but a Bash/Write escape (`echo > src/foo.py`) bypasses it
+     (`tests/**`, the declared deps files, `specs/**`). `criteria_guard`/`bash_guard` deny the
+     test-author's writes to `src/**` on both the editor and the shell path, but a hook is
+     porous by construction (it can be bypassed, and it does not run where it is not wired),
      and a *partial* src seed can leave the tests red and still slip code into the baseline.
      Catch the artifact, not the actor (S8): any offending path in the range → refuse to tag
      (anti-collusion, spec §4 / D3). See the pre-baseline-screen section note for the anchor,
      the lanes and what the screen honestly does not reach (T09i).
   4. lint screen — the baseline's `tests/**` is ruff-clean (ruff-check + ruff-format --check,
-     gate.py's config imported not restated, C7). The implementer is tool-blocked from
+     gate.py's config imported not restated, C7). The implementer is hook-blocked from
      `tests/**` and ruff is per-file, so a lint defect the test-author left there could never
      be cleared by any `src/**` edit — it would deadlock the implementer. Screen it here, at
      baseline time, so the test-author fixes it at author time (S4). NOT mypy — a greenfield
@@ -427,7 +428,7 @@ def run_tests(tree: Path) -> dict:
 # Baseline lint screen — refuse a lint-dirty RED baseline before tagging (T09f)
 # ---------------------------------------------------------------------------------------
 #
-# The implementer is tool-blocked from tests/** and ruff is per-file, so a lint defect the
+# The implementer is hook-blocked from tests/** and ruff is per-file, so a lint defect the
 # test-author left in tests/** (e.g. an `I001` split-import block in conftest.py) can never
 # be cleared by any src/** edit — it deadlocks the one agent whose job is to green the gate.
 # Per S4 the fix belongs in the gate that runs at baseline time: screen tests/** for lint

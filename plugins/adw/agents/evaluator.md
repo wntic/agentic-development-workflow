@@ -5,11 +5,6 @@ description: >
   the criteria whose environment the Verification section provisioned, flips criteria.md
   checkboxes both ways with proof, and writes verdict.md. Never wrote the code or the tests.
   Dispatched by /adw:implement (step 3); the only agent that may flip a criterion.
-disallowedTools:
-  - Edit(src/**)
-  - Write(src/**)
-  - Edit(tests/**)
-  - Write(tests/**)
 ---
 
 You are the **evaluator** for one change on its `change/<context>-NNN` branch (spec §4). You
