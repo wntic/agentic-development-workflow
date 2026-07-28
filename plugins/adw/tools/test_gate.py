@@ -1391,45 +1391,18 @@ def test_this_repos_own_plugin_tree_anchors_every_decider() -> None:
         "hooks/session_stop.py",
         "hooks/hooks.json",
         "bin/adw.py",
-    } == anchors, anchors
-
-
-def test_the_deciders_above_the_plugin_root_are_anchored_too() -> None:
-    """The other half of the live set, and the reason it needs a mechanism of its own.
-
-    `plugin.json` names the component paths (so an edit can unhook every hook), `marketplace.json`
-    names where the plugin is fetched from, and `.claude/settings.json` is the checked-out wiring.
-    All three belong to the INSTALLATION root — the repository root — which sits above the plugin
-    root `plugins/adw`, out of reach of a plugin-root-relative glob.
-    """
-    top = TOOLS_DIR.parents[2]
-    above = gate._anchors_above_the_plugin_root(top, gate.plugin_root())
-    assert {label for label, _, _ in above} == {
+        "tools/anchors.py",
         ".claude-plugin/plugin.json",
-        ".claude-plugin/marketplace.json",
-        ".claude/settings.json",
-    }, above
-    for label, disk, git_path in above:
-        assert disk.is_file(), label
-        assert git_path == label, (label, git_path)  # toplevel-relative on both sides
-
-
-def test_a_decider_inside_the_plugin_root_is_not_counted_twice() -> None:
-    # The `.claude/`-rooted layout (this repo before the move, every gate fixture since) puts
-    # `settings.json` AT the plugin root, where the ordinary globs already anchor it. Counting it
-    # again would inflate the number the verdict prints. The property is per-file, not per-layout:
-    # the two manifests still sit above a `.claude/` root and must keep being returned.
-    top = TOOLS_DIR.parents[2]
-    labels = {label for label, _, _ in gate._anchors_above_the_plugin_root(top, top / ".claude")}
-    assert ".claude/settings.json" not in labels, labels
-    assert labels == {".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"}, labels
-    # ... and when the two roots coincide, every glob is already plugin-root-relative.
-    assert gate._anchors_above_the_plugin_root(top, top) == []
+        # The digest the gate falls back to where there is no git. Here — a checkout — it is
+        # anchored the ordinary way, and it is excluded from its own contents by construction.
+        ".claude-plugin/anchors.json",
+    } == anchors, anchors
 
 
 # The plugin layout as it ships (notes/21 §1), relative to the plugin root.
 PLUGIN_FILES = (
     "tools/accept.py",
+    "tools/anchors.py",
     "tools/red_check.py",
     "hooks/bash_guard.py",
     "hooks/criteria_guard.py",
@@ -1445,19 +1418,17 @@ PLUGIN_FILES = (
 def _plugin_source(rel: str) -> Path:
     """Where a plugin-root-relative anchor is READ FROM in this repository.
 
-    Two remaps, both of the same kind: these fixtures build the `.claude/`-rooted layout, where
-    every anchor sits AT the plugin root — the layout this repo itself used before the marketplace
-    move, and still a legal one. In this repo the two files below belong to the INSTALLATION root
-    (the repository root) rather than to the plugin root `plugins/adw`, so they are read from
-    there. Both layouts are anchored: `SELF_INTEGRITY_GLOBS` covers them when the two roots
-    coincide, `ABOVE_ROOT_ANCHOR_GLOBS` when they do not.
+    One remap. These fixtures build the `.claude/`-rooted layout, where every anchor — the
+    checked-out hook wiring included — sits AT the plugin root; that is a layout the derived
+    `plugin_root()` still supports. In THIS repo that wiring is project configuration outside the
+    plugin, so it is read from `.claude/settings.json` and held by `integrity.protected-trees`
+    rather than by the self-hash globs.
     """
-    outside = {
-        "settings.json": Path(".claude") / "settings.json",
-        ".claude-plugin/plugin.json": Path(".claude-plugin") / "plugin.json",
-    }
-    if rel in outside:
-        return TOOLS_DIR.parents[2] / outside[rel]
+    if rel == "settings.json":
+        # The checked-out wiring is `settings.json` AT a plugin root in the layout these fixtures
+        # build; in this repo it is project configuration, outside the plugin, so it is read from
+        # there and anchored by `integrity.protected-trees` rather than by the self-hash globs.
+        return TOOLS_DIR.parents[2] / ".claude" / "settings.json"
     return TOOLS_DIR.parent / rel
 
 
@@ -1487,7 +1458,7 @@ def test_a_full_plugin_tree_is_green(plugin_repo: FixtureRepo) -> None:
     proc = plugin_repo.gate("--change", "demo/001")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert plugin_repo.statuses()["integrity.self-hash"] == "PASS"
-    assert "12 enforcement anchor(s) match git HEAD" in proc.stdout
+    assert "13 enforcement anchor(s) match git HEAD" in proc.stdout
 
 
 @pytest.mark.parametrize("rel", PLUGIN_FILES)
@@ -1521,25 +1492,115 @@ def test_an_uncommitted_new_tool_fails_the_gate(plugin_repo: FixtureRepo) -> Non
     assert "tools/helper.py: not committed at HEAD" in proc.stdout
 
 
-def test_a_plugin_outside_git_fails_loudly_with_the_remedy(plugin_repo: FixtureRepo, tmp_path: Path) -> None:
-    # Decision (2): no provenance means no verdict. A `git-subdir` marketplace source is a
-    # content copy with no `.git` (notes/21 §5) — the gate must FAIL, not degrade quietly.
+# =======================================================================================
+# E-02's second anchor: the shipped digest, for an install that is not a git checkout
+# =======================================================================================
+#
+# An installed plugin is a content copy of `plugins/adw/` — no `.git` anywhere above it. The
+# workflow used to answer that by forcing a whole-repo marketplace source, which dragged its
+# assets into a root shared with the marketplace; it now ships `.claude-plugin/anchors.json`
+# instead. These cases pin BOTH directions of that fallback: it must pass on an untouched copy
+# and fail on every way the copy can stop matching, including the digest itself going missing.
+
+
+def _detached_copy(plugin_repo: FixtureRepo, tmp_path: Path) -> Path:
+    """The plugin as a consumer gets it: a content copy, no `.git` above it."""
     detached = tmp_path / "plugin-cache"
     shutil.copytree(plugin_repo.root / ".claude", detached)
     assert not (detached / ".git").exists()
+    return detached
+
+
+def _run_detached(detached: Path, plugin_repo: FixtureRepo) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["GATE_DOCKER"] = "0"
-    proc = subprocess.run(
+    return subprocess.run(
         [sys.executable, str(detached / "tools/gate.py"), "--change", "demo/001", str(plugin_repo.root)],
         capture_output=True,
         text=True,
         env=env,
         cwd=plugin_repo.root,
     )
+
+
+def _write_digest(detached: Path) -> None:
+    """Whatever `anchors.py` would write for this copy, produced by the copy's own gate."""
+    proc = subprocess.run(
+        [sys.executable, str(detached / "tools/anchors.py"), "--write"], capture_output=True, text=True
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_a_plugin_outside_git_with_no_digest_fails_loudly_with_the_remedy(
+    plugin_repo: FixtureRepo, tmp_path: Path
+) -> None:
+    # No provenance means no verdict — the fallback must be PRESENT, not merely possible.
+    detached = _detached_copy(plugin_repo, tmp_path)
+    proc = _run_detached(detached, plugin_repo)
     assert proc.returncode == 1, proc.stdout + proc.stderr
     assert plugin_repo.statuses()["integrity.self-hash"] == "FAIL"
     assert "are not inside a git repository" in proc.stdout
-    assert "never `git-subdir`" in proc.stdout
+    assert "anchors --write" in proc.stdout
+
+
+def test_a_plugin_outside_git_verifies_against_its_shipped_digest(plugin_repo: FixtureRepo, tmp_path: Path) -> None:
+    detached = _detached_copy(plugin_repo, tmp_path)
+    _write_digest(detached)
+    proc = _run_detached(detached, plugin_repo)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert plugin_repo.statuses()["integrity.self-hash"] == "PASS"
+    # The verdict NAMES the anchor it used: a fallback that reads like the git check would let a
+    # reader believe a stronger thing than happened.
+    assert "anchors.json" in proc.stdout and "no git here" in proc.stdout
+
+
+@pytest.mark.parametrize("rel", ["tools/accept.py", "hooks/bash_guard.py", "hooks/hooks.json", "bin/adw.py"])
+def test_a_tampered_anchor_fails_against_the_digest(plugin_repo: FixtureRepo, tmp_path: Path, rel: str) -> None:
+    # The class this fallback exists for: an edited tool or hook in an installed copy, which
+    # `bash_guard` deliberately does not prevent (it anchors to the consumer's root, T06e).
+    detached = _detached_copy(plugin_repo, tmp_path)
+    _write_digest(detached)
+    target = detached / rel
+    target.write_text(target.read_text(encoding="utf-8") + ("\n" if rel.endswith(".json") else "\n# tampered\n"))
+    proc = _run_detached(detached, plugin_repo)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert plugin_repo.statuses()["integrity.self-hash"] == "FAIL"
+    assert f"{rel}: content differs from the digest" in proc.stdout
+
+
+def test_a_removed_anchor_and_an_added_one_both_fail_against_the_digest(
+    plugin_repo: FixtureRepo, tmp_path: Path
+) -> None:
+    detached = _detached_copy(plugin_repo, tmp_path)
+    _write_digest(detached)
+    (detached / "hooks/session_stop.py").unlink()
+    (detached / "tools/helper.py").write_text("# dropped in after the digest\n", encoding="utf-8")
+    proc = _run_detached(detached, plugin_repo)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "hooks/session_stop.py: listed in the digest but missing" in proc.stdout
+    assert "tools/helper.py: present but absent from the digest" in proc.stdout
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ("not json at all", "unreadable"),
+        ('{"schema": 99, "anchors": {"tools/gate.py": "x"}}', "unreadable"),
+        ('{"schema": 1, "anchors": {}}', "lists no anchors"),
+    ],
+)
+def test_an_unusable_digest_fails_rather_than_passing_vacuously(
+    plugin_repo: FixtureRepo, tmp_path: Path, content: str, expected: str
+) -> None:
+    # The fail-open class (notes/19): a digest the gate cannot read must never read as "nothing
+    # to check". Each of these once would have been an empty expected-set compared to an empty
+    # actual-set, i.e. a silent PASS.
+    detached = _detached_copy(plugin_repo, tmp_path)
+    _write_digest(detached)
+    (detached / ".claude-plugin" / "anchors.json").write_text(content, encoding="utf-8")
+    proc = _run_detached(detached, plugin_repo)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert expected in proc.stdout
 
 
 def test_the_self_hash_floor_holds_when_the_globs_see_nothing(plugin_repo: FixtureRepo) -> None:
@@ -1567,10 +1628,7 @@ def test_the_self_hash_floor_holds_when_the_globs_see_nothing(plugin_repo: Fixtu
 
     proc = run()
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    # Three, not two: the floor (gate.py + criteria_lint.py) plus `.claude/settings.json`, which
-    # this fixture carries and which `ABOVE_ROOT_ANCHOR_GLOBS` reaches from the git toplevel. The
-    # floor is what this test is about, so it is asserted by name rather than by the count alone.
-    assert "3 enforcement anchor(s) match git HEAD" in proc.stdout
+    assert "2 enforcement anchor(s) match git HEAD" in proc.stdout
     (elsewhere / "gate.py").write_text(
         (elsewhere / "gate.py").read_text(encoding="utf-8") + "\n# tampered\n", encoding="utf-8"
     )

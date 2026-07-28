@@ -35,7 +35,7 @@ This hook is ergonomics + escalation plumbing; the trust anchor is still gate.py
 which it simply re-runs (S8). Stdin: the SubagentStop payload. Stdout: a block JSON while
 red under ceiling, otherwise nothing. `--describe` prints a one-line self-description.
 
-gate.py is meant to run under the project's uv venv (`uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py"
+gate.py is meant to run under the project's uv venv (`uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py"
 gate`, T15/D4); this
 hook, however, is launched by Claude Code with the ambient system python, which lacks the
 app's deps (fastapi, ...) and would fail every src-import-dependent check with a false RED

@@ -4,7 +4,7 @@
 Every shipped file (commands, agents) names a tool exactly once and identically, whether the
 workflow is INSTALLED as a plugin or loaded from a project's own `.claude/`:
 
-    uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" gate --change <context>/NNN
+    uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --change <context>/NNN
 
 Why that single form works in both places (measured on Claude Code 2.1.220):
 
@@ -12,10 +12,10 @@ Why that single form works in both places (measured on Claude Code 2.1.220):
     before the Bash tool ever sees it, to the plugin's absolute directory. (`$CLAUDE_PLUGIN_ROOT`
     without braces is NOT expanded, and no `CLAUDE_PLUGIN_*` variable exists in the Bash tool's
     environment, so a `${VAR:-default}` form would silently take the default — do not use one.)
-  * checked out (the workflow's own repo, or a consumer with `.claude/` symlinked) — no plugin
-    is loaded, nothing expands the placeholder, and the shell expands it from `env` in
-    `.claude/settings.json`, which sets `CLAUDE_PLUGIN_ROOT=.claude`. That is a statement of
-    fact, not a workaround: `.claude/` IS the plugin root here — the plugin is this directory.
+  * checked out (the workflow's own repo) — no plugin is loaded, nothing expands the
+    placeholder, and the shell expands it from `env` in `.claude/settings.json`, which sets
+    `CLAUDE_PLUGIN_ROOT=plugins/adw`. That is a statement of fact, not a workaround: the plugin
+    is that directory, here as much as in a consumer's cache.
 
 `uv run` is what keeps the toolchain in the PROJECT's environment (hat 2): the tools shell out
 to `sys.executable -m mypy|ruff|pytest`, which must be the interpreter that can see the app's
@@ -38,7 +38,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-DESCRIBE = "adw.py: locates and runs one of the workflow's tools (gate | accept | red-check | criteria-lint | drift)."
+DESCRIBE = (
+    "adw.py: locates and runs one of the workflow's tools "
+    "(gate | accept | red-check | criteria-lint | drift | anchors)."
+)
 
 # Sub-command -> the tool it runs. The names are the vocabulary the commands/agents use; the
 # file names stay the tools' own (gate.py's identity is load-bearing for its self-hash, E-02).
@@ -48,6 +51,7 @@ TOOLS = {
     "red-check": "red_check.py",
     "criteria-lint": "criteria_lint.py",
     "drift": "drift.py",
+    "anchors": "anchors.py",
 }
 
 
@@ -72,7 +76,7 @@ def usage() -> str:
     return (
         "usage: adw.py <" + " | ".join(TOOLS) + "> [tool arguments...]\n"
         "       run it through the project's environment: "
-        'uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" gate --change <context>/NNN\n'
+        'uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --change <context>/NNN\n'
     )
 
 

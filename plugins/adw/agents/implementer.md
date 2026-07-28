@@ -50,7 +50,7 @@ you must Read (a large skill's `SKILL.md` is a router; see step 2). Then add thi
 
 1. Run the gate and read what is red:
    ```
-   uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" gate --change <context>/NNN
+   uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate --change <context>/NNN
    ```
 2. Fill code under `src/**` guided by the change's Task + **Interface sketch** (the binding
    names/ctor deps) and the skills, which auto-load by the layer you touch (`architecture`,

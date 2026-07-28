@@ -29,7 +29,7 @@ If the change is not yet through `/adw:implement` (no `verdict.md`), stop and sa
 ## 1. Run the gates (accept.py, check mode)
 
 ```
-uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" accept <context>/NNN
+uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" accept <context>/NNN
 ```
 
 No `--base`: `accept.py` derives the S9 base branch from the branch graph (the branch this change
@@ -113,14 +113,14 @@ yes, stop — nothing is written.
 On the human's approval:
 
 ```
-uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" accept <context>/NNN --execute
+uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" accept <context>/NNN --execute
 ```
 
 For a **multi-target** change, pass the human-approved placement map from step 4 so `accept.py`
 writes each invariant to its file (without it, a multi-target `--execute` is refused):
 
 ```
-uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" accept <context>/NNN --execute --placement '{"AC-1": "<capability-a>.md", "AC-2": "<capability-b>.md"}'
+uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" accept <context>/NNN --execute --placement '{"AC-1": "<capability-a>.md", "AC-2": "<capability-b>.md"}'
 ```
 
 `accept.py` re-checks that no gate FAILs, writes the invariants into the capability files with

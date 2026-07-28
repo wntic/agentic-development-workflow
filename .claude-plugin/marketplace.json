@@ -10,10 +10,7 @@
   "plugins": [
     {
       "name": "adw",
-      "source": {
-        "source": "url",
-        "url": "https://github.com/wntic/agentic-development-workflow.git"
-      }
+      "source": "./plugins/adw"
     }
   ]
 }

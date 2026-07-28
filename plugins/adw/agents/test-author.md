@@ -118,7 +118,7 @@ Redness is confirmed by a **script**, not by your judgment — a test that is gr
 code exists is suspicious (it asserts nothing, or the behaviour already exists):
 
 ```
-uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" red-check --change <context>/NNN
+uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" red-check --change <context>/NNN
 ```
 
 It asserts every `AC-n` has at least one marked test and every marked test is RED, then tags

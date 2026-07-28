@@ -785,12 +785,6 @@ PLUGIN_TREE_WRITES = [
     ("cp --target-directory=plugins/adw/hooks /tmp/x.py", "implementer"),
     ("git rm --cached plugins/adw/tools/gate.py", "v3-builder"),
     ("rm plugins/adw/tools", None),  # removing the tree wholesale
-    # ... and through the root symlinks the platform forces on the layout (`agents/` is loaded
-    # from the plugin root only, `hooks/hooks.json` is its default home). Measured: the guard
-    # resolves the alias, so a write through it is denied exactly like the real path — which
-    # matters, because the alias is the SHORTER way to reach the enforcement tree.
-    ("echo x > hooks/bash_guard.py", None),
-    ("rm -rf hooks/session_stop.py", "implementer"),
 ]
 
 

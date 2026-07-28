@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import io
 import json
 import os
@@ -252,15 +253,17 @@ SELF_INTEGRITY_GLOBS = (
     "hooks/*.py",  # the four hooks: ergonomics, but a tampered one lies to its reader
     "hooks/*.json",  # hooks.json — the hook wiring of an INSTALLED load
     "bin/*.py",  # the one sanctioned invocation form (notes/21 §3): tamper it and "the gate" is a fake
-    ".claude-plugin/*.json",  # plugin.json names the components; marketplace.json, where present
-    ".claude/settings.json",  # the hook wiring of a CHECKED-OUT load — this repo's own
-    "settings.json",  # the same wiring where the plugin root IS a `.claude/` (pre-move layouts,
-    #                   a symlinked consumer venue) — one of the two exists, never both
+    ".claude-plugin/*.json",  # plugin.json names the components; tamper it and every hook unhooks
+    "settings.json",  # the hook wiring where the plugin root IS a `.claude/` (older layouts, a
+    #                   symlinked venue). The workflow's own repo keeps that wiring in PROJECT
+    #                   configuration (`.claude/settings.json`, outside the plugin), where it does
+    #                   not ship and `integrity.protected-trees` is what holds it against baseline.
 )
-# Deciders that live ABOVE the plugin root, as paths from the git TOPLEVEL. Anchored separately
-# because a plugin-root-relative glob cannot see them once the plugin is a subdirectory of its
-# installation root (`plugins/adw/` here) — see `_anchors_above_the_plugin_root`.
-ABOVE_ROOT_ANCHOR_GLOBS = (".claude-plugin/*.json", ".claude/settings.json")
+
+# The anchor digest shipped for layouts where the plugin is NOT a git checkout — see
+# `check_self_hash`. Plugin-root-relative, and itself matched by `.claude-plugin/*.json`.
+ANCHOR_DIGEST_REL = ".claude-plugin/anchors.json"
+ANCHOR_DIGEST_SCHEMA = 1
 
 # Applied to an anchor candidate's basename (see the exclusion note above).
 SELF_INTEGRITY_SKIP = re.compile(r"^test_.*\.py$")
@@ -1814,22 +1817,16 @@ def check_self_hash(ctx: GateContext) -> Check:
     # git calls are guarded: an unanswerable git result is a FAIL, never an empty set a
     # caller would read as "nothing to check" (notes/19's fail-open class).
     #
-    # No provenance means no verdict: an installed plugin that is not a git repository FAILs
-    # rather than degrading, because a trust anchor that quietly stops anchoring is worse
-    # than an absent one. The legitimate install modes all keep `.git` — the one that does
-    # not is a `git-subdir` marketplace source, which is forbidden for exactly this reason
-    # (notes/21 §5).
+    # No provenance means no verdict — but "provenance" is not the same thing as "git". An
+    # INSTALLED plugin is a content copy of `plugins/adw/` with no `.git` above it, and the
+    # workflow refuses to be laid out around that (it once forced a whole-repo source, which
+    # forced the installation root to be shared with the marketplace). So the digest below is
+    # the second anchor: same guarantee, no git required. Which one ran is NAMED in the verdict,
+    # because an anchor that quietly stops anchoring is worse than an absent one.
     root = plugin_root()
     rc, out = _run(["git", "-C", str(root), "rev-parse", "--show-toplevel"], timeout=60)
     if rc != 0:
-        return Check(
-            "integrity.self-hash",
-            "FAIL",
-            f"the workflow's own files ({root}) are not inside a git repository — self-integrity is "
-            "unverifiable, so no verdict from this run can be trusted (E-02). Install the workflow "
-            "from a WHOLE-REPO source (a `github`/`url` marketplace source, never `git-subdir`): a "
-            "subdirectory source is a content copy with no `.git` (notes/21 §5).",
-        )
+        return _self_hash_against_digest(root)
     top = Path(out.strip()).resolve()
     prefix = "" if root == top else root.relative_to(top).as_posix() + "/"
     rc, listing = _git(top, "ls-tree", "-r", "--name-only", "HEAD", "--", prefix or ".")
@@ -1850,7 +1847,6 @@ def check_self_hash(ctx: GateContext) -> Check:
     anchors |= {f"{tools_prefix}gate.py", f"{tools_prefix}criteria_lint.py"}
     # Each anchor as (label, file on disk, path git can resolve at HEAD).
     checkable = [(rel, root / rel, f"{prefix}{rel}") for rel in sorted(anchors)]
-    checkable += _anchors_above_the_plugin_root(top, root)
     problems = []
     for label, file_path, git_path in checkable:
         rc, blob = _run_bytes(["git", "-C", str(top), "show", f"HEAD:{git_path}"])
@@ -1867,38 +1863,80 @@ def check_self_hash(ctx: GateContext) -> Check:
     return Check("integrity.self-hash", "PASS", f"all {len(checkable)} enforcement anchor(s) match git HEAD (E-02)")
 
 
-def _anchors_above_the_plugin_root(top: Path, root: Path) -> list[tuple[str, Path, str]]:
-    """Deciders that live ABOVE the plugin root, as (label, disk path, HEAD path).
+def anchor_digest(root: Path) -> dict[str, str]:
+    """`{plugin-root-relative path: sha256}` for every anchor the work tree currently holds.
 
-    Two of them, and each decides which components run rather than what they do:
-
-      * `.claude-plugin/*.json` — `plugin.json` names the component paths (the hook file
-        included) and `marketplace.json` names where the plugin is fetched from;
-      * `.claude/settings.json` — the hook wiring of a CHECKED-OUT load.
-
-    They are anchored here because the plugin root is a SUBDIRECTORY of its installation root
-    (`plugins/adw/` in a repository that is also the marketplace), which puts them out of reach
-    of a plugin-root-relative glob. Unanchored, an edit to `plugin.json` unhooks every hook and
-    the gate still says GREEN.
-
-    A path that turns out to live INSIDE the plugin root is dropped, because
-    `SELF_INTEGRITY_GLOBS` already anchored it and counting it twice would inflate the count the
-    verdict prints. That is not hypothetical: in the `.claude/`-rooted layout (this repo before the
-    marketplace move, and every gate fixture since) the plugin root IS `<top>/.claude`, so
-    `.claude/settings.json` matches both sets.
+    One function, two readers — the writer (`anchors.py`, run at release) and the verifier
+    below — so the two cannot disagree about WHAT is anchored (C7). The digest file itself is
+    excluded: a file cannot carry its own hash.
     """
-    if root == top:
-        return []
-    rels: set[str] = set()
-    for pattern in ABOVE_ROOT_ANCHOR_GLOBS:
-        directory = pattern.rsplit("/", 1)[0]
-        rc, listing = _git(top, "ls-tree", "-r", "--name-only", "HEAD", "--", directory)
-        committed = {line.strip() for line in listing.splitlines() if line.strip()} if rc == 0 else set()
-        # Union of HEAD and the work tree, for the same reason the plugin-root anchors take one:
-        # a DELETED decider and an uncommitted new one are both violations, not invisible.
-        rels |= {rel for rel in committed if fnmatch.fnmatch(rel, pattern)}
-        rels |= {p.relative_to(top).as_posix() for p in top.glob(pattern)}
-    return [(rel, top / rel, rel) for rel in sorted(rels) if root not in (top / rel).parents]
+    rels = set(self_integrity_anchors(_worktree_anchor_candidates(root)))
+    tools_dir = Path(__file__).resolve().parent
+    tools_prefix = "" if tools_dir == root else tools_dir.relative_to(root).as_posix() + "/"
+    rels |= {f"{tools_prefix}gate.py", f"{tools_prefix}criteria_lint.py"}  # the fail-closed floor
+    rels.discard(ANCHOR_DIGEST_REL)
+    return {
+        rel: hashlib.sha256((root / rel).read_bytes()).hexdigest() for rel in sorted(rels) if (root / rel).is_file()
+    }
+
+
+def _self_hash_against_digest(root: Path) -> Check:
+    """E-02 where the plugin is NOT a git checkout: verify against the shipped anchor digest.
+
+    What this is worth, stated plainly so nobody over-reads it. It catches the class the git
+    anchor actually catches: an edited tool or hook — the agent that patched the checker rather
+    than the code, the hand-fix to an installed copy that then diverges silently. `bash_guard`
+    is anchored to the CONSUMER's root and deliberately does not fire on a write outside it
+    (T06e), so in an installed plugin nothing else notices at all.
+
+    What it is not: a defence against someone who understands it. Editing a tool and updating
+    its line here defeats it — exactly as editing a tool and committing it defeats the git
+    anchor (`notes/20` F-02). Two steps either way; the digest simply does not need a `.git`,
+    which is what lets `plugins/adw/` be an ordinary plugin directory.
+
+    Fail-closed at every turn: a missing digest, an unreadable one, a stale one, an anchor the
+    digest does not list, or a listed file that is gone — each is a FAIL, never a quiet pass.
+    """
+    digest_path = root / ANCHOR_DIGEST_REL
+    if not digest_path.is_file():
+        return Check(
+            "integrity.self-hash",
+            "FAIL",
+            f"the workflow's own files ({root}) are not inside a git repository and carry no "
+            f"`{ANCHOR_DIGEST_REL}` — self-integrity is unverifiable, so no verdict from this run "
+            "can be trusted (E-02). A release writes it: `adw.py anchors --write`.",
+        )
+    try:
+        stored = json.loads(digest_path.read_text(encoding="utf-8"))
+        if stored.get("schema") != ANCHOR_DIGEST_SCHEMA:
+            raise ValueError(f"schema {stored.get('schema')!r}, expected {ANCHOR_DIGEST_SCHEMA}")
+        expected: dict[str, str] = dict(stored["anchors"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return Check("integrity.self-hash", "FAIL", f"{ANCHOR_DIGEST_REL} is unreadable — E-02 unverifiable: {exc}")
+    if not expected:
+        return Check("integrity.self-hash", "FAIL", f"{ANCHOR_DIGEST_REL} lists no anchors — E-02 unverifiable")
+
+    actual = anchor_digest(root)
+    problems = [
+        f"{rel}: listed in the digest but missing from the work tree" for rel in sorted(expected.keys() - actual)
+    ]
+    problems += [
+        f"{rel}: present but absent from the digest — the enforcement layer grew a file"
+        for rel in sorted(actual.keys() - expected)
+    ]
+    problems += [
+        f"{rel}: content differs from the digest — the enforcement layer was modified"
+        for rel in sorted(expected.keys() & actual.keys())
+        if expected[rel] != actual[rel]
+    ]
+    if problems:
+        return Check("integrity.self-hash", "FAIL", "self-integrity violated (E-02):\n" + "\n".join(problems))
+    return Check(
+        "integrity.self-hash",
+        "PASS",
+        f"all {len(actual)} enforcement anchor(s) match {ANCHOR_DIGEST_REL} (E-02; no git here, so the "
+        "shipped digest is the anchor)",
+    )
 
 
 # ---------------------------------------------------------------------------------------

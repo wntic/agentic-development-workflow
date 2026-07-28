@@ -1,6 +1,6 @@
 {
   "env": {
-    "CLAUDE_PLUGIN_ROOT": "."
+    "CLAUDE_PLUGIN_ROOT": "plugins/adw"
   },
   "hooks": {
     "PreToolUse": [

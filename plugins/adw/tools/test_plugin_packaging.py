@@ -1,20 +1,26 @@
 """Guards for the shipped artifact's shape (workflow v3, T15; relaid by the marketplace move).
 
-**This repository is at once the marketplace and the `adw` plugin.** The plugin root is the
-repository root — `skills/`, `commands/`, `agents/`, `tools/`, `hooks/`, `bin/`, `templates/` sit
-there, the catalog and the manifest share `.claude-plugin/`, and `.claude/` is left holding only
-what a *project* needs: `settings.json` plus symlinks for the checked-out load. Everything in the
-repo therefore ships, and the reason for that shape is one measured fact: a plugin installed from
-a SUBDIRECTORY source is a content copy with no `.git`, so `integrity.self-hash` cannot verify
-E-02 and the gate is RED in every consumer. A whole-repo source clones, `.git` included — and the
-only way to be a whole repo is to be one (notes/21 §5a).
+**This repository is a marketplace, and `adw` is an ordinary plugin inside it.** Everything the
+plugin owns lives in `plugins/adw/` at the DEFAULT locations, so the manifest declares no
+component paths and the repository root carries nothing of the plugin at all — only
+`.claude-plugin/marketplace.json` (the catalog), `.claude/` (project configuration), and the dev
+record. A second plugin is `plugins/<name>/` with the same shape and nothing to negotiate.
+
+That is not where this started. Getting here needed the gate's second anchor: an installed plugin
+is a content copy with no `.git`, `check_self_hash` had nothing to verify against, and satisfying
+it once forced a whole-repo marketplace source — which made the installation root the repository
+root, which pushed `agents/` and the manifest out of `plugins/adw/`. `.claude-plugin/anchors.json`
+replaced that constraint with a shipped digest, and the layout collapsed back to the plain one
+(notes/21 §5a).
 
 What this suite pins:
 
-  1. **the manifest** — `.claude-plugin/plugin.json` exists and carries the metadata
-     `claude plugin validate` demands (an absent `author` alone fails `--strict`);
-  2. **the catalog** — `.claude-plugin/marketplace.json` names this repo as `adw`'s source, as a
-     whole-repo form, and nothing pins a `version` (else pushed commits never reach a machine);
+  1. **the manifest** — `plugins/adw/.claude-plugin/plugin.json` exists, carries the metadata
+     `claude plugin validate` demands (an absent `author` alone fails `--strict`), and declares
+     NO component paths, because location is the declaration;
+  2. **the catalog** — `.claude-plugin/marketplace.json` installs `adw` by the ordinary relative
+     source, ships a current anchor digest, and pins no `version` (else pushed commits never
+     reach a machine);
   3. **two homes for one hook wiring** — a plugin cannot ship hooks in `settings.json` (the
      runtime honours only `agent` / `subagentStatusLine` there), so the wiring is written twice:
      `.claude/settings.json` for a checked-out load (`$CLAUDE_PROJECT_DIR`) and `hooks/hooks.json`
@@ -26,11 +32,10 @@ What this suite pins:
 
 Plus the meta layer's own environment (hat 3): the root `pyproject.toml` is the workflow's test
 environment and nothing else. It must never grow the trial app's substrate, because that would
-make `pytest tools/` depend on a trial app being present in the tree.
+make `pytest plugins/adw/tools/` depend on a trial app being present in the tree.
 """
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -41,11 +46,11 @@ import pytest
 
 TOOLS_DIR = Path(__file__).resolve().parent
 PLUGIN_ROOT = TOOLS_DIR.parent  # plugins/adw — where the workflow's own files live
-REPO_ROOT = TOOLS_DIR.parents[2]  # the repository: the marketplace AND the installation root
+REPO_ROOT = TOOLS_DIR.parents[2]  # the repository: the MARKETPLACE, and nothing of the plugin
 HOOKS_DIR = PLUGIN_ROOT / "hooks"
-# Both manifests belong to the INSTALLATION root, which is the repository root — a manifest
-# inside `plugins/adw/` would not be read at all (and would be a second source of truth).
-MANIFEST = REPO_ROOT / ".claude-plugin" / "plugin.json"
+# The manifest belongs to the PLUGIN root, which is `plugins/adw/` — an ordinary plugin
+# directory. The catalog belongs to the MARKETPLACE root, which is the repository.
+MANIFEST = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
 MARKETPLACE = REPO_ROOT / ".claude-plugin" / "marketplace.json"
 # The hook wiring of the CHECKED-OUT load lives in project configuration, not in the plugin's own
 # `settings.json` (which the runtime would read for `agent` keys only).
@@ -55,18 +60,12 @@ SHIM = PLUGIN_ROOT / "bin" / "adw.py"
 
 PLUGIN_NAME = "adw"
 
-# The directories the platform discovers at the plugin root, and the one directory that stays
-# project configuration. `.claude/` may hold symlinks to the first group (the checked-out load
-# reads components from there) but never a second copy of them.
+# Everything the plugin owns, at its own root — the DEFAULT locations, which is what makes the
+# manifest able to declare nothing (C7: the directory states the layout).
 COMPONENT_DIRS = ("skills", "commands", "agents", "hooks", "templates", "tools", "bin")
-# The components the platform loads from the INSTALLATION root only, reached by a relative
-# symlink there. Measured: `agents` loads from no custom path at all (a directory value even
-# fails the plugin), and a root symlink into the nested tree does load; `hooks/hooks.json` is
-# the default home, and the checked-out wiring of THIS session reached it that way.
-ROOT_SYMLINKS = ("agents", "hooks")
 
 # The two roots, and the substitution that turns one wiring into the other.
-PLUGIN_FORM = "${CLAUDE_PLUGIN_ROOT}/plugins/adw/hooks/"
+PLUGIN_FORM = "${CLAUDE_PLUGIN_ROOT}/hooks/"
 PROJECT_FORM = "$CLAUDE_PROJECT_DIR/plugins/adw/hooks/"
 
 
@@ -111,31 +110,22 @@ def test_manifest_carries_an_author() -> None:
     assert isinstance(author, dict) and author.get("name"), author
 
 
-def test_the_manifest_declares_where_the_components_are() -> None:
-    """The one place that says the assets are NOT at the installation root.
+def test_manifest_declares_no_component_paths() -> None:
+    """`plugins/adw/` is an ordinary plugin directory, so location IS the declaration.
 
-    The opposite of what this suite demanded before the nesting: with `plugins/adw/` holding the
-    assets, discovery-by-location would find nothing, so the manifest's paths are the ONLY source
-    of truth rather than a second one (C7 is satisfied by there being exactly one).
-
-    `agents` is deliberately absent, and that is measured, not an oversight: on Claude Code
-    2.1.220 an agent loads from the plugin root's `agents/` and from no custom path at all —
-    a directory value in `agents` fails the plugin outright, a file value validates and then
-    loads nothing. The root symlink below is the mechanism that stands in for it.
+    This is where the layout's cost shows up as a NON-cost. While the plugin's assets lived
+    anywhere other than its own root, the manifest had to name them — and `agents` could not be
+    named at all (measured: no custom path loads one), which forced a symlink at the shared
+    installation root. With the plugin root back at `plugins/adw/`, every component sits at its
+    default location, the manifest declares none of them, and there is nothing at the repository
+    root belonging to `adw`.
     """
-    manifest = _manifest()
-    for key in ("skills", "commands"):
-        declared = manifest[key]
-        paths = [declared] if isinstance(declared, str) else declared
-        for path in paths:
-            assert path.startswith("./plugins/adw/"), f"{key}: {path} does not point into the plugin's tree"
-            assert (REPO_ROOT / path).exists(), f"{key}: {path} does not exist"
-    for key in ("agents", "hooks"):
-        assert key not in manifest, f"{key} is reached through the root symlink, not a declared path"
+    for key in ("commands", "agents", "skills", "hooks"):
+        assert key not in _manifest(), f"{key} is discovered by location, not declared"
 
 
 # =======================================================================================
-# The layout: assets under plugins/adw/, the installation root holds only what must be there
+# The layout: an ordinary plugin directory, and a repository root that owns none of it
 # =======================================================================================
 
 
@@ -144,29 +134,18 @@ def test_every_component_directory_sits_in_the_plugins_own_tree(name: str) -> No
     assert (PLUGIN_ROOT / name).is_dir(), f"{name}/ must live in plugins/adw/"
 
 
-@pytest.mark.parametrize("name", ROOT_SYMLINKS)
-def test_the_platform_forced_symlinks_exist_and_point_into_the_plugin(name: str) -> None:
-    """The narrow exception to "assets live under plugins/adw/", and why it is narrow.
+def test_the_repository_root_carries_nothing_of_the_plugin() -> None:
+    """The whole point of the layout, as a check rather than a claim.
 
-    A relative symlink whose target resolves inside the plugin's own directory is preserved by
-    the install (measured: it survives the copy into `~/.claude/plugins/cache/…` and the agent
-    behind it loads). An absolute one, or one escaping the plugin, is skipped for security — so
-    the symlink must stay relative.
+    A component directory (or a symlink standing in for one) at the repository root would be
+    `adw` leaking out of `plugins/adw/` again — unattributable the moment a second plugin exists,
+    and, for `hooks/`, a second wiring that fires every hook twice.
     """
-    link = REPO_ROOT / name
-    assert link.is_symlink(), f"{name} must be a symlink at the installation root"
-    assert not Path(os.readlink(link)).is_absolute(), f"{name} must be RELATIVE or the install drops it"
-    assert link.resolve() == (PLUGIN_ROOT / name).resolve(), f"{name} points outside plugins/adw/"
-
-
-def test_the_installation_root_carries_no_stray_component_directory() -> None:
-    # Anything else with a component's name at the installation root would be a second copy the
-    # platform might load instead of the one under plugins/adw/ — and hooks wired twice fire twice.
-    for name in COMPONENT_DIRS:
-        entry = REPO_ROOT / name
-        if name in ROOT_SYMLINKS:
-            continue
-        assert not entry.exists(), f"{name} at the installation root shadows plugins/adw/{name}"
+    strays = [name for name in COMPONENT_DIRS if (REPO_ROOT / name).exists() or (REPO_ROOT / name).is_symlink()]
+    assert strays == [], f"{strays} belong to plugins/adw/, not to the marketplace root"
+    assert not (REPO_ROOT / ".claude-plugin" / "plugin.json").exists(), (
+        "the plugin's manifest belongs to plugins/adw/.claude-plugin/, next to what it describes"
+    )
 
 
 def test_dot_claude_holds_project_configuration_and_never_a_second_copy() -> None:
@@ -189,10 +168,6 @@ def test_dot_claude_holds_project_configuration_and_never_a_second_copy() -> Non
 # The marketplace catalog
 # =======================================================================================
 
-# The two `source` forms whose install is a git CLONE into the plugin cache, so the cache copy
-# keeps its `.git` — measured 2026-07-27, see the whole-repo rule below.
-WHOLE_REPO_SOURCES = frozenset({"github", "url"})
-
 
 def test_marketplace_catalog_exists_and_lists_this_plugin() -> None:
     data = _marketplace()
@@ -202,74 +177,52 @@ def test_marketplace_catalog_exists_and_lists_this_plugin() -> None:
     assert _entry()["source"], "an entry without a source cannot be installed"
 
 
-def test_the_catalog_names_this_very_repository_as_the_plugins_source() -> None:
-    """The self-reference this layout rests on: the marketplace repo IS the plugin repo.
+def test_the_catalog_installs_this_plugin_like_any_other_relative_source() -> None:
+    """The reversal, and the one thing that had to be true first.
 
-    Claude Code fetches the catalog and the plugin independently — one clone under
-    `plugins/marketplaces/<name>/`, one under `plugins/cache/<name>/<plugin>/<sha>/` — so a
-    repository may legally be both. What that buys is the only whole-repo source available
-    without a second repository, and therefore a `.git` in the cache (see the test below).
-    What it costs is that a wrong URL here installs somebody else's code under this name, so
-    the URL is checked against the actual remote rather than trusted.
+    Until the digest anchor existed, this test asserted the OPPOSITE — that the source must be a
+    whole-repo `github`/`url` form. The reason was measured and real: a relative source installs
+    as a content copy with no `.git` (a `./sub` path, a `./` marketplace root and `git-subdir`
+    all behave that way), and `check_self_hash` then had nothing to verify against, so the gate
+    was RED in every consumer. Satisfying it cost the layout — whole-repo source means the
+    installation root is the repository, shared with the marketplace, which pushed `agents/` and
+    the manifest out of `plugins/adw/`.
+
+    `_self_hash_against_digest` removed that constraint rather than working around it, so `adw`
+    is now installed exactly like every other plugin in this marketplace. The check that the
+    fallback is actually SHIPPED (not merely possible) is the digest test below — without it,
+    reverting to a relative source would be a silently red gate again.
     """
     source = _entry()["source"]
-    url = source.get("url") or source.get("repo", "")
-    rc = subprocess.run(["git", "-C", str(REPO_ROOT), "remote", "get-url", "origin"], capture_output=True, text=True)
-    if rc.returncode != 0:
-        pytest.skip("no origin remote to compare the catalog against")
-
-    def _slug(text: str) -> str:  # owner/repo, however the URL spells it
-        return text.strip().removesuffix(".git").replace("git@github.com:", "").replace("https://github.com/", "")
-
-    assert _slug(url) == _slug(rc.stdout), f"catalog names {_slug(url)!r}, origin is {_slug(rc.stdout)!r}"
+    assert source == f"./plugins/{PLUGIN_NAME}", source
+    assert (REPO_ROOT / source).is_dir()
 
 
-def test_the_catalog_shares_the_plugin_root_and_that_costs_the_plugins_own_validation() -> None:
-    """A catalog beside `plugin.json` shadows the plugin half of `claude plugin validate`.
+def test_the_shipped_digest_is_current() -> None:
+    """A stale digest is worse than none: it either reds a consumer's gate or vouches for old bytes.
 
-    Measured on 2026-07-27: given a directory holding both manifests, the CLI validates the
-    MARKETPLACE one and reports nothing about the plugin — silently, with a green exit code. In
-    this layout that colocation is forced (the catalog's only legal home is
-    `<marketplace root>/.claude-plugin/`, and the marketplace root is the plugin root), so the
-    release check validates a marketplace-less COPY of the tree to see the plugin half
-    (notes/21 §5a). The class of defect that half once caught — unparseable `SKILL.md`
-    frontmatter — has its own guard since T13b, which is why the cost is affordable rather than
-    silent: `test_skill_format.py::test_every_skill_frontmatter_parses_as_yaml`.
+    `anchors.py --write` regenerates it; this is the guard that a release cannot forget, since
+    every edit to a tool, a hook, the shim or the manifest changes what it must say.
     """
-    assert MARKETPLACE.parent == MANIFEST.parent, "both manifests share `.claude-plugin/` in this layout"
-    guard = TOOLS_DIR / "test_skill_format.py"
-    assert "def test_every_skill_frontmatter_parses_as_yaml" in guard.read_text(encoding="utf-8"), (
-        "the frontmatter guard that replaces the shadowed validation is gone — restore it or "
-        "stop colocating the catalog"
+    digest_path = PLUGIN_ROOT / ".claude-plugin" / "anchors.json"
+    assert digest_path.is_file(), "run `adw.py anchors --write`"
+    proc = subprocess.run(
+        [sys.executable, str(TOOLS_DIR / "anchors.py")], capture_output=True, text=True, cwd=str(REPO_ROOT)
     )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
-def test_marketplace_fetches_the_plugin_as_a_whole_repository() -> None:
-    """The load-bearing one: a subdirectory source makes the gate RED in every consumer.
+def test_both_manifests_validate_separately_because_they_no_longer_share_a_directory() -> None:
+    """Measured cost that this layout PAYS BACK: a catalog beside `plugin.json` shadows the plugin.
 
-    Measured on Claude Code 2.1.220 (2026-07-27) by installing the same plugin three ways and
-    listing the cache directory:
-
-      | source form                          | cache copy holds        |
-      |--------------------------------------|-------------------------|
-      | `"./sub"` (relative path)            | no `.git`               |
-      | `"./"`    (the marketplace root)     | no `.git`               |
-      | `{"source": "url", ...}` whole repo  | `.git` (a real clone)   |
-
-    Without `.git`, `check_self_hash` reports the enforcement layer as *not inside a git
-    repository* and E-02 cannot be verified — GATE: RED on every run, for a reason that has
-    nothing to do with the consumer's code. `git-subdir` is the same content copy (notes/21 §5).
-    So the obvious packaging choice (marketplace repo with the plugin in a subdirectory) is the
-    broken one, and this test is what stands between a refactor and that failure.
+    Given a directory holding both manifests, `claude plugin validate` validates the MARKETPLACE
+    one and reports nothing about the plugin — silently, with a green exit code (measured
+    2026-07-27). While the plugin root was the repository root that colocation was forced, and
+    the release check had to validate a marketplace-less copy of the tree. Now the two live in
+    different directories, so `claude plugin validate .` and `claude plugin validate plugins/adw`
+    each check their own half.
     """
-    source = _entry()["source"]
-    assert isinstance(source, dict), (
-        f"a string source is a relative path — its cache copy has no .git and the gate goes RED: {source!r}"
-    )
-    assert source["source"] in WHOLE_REPO_SOURCES, (
-        f"{source['source']!r} does not clone the whole repository: {source!r}"
-    )
-    assert "path" not in source, "a subdirectory of a repo is a content copy, not a clone"
+    assert MARKETPLACE.parent != MANIFEST.parent, "colocating them blinds the plugin's own validation"
 
 
 def test_nothing_pins_a_version_so_every_commit_reaches_every_machine() -> None:
@@ -369,9 +322,10 @@ def test_no_shipped_file_invokes_a_tool_by_its_checked_out_path(doc: Path) -> No
 
 def test_the_dev_half_of_the_invocation_form_is_declared() -> None:
     # Checked out, nothing expands `${CLAUDE_PLUGIN_ROOT}` in a command file, so the shell must:
-    # settings.json states the fact that the repository root is the plugin root here.
+    # settings.json states where the plugin actually is, which is the same directory a
+    # consumer's cache holds.
     env = json.loads(SETTINGS.read_text(encoding="utf-8")).get("env", {})
-    assert env.get("CLAUDE_PLUGIN_ROOT") == ".", env
+    assert env.get("CLAUDE_PLUGIN_ROOT") == "plugins/adw", env
 
 
 # =======================================================================================

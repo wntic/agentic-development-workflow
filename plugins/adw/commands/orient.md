@@ -50,7 +50,7 @@ One command answers both halves — the base's src commits tied to no `change/*`
 constructed app's OpenAPI routes against the capability files, in both directions:
 
 ```
-uv run "${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py" drift
+uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" drift
 ```
 
 Print its report to the human **verbatim** and add nothing to its verdict. What each finding means

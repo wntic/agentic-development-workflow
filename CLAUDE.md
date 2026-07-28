@@ -29,22 +29,20 @@ The v2→v3 shift in one line: v2 emitted a disposable app from a YAML manifest 
 directory; v3 maintains the app in-repo under branch-per-change, and the spec compounds into living
 documentation instead of being rendered from a schema.
 
-**This repository is the marketplace; every plugin's assets live under `plugins/<name>/`.** The
-workflow itself is `plugins/adw/` — skills, commands, agents, hooks, tools, bin, templates, all in
-one place. `.claude-plugin/` at the root carries the catalog plus `adw`'s manifest, which is what
-*names* those paths; `.claude/` holds only what a *project* needs (`settings.json` + symlinks for
-the checked-out load); and two symlinks at the root, `agents` and `hooks`, exist because the
-platform loads those two components from the installation root and from nowhere else (measured —
-`notes/21` §5a). The installation root is the repository root, because the one source form that
-survives `integrity.self-hash` is a whole-repo clone: a subdirectory source is a content copy with
-no `.git`, and the gate is then RED in every consumer. So **everything in the repo ships**.
+**This repository is a marketplace, and the workflow is an ordinary plugin inside it:
+`plugins/adw/`.** Everything it owns — skills, commands, agents, hooks, tools, bin, templates —
+lives there at the default locations, so its `plugins/adw/.claude-plugin/plugin.json` declares no
+paths and the repository root carries nothing of the plugin: only `.claude-plugin/marketplace.json`
+(the catalog), `.claude/` (project configuration: `settings.json` + symlinks for the checked-out
+load) and the dev record. A second plugin is `plugins/<name>/` with the same shape.
 
-The ship rule is therefore no longer "by location" but **by role**: a file that *instructs* an agent
-(`plugins/adw/{commands,agents,skills,templates}/`) refers to commands as `/adw:<name>`, because a
-bare `/spec` is *Unknown command* in a consumer; `tasks/`, `notes/`, both design docs and this file
-are a dev record that ships physically but is never loaded (the runtime says so itself: it warns
-that a `CLAUDE.md` at the installation root is not read as project context), and they keep the bare
-names. Packaging reference, release procedure and the measured platform facts:
+**The ship rule is by location again: a file ships iff it lives under `plugins/adw/`** — a relative
+source copies that directory and nothing else. `tasks/`, `notes/`, both design docs and this file
+are a dev record a consumer never receives, which is why they keep the bare command names while
+everything under `plugins/adw/` refers to commands as `/adw:<name>` (a bare `/spec` is *Unknown
+command* in a consumer). What made a relative source legal is the gate's second anchor: an
+installed plugin has no `.git`, so `integrity.self-hash` verifies it against the shipped
+`.claude-plugin/anchors.json` digest instead (`notes/21` §5a). Packaging reference, release procedure and the measured platform facts:
 **`notes/21_plugin_packaging.md`**. Do not enable both loads at once — checked out *and* installed
 fires every hook twice.
 
@@ -205,24 +203,16 @@ codegen_workflow_spec.md          # v2 rationale — archive, kept for the "why"
 tasks/                            # v3 build-out: INDEX.md (status) + one file per task (T01–T11)
 notes/21_plugin_packaging.md      # what ships, the release procedure, the measured platform facts
                                   # --- THE MARKETPLACE (this repo) ---
-.claude-plugin/
-  marketplace.json                # the CATALOG — lists `adw` with THIS repo as a WHOLE-REPO source
-                                  #   (a subdirectory source has no .git in the plugin cache →
-                                  #   self-hash unverifiable → gate RED, notes/21 §5a)
-  plugin.json                     # adw's manifest. Belongs to the INSTALLATION root, which is this
-                                  #   directory — and names where the assets are (`skills`,
-                                  #   `commands` → ./plugins/adw/…). No `version`: pinning it
-                                  #   strands every installed copy
-agents -> plugins/adw/agents      # SYMLINKS the platform forces: an agent loads from the
-hooks  -> plugins/adw/hooks       #   installation root's agents/ and from NO custom path, and
-                                  #   hooks/hooks.json is the default home. Relative, or the
-                                  #   install drops them (measured)
+.claude-plugin/marketplace.json   # the CATALOG — one entry per plugin, ordinary relative sources
 .claude/                          # PROJECT config, not plugin content: settings.json (the
                                   #   checked-out load's hook wiring) + symlinks to the components
 plugins/
-  adw/                            # --- THE PLUGIN: every asset of the workflow ---
-    bin/adw.py                    # the one invocation form:
-                                  #   `${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py <tool>`
+  adw/                            # --- THE PLUGIN: an ordinary plugin directory ---
+    .claude-plugin/plugin.json    # its manifest — no `version` (pinning strands installs) and no
+                                  #   component paths (every one is at its default location)
+    .claude-plugin/anchors.json   # the anchor digest E-02 falls back to where there is no git;
+                                  #   written by `adw.py anchors --write`, guarded as current
+    bin/adw.py                    # the one invocation form: `${CLAUDE_PLUGIN_ROOT}/bin/adw.py <tool>`
     skills/                       # knowledge layer — one directory per theme (T08 merged 44 skills
                                   #   into them); a theme past ~500 lines is a router SKILL.md plus
                                   #   one <topic>.md per artifact, read on demand (T13/T14)
@@ -231,6 +221,7 @@ plugins/
       accept.py                   # "may it merge" — acceptance preconditions   (planned, T05)
       drift.py                    # "has anything drifted" — §5.5, surfaces, never denies (T17);
                                   #   run by /orient, its hotfix half is accept.py's own
+      anchors.py                  # writes/checks the digest above
     hooks/                        # criteria-guard, bash-guard, stop-gates      (planned, T06)
       hooks.json                  #   the same wiring for an INSTALLED load; .claude/settings.json
                                   #   is the checked-out twin (a plugin cannot ship hooks there)
@@ -241,9 +232,8 @@ plugins/
                                   #   v2 commands purged in T02
     templates/                    # change.md / criteria.md / verdict.md / overview / capability
                                   #   skeletons (planned, T03); v2 manifest templates purged in T02
-  <next-plugin>/                  # a future plugin: its own .claude-plugin/plugin.json and a
-                                  #   RELATIVE source in the catalog — it runs no gate, so it has
-                                  #   no self-hash to satisfy (plugins/README.md)
+  <next-plugin>/                  # a future plugin: same shape, its own plugin.json, one more
+                                  #   entry in the catalog (plugins/README.md)
 specs/
   use-cases/UC-NN-*.md            # BA corpus, verbatim — the input material for /spec
   <context>/                      # living spec of one bounded context (created by /spec)
@@ -301,7 +291,7 @@ testcontainers; every acceptance criterion is pinned by an `@pytest.mark.ac("AC-
 The project uses **uv** and targets **Python 3.12**.
 
 Every tool is reached through one shim, `plugins/adw/bin/adw.py` (T15). At a plain terminal name it by path;
-inside a session, shipped files use `"${CLAUDE_PLUGIN_ROOT}/plugins/adw/bin/adw.py"`, which resolves in both
+inside a session, shipped files use `"${CLAUDE_PLUGIN_ROOT}/bin/adw.py"`, which resolves in both
 layouts (see `notes/21`) — the two are the same file.
 
 ```bash

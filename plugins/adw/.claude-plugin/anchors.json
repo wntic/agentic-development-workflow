@@ -1,0 +1,18 @@
+{
+  "anchors": {
+    ".claude-plugin/plugin.json": "2dec0150d4766d66211991e2a679fe8f48485424450e569ea7df0b848c6b7768",
+    "bin/adw.py": "79bb9cb6dbf88f244e73f2348339572753733e7013ae033f309b52673de5a554",
+    "hooks/bash_guard.py": "db52cb19c3b0c5fedbd615cc101245df4486fee4b876b5d972ded2794c33154a",
+    "hooks/criteria_guard.py": "c1437ebcb6136707614291ace27f6a8495eac3df898190e23da27410646dc11e",
+    "hooks/hooks.json": "3e1544209995a692190f16c04859dc738761f618585a9464ec113bcae885b0cd",
+    "hooks/session_stop.py": "c4246b554243ce1ae9d69a6146aa2d483a02385976ec1a73f6cba5f95e0bf30a",
+    "hooks/subagent_stop.py": "58b6c49c179e41bdacfc237ce47b51dbade6df4376110f5fec238fc4feb69a1d",
+    "tools/accept.py": "4b940d7a21b21172d033eace986ef30de881389328e4f2fa50a5c0b5e4d3a0a3",
+    "tools/anchors.py": "963c050493e543222ce41603ee090fedee98dd45241099c35c0f5070debf0eb6",
+    "tools/criteria_lint.py": "e42f10f4b9bcb0c65196f385f6df828f9d270df7d19e0131f19201c39ee20bc2",
+    "tools/drift.py": "474677ba01aefedf4f506427742f0337648171dc7ec93f80ebdfec224431173d",
+    "tools/gate.py": "25aba273f19fc933562587c99f1676f6a3acdec191b221a68174d693343d914f",
+    "tools/red_check.py": "b1aeb91691ee7825a9aa614dbbdb53fdfe1ded64fca2ba4d7b62d9618b74eda8"
+  },
+  "schema": 1
+}
