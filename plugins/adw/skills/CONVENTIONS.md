@@ -8,14 +8,13 @@ Each skill is **theme-narrow**: it covers one coherent theme an agent can pick b
 
 If a skill's hard stops fire, it means the task asked for the wrong artifact — switch to the right skill rather than stretching the current one.
 
-Two skills are **reference** skills (consulted, never producing a file): `conventions` (the mechanical derivation registry) and `test-principles` (the catalog's paid-fixes guard). Toolchain commands and the definition of "green" live in `gate.py`, which `conventions` cites.
+One skill is a **reference** skill (consulted, never producing a file): `conventions`, the mechanical derivation registry. Toolchain commands and the definition of "green" are stated in no skill at all — they live in the project's own toolchain config, which `conventions` cites.
 
 ## Index
 
 ### Reference
 
-- `conventions` — the mechanical derivation registry: identifier → file path / class name, store profiles, the stack substrate (names, no versions), the relational/Alembic bootstrap, and multi-context resolution. Cites `gate.py` for the toolchain.
-- `test-principles` — the catalog's paid-fixes guard (`tools/test_skill_catalog.py`) that greps the whole catalog for every hard-won lesson by content signature, and the append-only protocol for extending it.
+- `conventions` — the mechanical derivation registry: identifier → file path / class name, store profiles, the stack substrate (names, no versions), the relational/Alembic bootstrap, and multi-context resolution. Cites the project's toolchain config; never restates a command.
 
 ### Meta
 

@@ -28,7 +28,7 @@ router only routes. Read the constitution and the topic file for what you are wr
 
 ## The unit testing constitution (shared)
 
-These rules govern the whole unit tier and were the catalog-level testing constitution; they live here now (they moved out of `test-principles`, which is reduced to the paid-fixes guard). The integration-specific half — the conftest hierarchy, fixture scope, and reliability rules — lives in `testing-integration`.
+These rules govern the whole unit tier and are the catalog-level testing constitution. The integration-specific half — the conftest hierarchy, fixture scope, and reliability rules — lives in `testing-integration`.
 
 ## The testing pyramid
 
@@ -134,7 +134,7 @@ The single sanctioned exception is `monkeypatch.setenv` inside settings-parsing 
 
 ## The `@pytest.mark.ac` criteria marker
 
-Every acceptance criterion in a change's `criteria.md` is pinned by at least one test carrying its marker: `@pytest.mark.ac("AC-2")` on the test function. This is the convention the change cycle cross-checks — a `[x]` criterion must have a **passed** `ac`-marked test in the run's junit report (spec §3.3). Put the marker on the test that most directly exercises the criterion's observable behaviour; one criterion may have several marked tests. A criterion no test can physically pin is a candidate for the manual `[m]` state, flagged explicitly rather than left silently unmarked.
+Every acceptance criterion in a change's `criteria.md` is pinned by at least one test carrying its marker: `@pytest.mark.ac("AC-2")` on the test function. This is the convention the change cycle cross-checks — a criterion may be ticked only when a **passed** `ac`-marked test for it exists in the run's junit report. Put the marker on the test that most directly exercises the criterion's observable behaviour; one criterion may have several marked tests. A criterion no test can physically pin is a candidate for the manual `[m]` state, flagged explicitly rather than left silently unmarked.
 
 ## A missing fake is a stop, not an improvisation
 

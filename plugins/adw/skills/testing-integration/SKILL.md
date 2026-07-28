@@ -33,7 +33,7 @@ constitution and the topic file for what you are writing.
 
 ## The integration testing constitution (shared)
 
-These rules govern the integration tier and were part of the catalog-level testing constitution; they live here now (they moved out of `test-principles`, which is reduced to the paid-fixes guard). The pyramid, fixture-vs-builder, AAA, no-mocks and naming rules live in `testing-unit`.
+These rules govern the integration tier and are part of the catalog-level testing constitution. The pyramid, fixture-vs-builder, AAA, no-mocks and naming rules live in `testing-unit`.
 
 ## The conftest hierarchy
 

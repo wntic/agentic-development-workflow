@@ -1,57 +1,47 @@
-# Spec-driven agentic development workflow
+# adw — spec-driven agentic development workflow
 
-Tooling for a **spec-driven agentic development workflow**: living Markdown specs per bounded
-context, a change cycle (red tests → code → run → criteria check → iterate), and deterministic
-gates that hold the trust. AI agents build and maintain a strict hexagonal Python backend
-**in this repository** through reviewed, branch-isolated changes.
+A Claude Code marketplace holding one plugin, `plugins/adw/`: a spec-driven workflow for building
+strict hexagonal Python backends with coding agents.
 
-## The core idea
+## Status: being rebuilt
 
-Three layers are kept strictly separate (see [`workflow_v3_spec.md`](workflow_v3_spec.md),
-the design doc — read it first; Russian):
+Three previous attempts are archived in git history under tags — a code generator, a YAML-manifest
+pipeline, and a gate-and-hook enforcement layer. [`HISTORY.md`](HISTORY.md) says what each one was,
+what it measured about itself, and how to recover any file from it.
 
-- **Knowledge** — *how* to write an artifact — lives in the **skills** (`plugins/adw/skills/`).
-- **Specification** — *what* to do and how to verify it — lives in `specs/`: a living spec per
-  bounded context (small per-capability files), changed only through delta specs whose
-  **acceptance criteria are a checklist agents can only tick with machine-checkable proof**.
-- **Enforcement + orchestration** — who does what, what is forbidden, when it is "done" —
-  lives in the agents/commands and, first of all, two scripts: `gate.py` ("is it green")
-  and `accept.py` ("may it merge").
+The third attempt ended with 17 200 lines of enforcement, 0 lines of application, and 0 features
+shipped. [`research/sdd-landscape-2026-07.md`](research/sdd-landscape-2026-07.md) is the survey of
+what everyone else does — 14 sources, including the two Anthropic harness-design posts and a
+comparison of 18 spec-driven tools — and it explains why that ratio was structural rather than
+unlucky.
 
-Two principles carry the design (both earned the hard way — see
-[`notes/15_v3_design_review.md`](notes/15_v3_design_review.md)):
-
-- **Hooks are ergonomics; trust is a post-hoc check against the git baseline.** Prevention is
-  porous by construction — the gate verifies the *result* (protected-tree diff, test inventory,
-  junit-backed criteria, self-hash), so bypassing a hook only gets the result invalidated.
-- **One change = one branch; `main` is always green.** Red tests, code, and the verdict live on
-  the change branch; `main` only ever receives green merges through `accept.py`.
-
-The cycle separates authorship from judgment: a **test-author** writes red tests from the spec,
-an **implementer** (who cannot touch tests) makes the gate green, a **fresh-context evaluator**
-proves the criteria against the running app. Accepted deltas merge into the living spec, so
-documentation compounds instead of rotting.
-
-## Repository map
+**What ships today:** the knowledge layer only.
 
 ```
-workflow_v3_spec.md               # THE design doc (Russian) — read first
-notes/15_v3_design_review.md      # the adversarial design-review register behind the hardening
-tasks/                            # build-out decomposition (T01–T11) — status in tasks/INDEX.md
-.claude/                          # skills (knowledge), agents/commands (orchestration),
-                                  #   gate.py / accept.py / hooks (enforcement; being built)
-specs/use-cases/                  # BA use cases, verbatim — input material
-specs/<context>/                  # living spec of a bounded context (created by the cycle)
-src/ tests/                       # the target app, maintained through the change cycle
+plugins/adw/
+  skills/           the house-style catalog (~8 100 lines, three rounds of audit):
+                    architecture · domain-model · domain-ports · application ·
+                    infra-persistence · infra-integration · restapi ·
+                    testing-unit · testing-integration · python-style ·
+                    conventions · meta-skill-author · meta-uc-author
+  commands/         commit
 ```
 
-## Status
+## The direction
 
-**v3 is being built** — the decomposition and per-task status live in
-[`tasks/INDEX.md`](tasks/INDEX.md); each task is executed by a builder agent via `/build-task`
-and verified by the runnable checks in its task file.
+Living spec per capability, one delta per change in OpenSpec's `ADDED` / `MODIFIED` / `REMOVED`
+format, every acceptance criterion pinned by an `@pytest.mark.ac("AC-n")` test, one check script of
+at most 300 lines, a fresh-context evaluator subagent for the verdict, a branch per change, and
+human review of the merge diff instead of a machine that guards against being bypassed.
 
-The predecessor (v2: a YAML-manifest pipeline with a stdlib graph validator and
-scaffolder/implementer agents over the manifest DAG) was proven end-to-end and is archived at
-tag **`v2-archive`** in `main`'s history; its design rationale is kept in
-[`codegen_workflow_spec.md`](codegen_workflow_spec.md).
+The reasoning is in the research document §7; the five rules that keep it from growing back into
+the previous attempt are in [`CLAUDE.md`](CLAUDE.md).
+
+## Install
+
+```
+/plugin marketplace add wntic/agentic-development-workflow
+/plugin install adw
+```
+
+Do not enable the checked-out and the installed load at the same time.

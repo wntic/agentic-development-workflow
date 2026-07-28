@@ -1,6 +1,6 @@
 ---
 name: conventions
-description: Reference skill (produces no target-app file) — the Python/FastAPI house style's mechanical derivation registry. Carries the derivation from bare identifiers (entity name, protocol name, command base-name, datastore kind) to concrete file paths and class names, the store profiles, the stack-substrate library list (names, no versions), the relational/Alembic bootstrap, and the multi-context resolution rules. Toolchain commands and the "green" definition live in `gate.py`, which this skill cites, never restates (C7). Other skills own artifact CONTENT; this owns the derivation between identifiers and the file tree.
+description: Reference skill (produces no target-app file) — the Python/FastAPI house style's mechanical derivation registry. Carries the derivation from bare identifiers (entity name, protocol name, command base-name, datastore kind) to concrete file paths and class names, the store profiles, the stack-substrate library list (names, no versions), the relational/Alembic bootstrap, and the multi-context resolution rules. Toolchain commands and the definition of "green" live in the project's own toolchain config, which this skill cites, never restates. Other skills own artifact CONTENT; this owns the derivation between identifiers and the file tree.
 when_to_use: Deciding a file path, a class name, a store profile, which substrate packages an app carries, how the Alembic bootstrap is laid, or how a cross-context reference resolves. Consulted alongside the artifact skill whenever a derived name or path is needed.
 ---
 
@@ -8,7 +8,7 @@ when_to_use: Deciding a file path, a class name, a store profile, which substrat
 
 This is the **derivation layer**: the rules that turn the bare identifiers a change introduces (entity name, protocol name, command base-name, datastore `kind`) into concrete file paths, class names, dependencies, and store wiring. Everything mechanical is derived **here** so the other skills stay about artifact content.
 
-Toolchain commands and the single definition of "green" live in **`gate.py`** (`tools/gate.py`) — this skill cites it, never restates it (C7: derivation has one home, and the toolchain's home is the gate).
+Toolchain commands and the single definition of "green" live **outside this skill**, in the project's own toolchain config — this skill cites that home, never restates it (derivation has one home, and the toolchain's home is not a skill).
 
 All paths below are relative to the target package root `src/<package>/` (e.g. `src/hdk/domain/auth/user.py`). Worked names use the Helpdesk vocabulary (`auth`/`User`, `support`/`Ticket`, `openai`/`jwt`).
 
@@ -76,7 +76,7 @@ A datastore's `kind` is a free token (not a closed enum — a fixed list is the 
 - The `method contract` (`sql` / `collection` / `generic`) only sets the **wording** of the repository scaffold's contract-comment.
 - An **unknown** kind degrades to a generic untyped `object` client plus a loud contract comment — the fail-loud-not-crash invariant the table scaffold also follows. Adding a backend is **one row here**, never a tooling change.
 
-**The connection factory is COMPLETE glue, not a body scaffold.** For a **known** profile kind the connection/engine factory carries zero judgment — it is a fixed function of the settings shape — so it is written in **full** (no `raise NotImplementedError`), exactly like `__init__` re-exports or `containers.py`. Leaving it as a `NotImplementedError` scaffold would crash the DI container at app construct while mypy/ruff/tests stay green (the A4 hazard, `PRINCIPLES.md` §A4). The canonical complete forms:
+**The connection factory is COMPLETE glue, not a body scaffold.** For a **known** profile kind the connection/engine factory carries zero judgment — it is a fixed function of the settings shape — so it is written in **full** (no `raise NotImplementedError`), exactly like `__init__` re-exports or `containers.py`. Leaving it as a `NotImplementedError` scaffold would crash the DI container at app construct while mypy/ruff/tests stay green — the hazard class where a defect surfaces only when something actually constructs the app. The canonical complete forms:
 
 ```python
 # infrastructure/postgres/engine.py  (the bootstrap-store engine + session factory — complete)
@@ -126,9 +126,9 @@ target_metadata = metadata
 
 
 def _engine():
-    # The gate's Docker tier hands the migration DSN in via DATABASE_URL / GATE_DATABASE_URL
-    # (see `gate.py`, the docker.alembic tier) — honour it when set, else build from DbSettings.
-    dsn = os.environ.get("GATE_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    # The integration tier hands the migration DSN in via DATABASE_URL — honour it when set,
+    # else build from DbSettings.
+    dsn = os.environ.get("DATABASE_URL")
     if dsn:
         from sqlalchemy.ext.asyncio import create_async_engine
         return create_async_engine(dsn.replace("postgresql://", "postgresql+asyncpg://", 1))
@@ -201,15 +201,18 @@ The baseline is a derived glue **snapshot** of the just-written tables (≈ `con
 
 **Dev deps live under `[dependency-groups]` (PEP 735).** Emit `[dependency-groups]` with `dev = [...]` — `uv run` / `uv sync` install the `dev` group by default. Do **not** emit the deprecated `[tool.uv.dev-dependencies]` table (uv warns on it and it is slated for removal).
 
-## E. Toolchain (defined in `gate.py`)
+## E. Toolchain (defined outside this skill)
 
-The toolchain commands, the pinned mypy/ruff/pytest config, and the single definition of "green" live in **`gate.py`** — run `uv run "${CLAUDE_PLUGIN_ROOT}/bin/adw.py" gate` (add `--criteria` to cross-check `criteria.md` flips). This skill does not restate the commands (C7). What follows is only the *house-style knowledge* the config encodes, so an author knows why a rule exists:
+The toolchain commands and the pinned mypy/ruff/pytest config live in the **project's own toolchain
+config**, and the single definition of "green" is whatever runs them. This skill does not restate a
+command. What follows is only the *house-style knowledge* the config encodes, so an author knows why
+a rule exists:
 
 - **type-check runs both `src` and `tests`** at parity with lint — so a defect never hides in whichever the other skips. The test skills' "full annotations on every fixture/helper" rule is what keeps `tests` green (a fixture consuming the app types it `real_app: FastAPI`, a yielding fixture annotates `-> AsyncIterator[T]`, a parametrize hook `metafunc: pytest.Metafunc`).
-- **`B904`** (a `flake8-bugbear` rule the gate enables) makes a bare `raise X` inside an `except` an error: chain the cause with `raise X(...) from exc`, or deliberately suppress it with `from None` (e.g. translating a lookup-miss to an auth error without leaking the internal cause).
-- **`B006`** flags a **mutable default argument** (`def f(x: list = [])`) — a shared-state bug; use `x: tuple = ()` / `x: <T> | None = None` and build inside. (Both are individual bugbear rules, not the whole `B` family — the select stays narrow.)
+- **`B904`** (a `flake8-bugbear` rule the house style enables) makes a bare `raise X` inside an `except` an error: chain the cause with `raise X(...) from exc`, or deliberately suppress it with `from None` (e.g. translating a lookup-miss to an auth error without leaking the internal cause).
+- **`B006`** flags a **mutable default argument** (`def f(x: list = [])`) — a shared-state bug; use `x: tuple = ()` / `x: <T> | None = None` and build inside. (Both are individual bugbear rules, not the whole `B` family — the selection stays narrow.)
 - **Missing-stub silence has exactly one sanctioned form**: a `[[tool.mypy.overrides]]` block with `ignore_missing_imports = true` for a package that ships no stubs / `py.typed` (today `dependency_injector.*`, `testcontainers.*`, and any stub-less SDK, e.g. `argon2.*`). This is the **only** sanctioned way to silence a missing-stub error — never an inline `# type: ignore` on a content module. The `__init__.py` `F403/F405` ignore is likewise the only sanctioned ruff suppression — never an inline `# noqa` on a content module.
-- **migrations** — Alembic owns the chain natively; migrations are never generated as logic. `uv run alembic revision --autogenerate -m "<change>"` then `uv run alembic upgrade head`. A schema-drift check (entity fields ↔ table columns) is the deterministic trigger that wakes the implementer to author the next revision. The gate's Docker tier runs `alembic upgrade head` against a fresh postgres container, handing the DSN in via `DATABASE_URL` / `GATE_DATABASE_URL` (block C `migrations/env.py` honours it).
+- **migrations** — Alembic owns the chain natively; migrations are never generated as logic. `uv run alembic revision --autogenerate -m "<change>"` then `uv run alembic upgrade head`. A schema-drift check (entity fields ↔ table columns) is the deterministic trigger that wakes the implementer to author the next revision. The integration tier runs `alembic upgrade head` against a fresh postgres container, handing the DSN in via `DATABASE_URL` (block C `migrations/env.py` honours it).
 
 ## F. Multi-context apps (cross-context resolution + shared substrate)
 
@@ -230,4 +233,5 @@ Dedup is by identifier: same name (and shape) across contexts → one artifact. 
 ## G. See also
 
 - `architecture` — the four-layer split, relative vs absolute import reach, the same-package collapse, the `from .module import *` re-export contract, one class per module, `__all__` placement, subpackage `__init__.py` mechanics.
-- `gate.py` — the toolchain commands, pinned config, and the definition of "green" this skill cites.
+- the project's toolchain config — the commands, the pinned mypy/ruff/pytest settings, and the
+  definition of "green" this skill cites but never restates.

@@ -142,12 +142,12 @@ Rules for this shape:
 2. **No custom frontmatter fields.** Only `name` and `description`. Information that doesn't fit in the description goes in the body.
 3. **Templates are literal, not prose.** Show the entire file the agent should write. Use placeholders like `Foo`, `<root>`, `<subdomain>` consistently with CONVENTIONS.md.
 4. **One theme per skill.** A skill covers one coherent theme, which may span several closely-related artifacts — held in one body, or in bundled topic files behind a router once the theme outgrows the threshold. "One theme" is one auto-invocation entry, not necessarily one file. If a candidate would cover two unrelated themes, split it into two skills. If its hard stops fire, the task asked for the wrong artifact — switch skills, don't stretch this one.
-5. **Cross-cutting rules are referenced, not restated.** Point to `architecture` (layers, packages, imports), `python-style` (typing, logging), and `conventions` (derivation) rather than copying their rules. Inlined slices (3–6 bullets) are acceptable when load-bearing. Toolchain commands are never restated — cite `gate.py`.
+5. **Cross-cutting rules are referenced, not restated.** Point to `architecture` (layers, packages, imports), `python-style` (typing, logging), and `conventions` (derivation) rather than copying their rules. Inlined slices (3–6 bullets) are acceptable when load-bearing. Toolchain commands are never restated — cite the project's toolchain config.
 6. **Hard stops are explicit.** Every plausible "wrong-skill" case becomes a hard stop with a redirect. This is how agents recover from misclassification without overreaching.
 7. **Use placeholder vocabulary.** `Foo` for the primary aggregate, `Bar` for the secondary, `myapp` for the project root. Never name a specific aggregate from the current application.
 8. **No meta-notes for skill authors inside the body.** Lines like "Do not duplicate these rules here" are instructions for the author, not the agent — they pollute runtime context. Put author-side notes in the commit message or in CONVENTIONS.md.
 9. **One paragraph descriptions read as sentences.** Not lists, not headings. The description is what an agent grep-scans to find the right skill.
-10. **No orchestration, no process leakage.** A skill is knowledge injected into context, not an executor. It must not describe what invokes it, what it returns to a caller, the change cycle, criteria files, or "report to the coordinator" — those are the enforcement/orchestration layer (agents, commands, `gate.py`), not the skill. The purity test: would a new developer read this as onboarding docs? If they'd trip over a line, that line is a leaked layer — cut it.
+10. **No orchestration, no process leakage.** A skill is knowledge injected into context, not an executor. It must not describe what invokes it, what it returns to a caller, the change cycle, criteria files, or "report to the coordinator" — those are the enforcement/orchestration layer (agents, commands, the check script), not the skill. The purity test: would a new developer read this as onboarding docs? If they'd trip over a line, that line is a leaked layer — cut it.
 
 ## Skill modes (a navigational aid, not a new requirement)
 
@@ -186,7 +186,7 @@ Examples: the app-bootstrap topic of `restapi`; the isolation, authed-client, an
 
 Produces nothing — documents conventions other skills consult. Keeps `When to use vs. neighbours`, `Rules`, `Hard stops`; omits `Template(s)` and `Package wiring`.
 
-Examples: `conventions`, `architecture`, `python-style`, `test-principles`.
+Examples: `conventions`, `architecture`, `python-style`.
 
 ### Picking a mode
 

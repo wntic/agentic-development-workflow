@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "adw",
-  "description": "Spec-driven agentic development workflow (v3): living Markdown specs per bounded context, a red-tests -> code -> verdict change cycle on a branch per change, and deterministic gates (gate.py / accept.py) that decide 'is it green' and 'may it merge'.",
+  "description": "Spec-driven agentic development workflow for Python backends. Currently ships the knowledge layer only: the house-style skill catalog (hexagonal architecture, domain model, CQRS application layer, polyglot persistence, FastAPI, the two test tiers) plus a commit command. The change cycle is being rebuilt.",
   "author": {
     "name": "Egor Vorobyev",
     "email": "voro6yov.egor@gmail.com"
