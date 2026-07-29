@@ -55,6 +55,24 @@ profiles, the substrate. Where a theme's opening file points at a sibling topic 
 file before writing that artifact rather than working from the summary; if you cannot locate a file a
 pointer names, say so in your report instead of guessing.
 
+## On the project's first change, the `Makefile` is part of the substrate
+
+A first change drags the substrate along underneath its one end-to-end criterion — the application
+shell, the wiring, and the project's `Makefile`. You write that substrate as ordinary source, from the
+house style, the same way you write the rest of the change.
+
+The `Makefile` is the piece of it nobody upstream of you supplies, because the check you are judged by
+lives in it. The workflow ships one, `templates/Makefile`, next to these role definitions: put it at
+the project root as it stands. Its `check` target is the whole definition of green and the single place
+those commands are written down — do not retype them here, in your report, or in a target of your own,
+and do not assemble a target from what this project looks like it needs.
+
+That target does not grow a fifth command. A check you find yourself wishing for — a coverage floor, a
+security scan, a lint of your own — is something to name in your report for a human to decide, never a
+line you add while getting tests to pass. On every later change the `Makefile` is already in the tree
+and this step does not exist — and whether it is there is something you see by looking at the project,
+not something you have to be told about the change.
+
 ## The migration is yours
 
 When the schema drifts — an entity gained a field, a table did not — you author the next migration

@@ -47,9 +47,16 @@ was waiting for you.
   acceptance would merge into a spec the first has already moved.
 - **The base branch is green.** Run `make check` on it and read the output; the project's `Makefile`
   is the whole definition of green. Red → stop with the failing command and its first real error.
-  There is no `make check` to run at all → say that plainly and ask the human before you dispatch
-  anything. An absent check is not a green one, and deciding on their behalf that it is would be the
-  first guess of the change.
+  There is no `make check` to run at all → say so, and then read `specs/` before you decide what it
+  means. Exactly one of two things is true, and which one is a matter of reading, not of a setting:
+  - `specs/` carries **no capability file at all** → this is the project's first change, and there is
+    nothing in the tree for a check to be green about yet. That absence is the expected state, not a
+    stop: the `Makefile` arrives with the rest of the substrate at step 4, and from that change on this
+    precondition has something to run. Say which of the two cases you found, and carry on.
+  - `specs/` carries **at least one** capability file → **stop and ask the human before you dispatch
+    anything.** A project with a living spec has been green before, so a check that is now missing says
+    the tree is in a state nobody described, and that is theirs to look at. An absent check is not a
+    green one, and deciding on their behalf that it is would be the first guess of the change.
 
 Read the delta yourself before step 1 — `spec.md` and `criteria.md`, in full. You need to know
 whether the change carries a `Design` section and a `Verification` section, because who gets each of
