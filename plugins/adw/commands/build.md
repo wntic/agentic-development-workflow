@@ -112,7 +112,10 @@ commit — `git diff <baseline>..HEAD -- tests/` — read by the evaluator and a
 acceptance. "The baseline commit" as a phrase in a prompt is not that; a SHA is.
 
 The dependencies the tests need were committed by the author, on their own, before this commit. This
-one is the tests.
+one is the tests, and it is **yours and not the author's**: the author leaves the tests in the working
+tree and lists them, so that exactly one commit exists for every later reader to diff from, and its
+message is the one written here. Tests arriving under a message of the author's own make no commit
+identifiable as the baseline at all.
 
 ## 4. `implementer` — the code
 
@@ -143,6 +146,20 @@ again (step 2) and the baseline moves to the new commit (step 3). Record the new
 one forward. A diff taken from the superseded baseline reports the corrected tests as edits made
 after it, which is the opposite of what it is for.
 
+**Then commit the implementation — here, before you dispatch step 5.** The implementer leaves its work
+in the working tree and lists it; committing it is yours, and the moment matters more than it looks.
+Write a message that says this is the implementation of change `NNN`, so a reader of `git log` can see
+which phase put it there. Do this before every dispatch of step 5, the repeat passes included — a
+green report and a red one alike, because a verdict is exactly what a stuck green phase is being sent
+for.
+
+Dispatching the evaluator with the source uncommitted empties out the one reading the whole cycle rests
+on: `HEAD` is then still the baseline commit, so `git diff <baseline>..HEAD -- tests/` returns nothing —
+not because the tests were left alone, but because there is no range. **An empty diff looks reassuring
+and proves nothing**, and that is measured, not feared: on the first real change run through this
+workflow the implementation went uncommitted, the guard read empty, and the orchestrator ended up
+rewriting history to give it something to say. Commit here and it has something to say by construction.
+
 ## 5. `evaluator` — the verdict on the green phase
 
 A **fresh dispatch**: not a continuation of the implementer's, and not the dispatch that did step 2.
@@ -160,6 +177,17 @@ Give it:
 Do not pass on the implementer's claim of green. The evaluator runs `make check` itself, moves the
 boxes in `criteria.md` in both directions, and writes `verdict.md`. Its verdict is the one that
 counts; yours does not exist.
+
+**Then commit the verdict and the moved boxes.** The evaluator leaves `verdict.md` and the edited
+`criteria.md` in the working tree; commit both here, with a message that says the verdict of the green
+phase produced them, and do it on a `FAIL` exactly as on a `PASS`. A `FAIL` is a state of the change
+worth reading later, and step 6 may send the cycle round again, which writes over the same two files —
+whoever looks afterwards wants to see which verdict was written against which implementation.
+
+That is the third and last commit this command makes in a pass: the tests at step 3, the implementation
+at step 4, the verdict here. The author's dependency commit came before all three. Nothing else about
+the state of the change is written down anywhere — it is these commits, plus `criteria.md` and
+`verdict.md`, and it needs no fourth kind.
 
 ## 6. The branching, and the ceiling
 

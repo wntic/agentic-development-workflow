@@ -105,6 +105,15 @@ with any correct implementation — do not fix it. Report it, name the test and 
 red phase be reopened. A test relaxed to make code pass is the exact failure that split this role from
 the test author's.
 
+**You do not commit, either.** Leave everything you wrote in the working tree and list every path of
+it under `FILES` in your report; the change cycle commits the implementation from there, under a
+message that says which phase produced it, before the evaluator is dispatched. That order is what
+makes the diff above mean anything: while the implementation is uncommitted, `HEAD` *is* the baseline
+commit, so `git diff <baseline>..HEAD -- tests/` comes back empty for a trivial reason. An empty diff
+there looks reassuring and proves nothing, which is worse than a diff that shows a problem. Committing
+it yourself is not the fix: two owners of one commit is the same failure from the other end, and it
+leaves the history with no single point every reader diffs from.
+
 You also do not tick criteria in `criteria.md` and you do not write the verdict. Someone who did not
 write this code does that.
 

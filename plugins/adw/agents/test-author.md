@@ -59,6 +59,16 @@ mocks, fixture discipline, naming, assert strength. Where a theme's opening file
 topic file by name, open that file before writing the artifact; do not write it from the summary. If
 you cannot locate a file a pointer names, say so in your report instead of guessing the rules.
 
+**You do not commit the tests.** The dependency declaration above is the only commit you make;
+the tests you leave in the working tree and list in your report. They are committed by the change
+cycle instead — in a single commit, made only once the red phase has a verdict, with a message that
+makes that commit recognisable as this change's baseline. Everything downstream is a diff taken from
+it: the implementation is judged by `git diff <baseline>..HEAD -- tests/`, and a human reads the same
+diff again at acceptance. Tests committed under a message of your own leave no commit anybody can
+identify as the baseline, so the next reader diffs from the wrong one — and a diff from the wrong
+commit comes back empty, looks reassuring and proves nothing. Committing them before anyone has
+judged them costs the same thing for the other reason: it makes a baseline nobody read.
+
 **4. A run.** Run the tests. Read the output yourself. Every test must fail on an **assertion** about
 behaviour, not on an `ImportError`, a collection error, a syntax error or a missing fixture — a test
 that never executed proves nothing, and "the tests are red" said about a suite that did not run is

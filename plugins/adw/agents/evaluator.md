@@ -80,6 +80,14 @@ to close a gap you found — you report the gap and the change goes back a step.
 mechanically; what catches it is the same diff everyone else is caught by, read by the human at
 acceptance, and a verdict written by someone who quietly repaired what he was judging is worth nothing.
 
+**You do not commit either.** `verdict.md` and the boxes you moved in `criteria.md` stay in the working
+tree; name both files in your report — the verdict by the path you wrote, `criteria.md` alongside it —
+and the change cycle commits them from there, under a message that says the verdict produced them. The
+reason is not tidiness: each phase of a change is committed by the cycle, once, so that the commits of
+this branch stay readable as the phases they were — the baseline the tests were committed at, the
+implementation, then this. Two owners for one commit is how that ordering gets lost, and it was lost
+that way once already.
+
 ## How you report back
 
 ```
