@@ -183,7 +183,7 @@ The baseline is a derived glue **snapshot** of the just-written tables (≈ `con
 - **Framework substrate** (the FastAPI-hexagon stack, always present): `fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`, `dependency-injector`, `structlog`.
 - **Relational bootstrap** (added only when a `uses_bootstrap` store backs a repository): `sqlalchemy[asyncio]`, `asyncpg`, `alembic`.
 - **Multipart form handling** (added **only** when some endpoint declares a `Form(...)` / `UploadFile` route): `python-multipart`. FastAPI imports it at app-construct time for any form/multipart route (otherwise `create_app()` raises `RuntimeError: Form data requires "python-multipart"` — which mypy / ruff / unit tests do **not** catch, only constructing the app does), so its presence is derived from a multipart endpoint, exactly like the relational and auth bootstraps. An app with no multipart endpoint must not carry it.
-- **Dev** (always present): `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `testcontainers`, `httpx`. These are not optional comfort: the gate runs the type-checker, the linter and the test runner (and, when the migration tier runs, `alembic`) **inside the project's own environment** — block E — so a project missing one of them cannot be gated at all.
+- **Dev** (always present): `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `testcontainers`, `httpx`. These are not optional comfort: the type-checker, the linter and the test runner (and, when the migration tier runs, `alembic`) all run **inside the project's own environment** — block E — so a project missing one of them has no definition of "green" at all.
 - **Build system** (always present): the `[build-system]` table that makes the project installable — without it `src/<package>/` is reachable only by whoever puts it on `PYTHONPATH`, so the test run is green while `uv run uvicorn <package>.restapi.main:create_app` dies with `ModuleNotFoundError`. The backend is **`uv_build`**, which is what `uv init --package` writes:
   ```toml
   [build-system]
@@ -194,6 +194,27 @@ The baseline is a derived glue **snapshot** of the just-written tables (≈ `con
 - **SDK packages are not listed here** — each rides on the infra node that needs it (`datastore` / `capability` `requires_packages`, e.g. `qdrant-client`, `openai`, `pyjwt`) and is unioned in.
 
 **`[build-system]` and the package root come as a pair.** With the table present, the build backend expects the package to exist: an absent `src/<package>/__init__.py` makes `uv` hard-fail *every* command (`Expected a Python module at: src/<package>/__init__.py`), not just a build. So the package directory (with its `__init__.py`) exists from the project's very first commit — `uv init --package` creates both together, and block A's paths hang off that root.
+
+### Laying the package root — the exact invocation
+
+Measured on uv 0.11.6, standing **in the repository root** (the normal case: the directory exists and git is already initialised).
+
+**`uv init --package` takes a PATH, not a name.** Passing the package name as a positional argument creates a nested project and is the single most likely way to get this wrong:
+
+```bash
+uv init --package my_service     # WRONG → ./my_service/src/my_service/ — a whole extra level
+uv init --package                # project name = directory name
+uv init --package --name my-service   # project name explicit; --name is the naming flag
+```
+
+The package root is derived from the **project name** with `-` → `_`: a directory `adw-probe` yields project `adw-probe` and package `src/adw_probe/`.
+
+Four more measured facts:
+
+- **It is safe in a non-empty repository.** An existing `README.md` is *not* overwritten, `CLAUDE.md` / `.gitignore` are untouched, and no nested `.git` is created inside an existing work tree.
+- **It is not idempotent.** With a `pyproject.toml` already present it refuses — `error: Project is already initialized` — and exits 2 without changing anything. Run it exactly once, on the project's first change.
+- **`[project.scripts]` and the generated `main()` must both go.** `--package` writes `<project-name> = "<pkg>:main"` plus a `main()` in `__init__.py` that prints a greeting. A service's entry point is `create_app()`, so the greeting is deleted as soon as real code lands — and the leftover script entry then points at a name that no longer exists. Measured: `uv sync` still succeeds and the package still imports, so nothing turns red; only *invoking* the console script raises `ImportError`. Dead weight plus a latent broken entry point, invisible to the toolchain — delete the table together with the greeting.
+- **`description = "Add your description here"` and the written `.python-version`** are placeholders from the generator, not decisions. Replace the description; keep `.python-version` only if it matches the version the project actually targets.
 
 **No versions in the substrate.** This list carries names only. `uv lock` / `uv sync` resolves the latest-compatible versions into `uv.lock`, which is the only home for a concrete pin — so nothing rots. A pinned `>=` on a substrate library would reintroduce the old disease (baked-in `fastapi>=0.115` under eternal manual bump). **The `uv_build>=x,<y` bound in `[build-system]` is the one sanctioned version in this list** — not a judgment call but a transcription: `uv init --package` emits that bound itself, and it cannot live in `uv.lock` because the build backend is resolved *before* a lock exists. Copy what uv wrote; never invent or "refresh" the bound (that would be exactly the recency guess B8 below bans). The other exception is B8's, and it lives one level out — on a graph node's `requires_packages`, never on a substrate name.
 
