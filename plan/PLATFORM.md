@@ -317,6 +317,112 @@ directory, restart to load it.» И вторая оговорка, котору�
 
 ---
 
+## Вопрос 6. Принимается ли `skills:` YAML-блок-списком, и предзагружаются ли **все** элементы
+
+Доп-замер по отказу warden'а на B02. **Дата: 2026-07-29. Версия: `2.1.220 (Claude Code)`.**
+
+**Стенд — отдельный, новый.** `<scratch>/probe2/blockplug/` — выбрасываемый плагин
+(`"name": "blockplug"`) с **девятью** скиллами `s1`…`s9`. У каждого в теле свой маркер, которого нет
+нигде больше: `A1-QUOKKA-MARLIN-4417`, `B2-PANGOLIN-BASALT-8062`, `C3-NARWHAL-CINDER-1539`,
+`D4-OCELOT-GRANITE-7284`, `E5-TAPIR-ZEPHYR-3956`, `F6-CARIBOU-OBSIDIAN-6103`,
+`G7-MEERKAT-SALTWORT-2870`, `H8-AXOLOTL-FLINTLOCK-9425`, `I9-CAPYBARA-TUNDRA-5731`.
+Шесть пробных агентов различаются **только** формой строки `skills:`; тело промпта у всех дословно
+одно: «выведи по строке `MARKER=<маркер дословно>` на **каждый** маркер, который есть в контексте,
+затем `COUNT=<сколько строк напечатал>`; если маркеров нет — `MARKER=NONE`, `COUNT=0`; инструментами
+не пользоваться, маркер не угадывать». У всех `tools: Glob` — прочитать файлы нечем.
+Диспатч каждого — отдельной дочерней сессией:
+`claude -p "…" --plugin-dir <probe2>/blockplug --output-format stream-json --verbose
+--forward-subagent-text --debug-file <out>/<name>.log --allowedTools "Task"`.
+
+**Почему проба различает «загрузился только первый» и «загрузились все».** Дискриминатор — свой
+маркер на каждый элемент, и агент обязан перечислить все, что видит. «Загрузился первый» дало бы
+одну строку `MARKER=`, «загрузились все» — девять; снаружи это разные наблюдения, а не одно.
+Плюс два независимых признака: счётчик `subagent_tokens` и строки `Preloaded skill` в дебаг-логе.
+
+**Что наблюдал** (`tool_result` родителя, дословно):
+
+| `skills:` | Форма | Ответ сабагента | `COUNT` | `subagent_tokens` | `Preloaded skill` в логе |
+|---|---|---|---|---|---|
+| — (поля нет, контроль) | — | `MARKER=NONE` | 0 | 2004 | нет ни одной |
+| блок-список, 1 элемент (`- blockplug:s1`) | блок | `MARKER=A1-QUOKKA-MARLIN-4417` | 1 | 2197 | 1 |
+| блок-список, 3 элемента (`s1 s2 s3`) | блок | все три маркера, по строке | 3 | 2599 | 3 |
+| блок-список, **9** элементов (`s1`…`s9`) | блок | **все девять маркеров, по строке, в порядке списка** | 9 | 3834 | 9 |
+| `skills: blockplug:s1, blockplug:s2` | инлайн через запятую | оба маркера | 2 | 2399 | 2 |
+| `skills: [blockplug:s1, blockplug:s2]` | flow-последовательность | оба маркера | 2 | 2399 | 2 |
+
+`tool_uses: 0` у всех шести. Счётчик монотонен и линеен: контроль 2004, далее +≈195…205 токенов на
+скилл (9 скиллов → 3834, то есть +1830 ≈ 203 × 9) — второй признак, что загрузились все девять,
+а не первый.
+
+Дебаг-лог девятиэлементного случая, дословно (даты и уровни срезаны, порядок сохранён):
+
+```
+[Agent: blockplug:blk9] Preloaded skill 'blockplug:s1'
+[Agent: blockplug:blk9] Preloaded skill 'blockplug:s2'
+[Agent: blockplug:blk9] Preloaded skill 'blockplug:s3'
+[Agent: blockplug:blk9] Preloaded skill 'blockplug:s4'
+[Agent: blockplug:blk9] Preloaded skill 'blockplug:s5'
+[Agent: blockplug:blk9] Preloaded skill 'blockplug:s6'
+[Agent: blockplug:blk9] Preloaded skill 'blockplug:s7'
+[Agent: blockplug:blk9] Preloaded skill 'blockplug:s8'
+[Agent: blockplug:blk9] Preloaded skill 'blockplug:s9'
+```
+
+**Тот же замер на настоящем списке из `implementer.md`, а не на игрушечном.** Пробный агент в
+`blockplug`, `tools: Glob`, `skills:` — **дословно скопированный** девятиэлементный блок-список
+`implementer.md` (`adw:architecture`, `adw:python-style`, `adw:conventions`, `adw:domain-model`,
+`adw:domain-ports`, `adw:application`, `adw:infra-persistence`, `adw:infra-integration`,
+`adw:restapi`). Обе плагин-директории поданы разом:
+`--plugin-dir <probe2>/blockplug --plugin-dir …/agentic-development-workflow/plugins/adw`.
+Спрошен H1-заголовок **каждого** тела в контексте. Ответ (дословно):
+
+```
+BODY=Architecture — layers, packages, imports
+BODY=Python style — typing & logging
+BODY=Conventions (Python / FastAPI house style)
+BODY=Domain model — entities, value objects, enums, filters, exceptions
+BODY=Domain ports — protocols & services
+BODY=Application — CQRS handlers & sanctioned try/except
+BODY=Infrastructure — persistence
+BODY=Infrastructure — integration (adapters, settings, DI)
+BODY=REST API
+COUNT=9
+```
+
+Девять из девяти, в порядке списка, и все девять совпадают дословно с выводом
+`awk '/^# /{print;exit}'` по соответствующим `SKILL.md`. Контроль — тот же агент и тот же промпт без
+поля `skills:` — ответил `BODY=NONE`, `COUNT=0`. `subagent_tokens`: **43749** против **2027** у
+контроля; `tool_uses: 0` у обоих; в логе девять строк `Preloaded skill 'adw:…'`, у контроля ни одной.
+
+**Методическая оговорка, из-за которой первая попытка была неинформативной.** Первый вариант промпта
+просил на каждое тело первый пункт его раздела *Hard stops*. Агент выдал 13 строк — по **артефактам**
+пяти первых тем — и ничего по `application`, `infra-persistence`, `infra-integration`, `restapi`.
+Причина не в загрузке: у роутеров этих четырёх тем раздела `## Hard stops` в `SKILL.md` попросту нет
+(`grep -n '^#'` даёт только H1, `## When to use vs. neighbours` и по одному тематическому разделу).
+То есть проба, различающая «загрузилось» и «нет» по признаку, которого в части тел нет, даёт ложное
+«нет». Заменено на H1, который есть у всех, — и только тогда результат стал различающим.
+
+**Поправка к записи вопроса 1 выше.** Таблица вопроса 1 записана в компактной инлайн-нотации
+(`probeplug:canary-skill`), но **на диске все агенты того стенда были ровно блок-списком из одного
+элемента**: `grep -A1 '^skills:'` по `probe/probeplug/agents/` даёт `skills:` + `  - <имя>` у
+`canary-ns`, `canary-bare`, `canary-slash`, `canary-bogus`, `adw-ns`. Mtime файла (`14:13:59`)
+раньше mtime вывода прогона (`14:20:41`), то есть после запуска файлы не правились. Значит вопрос 1
+уже был замерен блок-формой, а не скаляром; расхождение было в оформлении записи, не в замере.
+
+**Вывод: ЗАМЕРЕНО.** `skills:` принимает блок-список — и из одного элемента, и из трёх, и из девяти;
+предзагружаются **все** элементы, а не первый, что подтверждено тремя независимыми признаками
+(перечисление маркеров агентом, счётчик токенов, `Preloaded skill` по строке на элемент). Инлайн
+через запятую (`skills: a, b`) и flow-форма (`skills: [a, b]`) тоже работают и дают тот же результат
+(2399 токенов и две строки лога у обеих). Потолка на девяти нет: настоящий девятиэлементный список
+`implementer.md` загрузился целиком. **НЕ ПРОВЕРЕНО:** есть ли потолок **выше** девяти — больше
+девяти элементов не пробовал; максимум в `plugins/adw/agents/` сегодня девять.
+
+**Цена, попутно из того же прогона:** девятиэлементный `skills:` у `implementer.md` — это
+**≈41,7 тыс. токенов** контекста на старте (43749 против 2027 у контроля), то есть ≈4,6 тыс. на тему,
+что согласуется с ≈4,8 тыс. на одном `adw:testing-unit` из вопроса 1.
+
+---
+
 ## Побочное, что попало в замер (пригодится B02/B05/B07)
 
 Всё ниже — ЗАМЕРЕНО в тех же прогонах.
