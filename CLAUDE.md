@@ -18,7 +18,7 @@ That is the intended starting state, not an unfinished migration.
 ## Language
 
 **English for everything the workflow ships or produces** — skills, commands, agents, scripts and
-their comments, code, commit messages. The dev record (`notes/`, `research/`) and dialogue follow
+their comments, code, commit messages. The dev record (`research/`) and dialogue follow
 the user's language, which is Russian. Commands the workflow ships defer to *the consuming
 project's* dialogue language.
 

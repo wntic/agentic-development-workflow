@@ -1,7 +1,9 @@
 # plugins/
 
 One directory per plugin of the `wntic-adw` marketplace. The catalog is
-`../.claude-plugin/marketplace.json`; the packaging reference is `../notes/21_plugin_packaging.md`.
+`../.claude-plugin/marketplace.json`. The measured packaging reference — what the platform actually
+does with plugin layouts, verified by install rehearsals — is one command away:
+`git show v3-archive:notes/21_plugin_packaging.md`.
 
 ## Adding a plugin
 

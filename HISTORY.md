@@ -56,6 +56,7 @@ git checkout v2-archive -- specs/use-cases/      # the Meeting Assistant BA corp
 | `tasks/` | `INDEX.md` + 64 task files |
 | `workflow_v3_spec.md`, `PRINCIPLES.md` | the design canon and the decision register |
 | `codegen_workflow_spec.md` | v2's rationale, kept through v3 for the "why" of what survived |
+| `notes/` | 18 files of decision history: skill audits, the design review, defect logs, the packaging record |
 | `specs/use-cases/` (at `v2-archive`) | the Meeting Assistant BA corpus, UC-10..17 |
 
 ## What survived into the working tree, and why
@@ -64,10 +65,18 @@ git checkout v2-archive -- specs/use-cases/      # the Meeting Assistant BA corp
   altitude audit). It never depended on the gates: it is knowledge about writing Python, not about
   running a workflow. Carried over verbatim, minus the references to deleted tooling.
 - **`plugins/adw/commands/commit.md`** — generic, no workflow coupling.
-- **`notes/`** — the decision history. What was paid for and what it cost. Read `15` (the v3
-  adversarial design review), `19` (the accept-gate audit) and `pipeline_dryrun_feedback.md` (the
-  honesty benchmark for defect logs) before proposing any mechanism a fourth time.
 - **`research/`** — the survey the fourth attempt starts from.
+
+`notes/` — 18 files of decision history — is **not** in the tree; it is the most detailed record of
+what each mechanism cost, and reading it is the cheapest way to avoid paying twice:
+
+```bash
+git show v3-archive:notes/15_v3_design_review.md        # the adversarial review that produced v3
+git show v3-archive:notes/19_accept_gate_audit.md       # the accept-gate audit
+git show v3-archive:notes/pipeline_dryrun_feedback.md   # the honesty benchmark for defect logs
+git show v3-archive:notes/21_plugin_packaging.md        # measured plugin-packaging platform facts
+git checkout v3-archive -- notes/                       # or bring the whole thing back
+```
 
 ## The one rule this file exists to enforce
 

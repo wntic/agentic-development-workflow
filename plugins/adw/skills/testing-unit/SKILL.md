@@ -138,4 +138,4 @@ Every acceptance criterion in a change's `criteria.md` is pinned by at least one
 
 ## A missing fake is a stop, not an improvisation
 
-When a handler test needs a fake repository or fake capability that does not yet exist, **stop and author the fake first** (following the fake-repository rules in `fake.md` — copy the real adapter's exception contract, store and return copies with an updated log, honour every constructor param). Never improvise a half-fake inline, and never reach for the production adapter body to stand in. (Harvested from notes/16 C4.)
+When a handler test needs a fake repository or fake capability that does not yet exist, **stop and author the fake first** (following the fake-repository rules in `fake.md` — copy the real adapter's exception contract, store and return copies with an updated log, honour every constructor param). Never improvise a half-fake inline, and never reach for the production adapter body to stand in.

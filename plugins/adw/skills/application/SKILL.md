@@ -25,7 +25,7 @@ below, which govern every handler in this layer.
 
 ## Harvested handler-body rules
 
-Two rules govern a handler's body, carried over from the v2 implementer prompt (notes/16 I2, I3):
+Two rules govern a handler's body:
 
 - **Don't duplicate a guarantee the called method already gives.** No defensive pre-check that re-asserts a declared `raises`: if `delete(id)` is documented to raise `NotFoundError`, call it directly — never precede it with a `get_by_id(id)` whose only purpose is to trigger the same error. Load-then-act is only for a mutation that genuinely needs the entity in hand (to read a field, to compute the next state).
 - **A blocked contract is the signal of a contract defect, not a workaround.** When the handler cannot be written cleanly against the current protocol — e.g. a lookup typed to *raise* `NotFoundError` where this use case treats not-found as a normal outcome — the fix is upstream: change the protocol to a `T | None` return, never bury a `try/except` in the handler or add a default argument to please a test. This is exactly the signal that the Interface sketch needs the contract-change protocol, never a silent local patch.
