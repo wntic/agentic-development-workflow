@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | B01 | [платформенная проба](B01-platform-probe.md) | — | — | ☑ |
 | B02 | [четыре агента](B02-agents.md) | адаптер | B01 | ☐ |
-| B03 | [шаблоны артефактов](B03-templates.md) | ядро | — | ☐ |
+| B03 | [шаблоны артефактов](B03-templates.md) | ядро | — | ☑ |
 | B04 | [`/adw:spec`](B04-spec-command.md) | адаптер | B03 | ☐ |
 | B05 | [`/adw:build`](B05-build-command.md) | адаптер | B01, B02 | ☐ |
 | B06 | [`/adw:accept`](B06-accept-command.md) | адаптер | B03 | ☐ |
