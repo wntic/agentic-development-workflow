@@ -15,7 +15,7 @@ what everyone else does — 14 sources, including the two Anthropic harness-desi
 comparison of 18 spec-driven tools — and it explains why that ratio was structural rather than
 unlucky.
 
-**What ships today:** the knowledge layer only.
+**What ships today:** the knowledge layer plus the change cycle — step 1 of the build order.
 
 ```
 plugins/adw/
@@ -24,8 +24,14 @@ plugins/adw/
                     infra-persistence · infra-integration · restapi ·
                     testing-unit · testing-integration · python-style ·
                     conventions · meta-skill-author · meta-uc-author
-  commands/         commit
+  agents/           the four roles: test-author · test-review · implementer · evaluator
+  commands/         spec · build · accept · commit
+  templates/        the artifacts the commands fill: a living spec, a delta spec,
+                    a criteria checklist, a verdict — and a Makefile carrying `check`
 ```
+
+No change has been run through the cycle yet: that is step 2, and it happens in a real project
+before the workflow is iterated on a second time.
 
 ## The design
 

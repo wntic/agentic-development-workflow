@@ -11,10 +11,16 @@ development workflow for Python backends. It is not an application.
 history under tags; [`HISTORY.md`](HISTORY.md) is the pointer, and it is short. Read it before
 proposing any mechanism — most plausible-sounding ideas have already been built and measured once.
 
-The design is settled — [`WORKFLOW.md`](WORKFLOW.md) — and step 1 of its §10 build order is next:
-the adapter (4 agent files, 3 commands). Right now the plugin ships **the knowledge layer only**:
-`plugins/adw/skills/` (the house-style catalog) plus `plugins/adw/commands/commit.md`. No change
-cycle yet, and deliberately no script and no hooks — ever.
+The design is settled — [`WORKFLOW.md`](WORKFLOW.md) — and **step 1 of its §10 build order is
+closed**: the adapter is written and installed at least once. The plugin now ships
+`plugins/adw/skills/` (the house-style catalog), `agents/` (the four roles), `commands/`
+(`spec`, `build`, `accept`, `commit`) and `templates/` (the artifacts those commands fill) — and
+deliberately no script and no hooks, ever. The build record, task by task, is `plan/`; what the install
+actually did is [`plan/INSTALL-REHEARSAL.md`](plan/INSTALL-REHEARSAL.md), and the findings step 1 left
+undecided are [`plan/FINDINGS.md`](plan/FINDINGS.md).
+
+**Next is step 2: one real change in a real project** — no second iteration of the workflow before a
+feature ships (red line 3). Findings from step 1 are decided at step 4, not while step 2 runs.
 
 **Platform knowledge in this repo was two generations stale**, which is part of why the previous
 attempt is gone. Checked against `code.claude.com/docs` on 2026-07-29: subagent frontmatter now
@@ -147,5 +153,10 @@ uv run pre-commit run --all-files
 A *consuming* project's definition of "green" is its own `make check` — `ruff` + `mypy` + `pytest`,
 and nothing of ours. Adding a script back is a decision governed by red lines 2, 6 and 7.
 
-The workflow's own cycle (`/adw:spec`, `/adw:build`, `/adw:accept`) does not exist yet; `WORKFLOW.md`
-§6 specifies it and §10 says it is step 1.
+The workflow's own cycle is `/adw:spec` → `/adw:build` → `/adw:accept`, specified in `WORKFLOW.md` §6
+and written in `plugins/adw/commands/`. It has not yet been run against a real change — that is step 2.
+Inside a consuming project everything the plugin ships carries the `adw:` prefix — `/adw:build`,
+`adw:test-author`, `adw:conventions`. In this repository the commands and skills load instead from the
+`.claude/` symlinks and answer to short names (`/spec`), while the four cycle agents are not symlinked
+at all, so they have no subagent type here; `.claude/agents/` holds the three build roles only. Both
+observations are measured in `plan/INSTALL-REHEARSAL.md` §6. Do not enable both loads at once.

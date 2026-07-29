@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "adw",
-  "description": "Spec-driven agentic development workflow for Python backends. Currently ships the knowledge layer only: the house-style skill catalog (hexagonal architecture, domain model, CQRS application layer, polyglot persistence, FastAPI, the two test tiers) plus a commit command. The change cycle is being rebuilt.",
+  "description": "Spec-driven agentic development workflow for Python backends. Ships the house-style skill catalog (architecture, conventions, python-style, domain-model, domain-ports, application, infra-persistence, infra-integration, restapi, testing-unit, testing-integration, and two authoring meta-skills); the four roles of the change cycle as subagents (test-author, test-review, implementer, evaluator); three cycle commands (spec, build, accept) plus commit; and the Markdown templates those commands fill (living spec, delta spec, criteria checklist, verdict) with a Makefile carrying the definition of green.",
   "author": {
     "name": "Egor Vorobyev",
     "email": "voro6yov.egor@gmail.com"

@@ -6,7 +6,7 @@
     "email": "voro6yov.egor@gmail.com",
     "url": "https://github.com/wntic"
   },
-  "description": "The adw workflow: spec-driven agentic development for Python backends.",
+  "description": "The adw workflow: spec-driven agentic development for Python backends — a skill catalog of house style, the four roles of the change cycle, and the commands that run it.",
   "plugins": [
     {
       "name": "adw",
