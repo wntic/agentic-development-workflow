@@ -17,7 +17,7 @@
 | B03 | [шаблоны артефактов](B03-templates.md) | ядро | — | ☑ |
 | B04 | [`/adw:spec`](B04-spec-command.md) | адаптер | B03 | ☑ |
 | B05 | [`/adw:build`](B05-build-command.md) | адаптер | B01, B02 | ☐ |
-| B06 | [`/adw:accept`](B06-accept-command.md) | адаптер | B03 | ☐ |
+| B06 | [`/adw:accept`](B06-accept-command.md) | адаптер | B03 | ☑ |
 | B07 | [манифесты и репетиция установки](B07-manifests.md) | адаптер | B02, B04, B05, B06 | ☐ |
 
 Порядок: **B01 → (B02 ∥ B03) → (B04 ∥ B05 ∥ B06) → B07.**
