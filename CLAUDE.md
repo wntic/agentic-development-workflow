@@ -11,9 +11,19 @@ development workflow for Python backends. It is not an application.
 history under tags; [`HISTORY.md`](HISTORY.md) is the pointer, and it is short. Read it before
 proposing any mechanism — most plausible-sounding ideas have already been built and measured once.
 
-Right now the plugin ships **the knowledge layer only**: `plugins/adw/skills/` (the house-style
-catalog) plus `plugins/adw/commands/commit.md`. There is no change cycle, no gate script, no hooks.
-That is the intended starting state, not an unfinished migration.
+The design is settled — [`WORKFLOW.md`](WORKFLOW.md) — and step 1 of its §10 build order is next:
+the adapter (4 agent files, 3 commands). Right now the plugin ships **the knowledge layer only**:
+`plugins/adw/skills/` (the house-style catalog) plus `plugins/adw/commands/commit.md`. No change
+cycle yet, and deliberately no script and no hooks — ever.
+
+**Platform knowledge in this repo was two generations stale**, which is part of why the previous
+attempt is gone. Checked against `code.claude.com/docs` on 2026-07-29: subagent frontmatter now
+carries `tools`, `disallowedTools`, `model`, `permissionMode`, `maxTurns`, `skills` (preloads full
+skill content at startup), `mcpServers`, `hooks`, `memory`, `background`, `effort`,
+`isolation: worktree`, `color`, `initialPrompt`; plugin subagents ignore `hooks`, `mcpServers` and
+`permissionMode`; agent files hot-reload; and custom commands and skills are now one registry.
+Before designing any mechanism, **check the docs rather than recalling them** — four mechanisms of
+the previous attempt were made redundant by features that already existed.
 
 ## Language
 
@@ -22,34 +32,48 @@ their comments, code, commit messages. The dev record (`research/`) and dialogue
 the user's language, which is Russian. Commands the workflow ships defer to *the consuming
 project's* dialogue language.
 
-## The direction that was chosen
+## The design
 
-From [`research/sdd-landscape-2026-07.md`](research/sdd-landscape-2026-07.md) — read §7 for the
-weighing and §8 for the red lines. The chosen architecture (variant C):
+**[`WORKFLOW.md`](WORKFLOW.md) is the design canon — read it before touching anything.** It carries
+the spec store, the artifact formats, the four roles, the three commands, the greenfield ruling, and
+§8 "what we deliberately do not build", which is the anti-regrowth device. The reasoning behind it —
+14 sources, the weighing of alternatives — is in
+[`research/sdd-landscape-2026-07.md`](research/sdd-landscape-2026-07.md).
 
-- **Living spec per capability + a delta per change.** The delta format is OpenSpec's, taken
-  verbatim rather than reinvented: `ADDED` / `MODIFIED` / `REMOVED Requirements`, scenarios as
-  `WHEN … THEN`. On acceptance the delta merges into the living spec and is deleted.
-- **Every acceptance criterion is pinned by a test** carrying `@pytest.mark.ac("AC-n")`. A
-  criterion may be ticked only against a **passed** marked test in the run's junit report.
-- **One check script, ≤300 lines.** It runs `ruff` + `mypy` + `pytest --junit` and cross-checks the
-  criteria checklist against the junit. That is the whole enforcement layer.
-- **A fresh-context evaluator subagent** renders the verdict — the one role the research backs with
-  a measurement (agents reliably over-grade their own work).
-- **A branch per change; the base branch stays green.** This costs zero lines: it is git.
-- **Bypass is handled by human review of the merge diff**, not by a gate. The industry does it this
-  way; the previous attempt spent ~17 000 lines not doing it this way.
+In one breath: a living spec per capability that compounds; each change arrives as a delta in
+OpenSpec's `ADDED`/`MODIFIED`/`REMOVED` + `WHEN … THEN` form and is deleted on acceptance; criteria
+are observable behaviour pinned by `@pytest.mark.ac("AC-n")` tests; the red phase and the green
+phase each get a verdict from an agent that did not author it (four roles: test-author →
+test-review → implementer → evaluator); "green" is `make check` — **zero scripts of our own**;
+bypass is caught by reading `git diff`, not by a machine; one branch per change.
 
-## The five red lines
+## The two layers — core and adapter
 
-These exist because each one names a measured failure of attempt 3, not a taste.
+Every file belongs to exactly one, and the split decides how much is thrown away at the next
+platform change (`WORKFLOW.md` §1):
+
+- **Core, 100% portable** — `specs/` entirely, skill bodies, `make check`, the branch+tag
+  convention, the prose bodies of agent prompts. Markdown, git, make.
+- **Adapter, Claude Code** — agent frontmatter (`tools`, `skills`, `model`, `maxTurns`,
+  `isolation`), `commands/*.md`, the manifests. 4–7 small files, rewritable in an evening.
+- **Zero** — hooks, logic in `settings.json`, any script against platform JSON payloads, any
+  integrity check. These do not port, so they do not get written.
+
+Commands live in `commands/`, knowledge in `skills/`. The platform merged the two registries, so the
+old reason for keeping the directories apart is gone — but the split still says what each file is,
+and `disable-model-invocation: true` / `user-invocable: false` now express the difference where it
+matters.
+
+## The seven red lines
+
+Each names a measured failure, not a taste. Full form in `WORKFLOW.md` §9.
 
 1. **No mechanism without a measured failure it fixes.** Not an imaginable one — a recorded case
    with a date. Attempt 3 was designed against 55 *imaginable* failures found by an adversarial
    review held before implementation. That review is the origin of the 17 000 lines.
-2. **The enforcement budget is a number, not an intention.** If a rule does not fit inside
-   `ruff` + `mypy` + `pytest` + ≤300 lines of glue, it is consciously demoted to advice in a skill.
-   A demoted rule is a decision, not a defeat.
+2. **The enforcement budget is a number, not an intention.** Today the number is **zero**:
+   `ruff` + `mypy` + `pytest` behind `make check`. A rule that does not fit is consciously demoted to
+   advice in a skill. A demotion is a decision, not a defeat.
 3. **The workflow may not spend longer building itself than it spends building applications.** Ship
    a feature of a target app before iterating on the workflow a second time. The score at
    `v3-archive` — 0 features against 64 build tasks — is what this line forbids.
@@ -60,6 +84,16 @@ These exist because each one names a measured failure of attempt 3, not a taste.
    Anthropic measured a construct that was load-bearing on Opus 4.5 and pure overhead on 4.6. Write
    down which limitation each mechanism compensates for, so it can be switched off when the
    limitation goes away.
+6. **The portability budget.** The value lives in the core — Markdown, git, make. Keep the
+   Claude-Code-specific part small enough to rewrite in an evening. *Test:* could this workflow be
+   described to another agent through one `AGENTS.md` plus the same `specs/` tree? If a mechanism
+   can't, it is an adapter detail and must stay small. Four mechanisms of the previous attempt were
+   made **redundant** by the platform without anything breaking — you cannot defend against that
+   with reliability, only with volume.
+7. **The soft-degradation litmus.** Adopt a platform feature only if its disappearance degrades
+   gracefully. `maxTurns` gone → the human notices the agent looping. `isolation: worktree` gone →
+   `git worktree add` by hand. A broken hook → the session deadlocks outright (measured here on
+   2026-07-29). That is failure, not degradation — so there are no hooks.
 
 ## How skills work
 
@@ -103,9 +137,15 @@ integration tests run real backends via testcontainers.
 
 ## Commands
 
+This repo carries no application, so its own toolchain is two lines:
+
 ```bash
-uv run ruff check                 # the whole toolchain this repo currently has
+uv run ruff check
 uv run pre-commit run --all-files
 ```
 
-There is no `gate` command any more, and adding one back is a decision governed by red line 2.
+A *consuming* project's definition of "green" is its own `make check` — `ruff` + `mypy` + `pytest`,
+and nothing of ours. Adding a script back is a decision governed by red lines 2, 6 and 7.
+
+The workflow's own cycle (`/adw:spec`, `/adw:build`, `/adw:accept`) does not exist yet; `WORKFLOW.md`
+§6 specifies it and §10 says it is step 1.

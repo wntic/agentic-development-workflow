@@ -27,15 +27,28 @@ plugins/adw/
   commands/         commit
 ```
 
-## The direction
+## The design
 
-Living spec per capability, one delta per change in OpenSpec's `ADDED` / `MODIFIED` / `REMOVED`
-format, every acceptance criterion pinned by an `@pytest.mark.ac("AC-n")` test, one check script of
-at most 300 lines, a fresh-context evaluator subagent for the verdict, a branch per change, and
-human review of the merge diff instead of a machine that guards against being bypassed.
+[`WORKFLOW.md`](WORKFLOW.md) is the canon. In one breath:
 
-The reasoning is in the research document §7; the five rules that keep it from growing back into
-the previous attempt are in [`CLAUDE.md`](CLAUDE.md).
+A living spec per capability that **compounds**; each change arrives as a delta in OpenSpec's
+`ADDED` / `MODIFIED` / `REMOVED` + `WHEN … THEN` form and is **deleted** on acceptance, its criteria
+merged into the living spec as invariants carrying the name of the test that proves them. Criteria
+are observable behaviour, each pinned by an `@pytest.mark.ac("AC-n")` test, at least one of them
+exercised through the really running app. Four roles, so that the red phase and the green phase each
+get a verdict from an agent that did not author it: **test-author → test-review → implementer →
+evaluator**. "Green" is `make check` — `ruff` + `mypy` + `pytest`, and **zero scripts of our own**.
+Test tampering is caught by reading `git diff <baseline>..HEAD -- tests/`, not by a machine. One
+branch per change.
+
+Two layers, and the split decides how much is thrown away at the next platform change: the **core**
+(`specs/`, skill bodies, `make check`, git conventions) is 100% portable Markdown-git-make; the
+**adapter** (agent frontmatter, `commands/`, manifests) is 4–7 small Claude Code files. Hooks,
+integrity checks and payload-parsing scripts are in neither — they don't port, so they aren't
+written.
+
+Seven red lines keep it from growing back into the previous attempt — `WORKFLOW.md` §9, and §8 lists
+what is deliberately *not* built, with the reason for each.
 
 ## Install
 
