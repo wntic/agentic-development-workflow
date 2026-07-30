@@ -8,8 +8,6 @@ when_to_use: Writing or reviewing any Python module and deciding an annotation f
 This merged skill covers 2 related artifacts. Each `## …` section below is one artifact's house style, keeping its own *When to use / Template(s) / Rules / Hard stops* structure. Consult the section matching what you are producing.
 
 
-<!-- merged from general-typing-conventions -->
-
 ## Typing Conventions
 
 Project-wide typing rules. They apply to every layer — domain, application, infrastructure, restapi — and are stricter than CPython's defaults to keep runtime introspection cheap and the type-checker honest.
@@ -17,10 +15,10 @@ Project-wide typing rules. They apply to every layer — domain, application, in
 ### When to use vs. neighbours
 
 - Writing or modifying any type annotation anywhere in the codebase → consult this skill.
-- Package mechanics (one class per module, `__all__`, re-exports) → `general-python-package`.
-- Import shape (relative vs absolute, collapsed imports) → `general-imports-conventions`.
-- Layer boundaries (what each layer may import) → `general-layered-architecture`.
-- Domain object collection types (`frozenset` vs `set`) — same rules; this skill is referenced by `domain-entity`, `domain-value-object`, `domain-filter`.
+- Package mechanics (one class per module, `__all__`, re-exports) → `architecture` §Python Package Structure.
+- Import shape (relative vs absolute, collapsed imports) → `architecture` §Imports Conventions.
+- Layer boundaries (what each layer may import) → `architecture` §Layered Architecture.
+- Domain object collection types (`frozenset` vs `set`) — same rules; this skill is referenced by `domain-model` §Domain Entity, §Domain Value Object and §Domain Filter Record.
 
 ### Core rules
 
@@ -96,7 +94,7 @@ Application and infrastructure code may use mutable collections **internally** (
 
 ### Protocols
 
-- Use `typing.Protocol` for all interfaces (see `domain-protocols`).
+- Use `typing.Protocol` for all interfaces (see `domain-ports`).
 - Apply `@runtime_checkable` **only** when `isinstance(x, IProtocol)` is genuinely needed. Avoid runtime checks against protocols in hot paths — they walk the protocol's `__protocol_attrs__` on every call.
 - Protocol method signatures carry full annotations like any other function. Do not write `...` as a parameter default; the protocol body is `...` for the **method body**, not the parameters.
 
@@ -104,7 +102,7 @@ Application and infrastructure code may use mutable collections **internally** (
 
 - `BaseModel` field types use the same `X | None` and PEP 585 generic forms (`list[int]`, `dict[str, str]`) — not `List[int]`, `Dict[str, str]`.
 - `Annotated[T, Field(...)]` and `Annotated[T, Query(...)]` are the canonical form for adding constraints. Don't use the legacy `field: int = Field(default=...)` shape when there is no default — write `field: Annotated[int, Field(ge=1)]`.
-- Schemas live in `restapi/schemas/` and never import from domain entities (see `restapi-schema`).
+- Schemas live in `restapi/schemas/` and never import from domain entities (see `restapi` `schema.md`).
 
 ### Collections from `collections.abc`
 
@@ -128,10 +126,8 @@ Prefer `collections.abc` over `typing` for runtime-checkable abstract types:
 - Untyped `**kwargs` / `*args` in domain or application code → stop, you're likely missing a dataclass.
 - `cast(...)` to silence a type error → stop, fix the type. `cast` is acceptable only for narrowing after a runtime guard the checker can't follow (rare).
 - `# type: ignore` without a reason → stop, use `# type: ignore[<rule>]` with a brief explanation.
-- `TYPE_CHECKING`-only imports purely to break a circular import → stop, the cycle is usually a layering violation (see `general-layered-architecture`); fix the structure, not the import.
+- `TYPE_CHECKING`-only imports purely to break a circular import → stop, the cycle is usually a layering violation (see `architecture` §Layered Architecture); fix the structure, not the import.
 
-
-<!-- merged from general-logging -->
 
 ## Logging
 
@@ -140,9 +136,9 @@ Use `structlog` throughout. The setup is the same everywhere; the rules about *w
 ### When to use vs. neighbours
 
 - Adding or modifying any log call anywhere in the codebase → consult this skill.
-- The `application/` success-event log line → this skill, plus `application-command` (which embeds the per-handler `logger.info(...)` template).
-- The `infrastructure/` `IntegrityError` → domain exception log + raise pattern → this skill, plus `infra-sqlalchemy-repository`.
-- The central `DomainError` → JSON translation log → this skill, plus `restapi-error-responses` / `restapi-app-bootstrap`.
+- The `application/` success-event log line → this skill, plus `application` `command.md` (which embeds the per-handler `logger.info(...)` template).
+- The `infrastructure/` `IntegrityError` → domain exception log + raise pattern → this skill, plus `infra-persistence` `repository.md`.
+- The central `DomainError` → JSON translation log → this skill, plus `restapi` `error-responses.md` / `bootstrap.md`.
 
 ### Setup
 
@@ -162,7 +158,7 @@ log_ctx.info("import_started", row_count=len(rows))
 log_ctx.info("import_completed", imported=imported, skipped=skipped)
 ```
 
-**Never use `print()` in non-entrypoint code.** Never use stdlib `general-logging` directly — `structlog` is the only logger.
+**Never use `print()` in non-entrypoint code.** Never use stdlib `logging` directly — `structlog` is the only logger.
 
 ### Per-layer rules
 
@@ -218,7 +214,7 @@ Required fields (when applicable):
 
 **Do not log errors in handlers.** Domain exceptions propagate up; the central error handler in the entrypoint logs them. Logging in both places duplicates entries.
 
-The one sanctioned `try/except` in `application/` (compensating transactions, see `pattern-compensating-tx`) is **not** an exception to this rule — the catch undoes a side effect and re-raises. **No log call inside the `except`.**
+The one sanctioned `try/except` in `application/` (compensating transactions, see `application` `compensating-tx.md`) is **not** an exception to this rule — the catch undoes a side effect and re-raises. **No log call inside the `except`.**
 
 #### Entrypoints (`restapi/`, `cli/`, `worker/`) — log errors at the point of handling
 

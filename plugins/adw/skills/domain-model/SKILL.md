@@ -8,11 +8,9 @@ when_to_use: Producing or editing a domain entity, value object, enum, filter, o
 This merged skill covers 5 related artifacts. Each `## …` section below is one artifact's house style, keeping its own *When to use / Template(s) / Rules / Hard stops* structure. Consult the section matching what you are producing.
 
 
-<!-- merged from domain-entity -->
-
 ## Domain Entity
 
-Produces one entity class in the domain layer. Out of scope: value objects, enums, protocols, repositories, policies, persistence, tests, package wiring (defer to `general-python-package`).
+Produces one entity class in the domain layer. Out of scope: value objects, enums, protocols, repositories, policies, persistence, tests, package wiring (defer to `architecture` §Python Package Structure).
 
 ### Template
 
@@ -45,10 +43,10 @@ class Foo:
 
 ### Rules
 
-1. **Form:** `@dataclass` (mutable). Never `frozen=True` on an entity — entities have a lifecycle. Frozen-by-value belongs to `domain-value-object`.
+1. **Form:** `@dataclass` (mutable). Never `frozen=True` on an entity — entities have a lifecycle. Frozen-by-value belongs to §Domain Value Object below.
 2. **Identity equality is mandatory.** Override `__eq__` and `__hash__` to compare by `id` only. Never compare by all fields.
 3. **`__post_init__` is the only place for invariants.** Raise `ValidationError(message, {"field": "<field>"})` — one raise per rule. Omit the method when there are no invariants.
-4. **Cross-aggregate rules don't go here.** Uniqueness, authorization, "does referenced X exist" → `domain-service`. Tunable thresholds (max size, quotas) → the tunable-VO variant in `domain-value-object`. This skill only handles invariants the entity checks from its own fields.
+4. **Cross-aggregate rules don't go here.** Uniqueness, authorization, "does referenced X exist" → `domain-ports` §Domain Service. Tunable thresholds (max size, quotas) → the tunable-VO variant in §Domain Value Object below. This skill only handles invariants the entity checks from its own fields.
 5. **No inheritance.** No base classes, no `ABC`. Compose by holding other domain objects.
 
 ### Inlined typing / import rules (the only ones an entity needs)
@@ -60,16 +58,14 @@ class Foo:
 
 ### Package wiring
 
-After writing the module, follow `general-python-package` to add the subpackage `__init__.py` re-export line and append to its `__all__`.
+After writing the module, follow `architecture` §Python Package Structure to add the subpackage `__init__.py` re-export line and append to its `__all__`.
 
 ### Hard stops
 
-- Spec asks for behavior that needs another aggregate's state → stop, use `domain-service`.
-- Spec asks for a frozen object defined by content → stop, use `domain-value-object`.
-- Spec asks for repository methods or persistence → stop, use `domain-repository-protocol` / `infra-sqlalchemy-repository`.
+- Spec asks for behavior that needs another aggregate's state → stop, use `domain-ports` §Domain Service.
+- Spec asks for a frozen object defined by content → stop, use §Domain Value Object below.
+- Spec asks for repository methods or persistence → stop, use `domain-ports` §Domain Repository Protocol / `infra-persistence` `repository.md`.
 
-
-<!-- merged from domain-value-object -->
 
 ## Domain Value Object
 
@@ -77,9 +73,9 @@ Produces one immutable value object in the domain layer. Two value objects are e
 
 ### When to use vs. neighbours
 
-- The thing has a UUID and a lifecycle → `domain-entity`.
-- The thing is a closed set of named values → `domain-enum`.
-- The thing is a read-side parameter bag for repository queries → `domain-filter`.
+- The thing has a UUID and a lifecycle → §Domain Entity above.
+- The thing is a closed set of named values → §Domain Enum below.
+- The thing is a read-side parameter bag for repository queries → §Domain Filter Record below.
 - Everything else that is "defined by its content" → this skill.
 
 ### Template — standard case (value equality across all fields)
@@ -129,11 +125,11 @@ class Foo:
 ### Rules
 
 1. **Form:** `@dataclass(frozen=True)`. Always frozen — a mutable value object is almost always a mistake (invariants checked in `__post_init__` no longer hold after mutation).
-2. **No identity field.** No `id: UUID`. If the spec includes one, this is an entity — use `domain-entity` instead.
+2. **No identity field.** No `id: UUID`. If the spec includes one, this is an entity — use §Domain Entity above instead.
 3. **Value equality.** Use dataclass-generated equality. Override `__eq__` / `__hash__` only for the normalized-form escape hatch above.
 4. **Invariants in `__post_init__`.** Raise `ValidationError(message, {"field": "<field>"})`. Omit the method when there are none.
 5. **No inheritance.** Compose, don't inherit.
-6. **No cross-aggregate logic.** Anything that needs another aggregate's state is a `domain-service`, not a value-object invariant.
+6. **No cross-aggregate logic.** Anything that needs another aggregate's state is a `domain-ports` §Domain Service, not a value-object invariant.
 
 ### Variant — tunable value object (configuration consumed by the domain)
 
@@ -152,7 +148,7 @@ class FooExportTunable:
 
 Distinguishing characteristics:
 
-- Sourced from `infra-settings` at the DI layer — the provider wires `FooExportTunable(max_rows=export_settings.provided.max_rows)`.
+- Sourced from `infra-integration` `settings.md` at the DI layer — the provider wires `FooExportTunable(max_rows=export_settings.provided.max_rows)`.
 - Injected into domain services and application handlers, never into entities. Entities don't read tunables; services do.
 - Same rules as any value object apply: frozen, no methods, primitive or VO fields only, never `float` for money/time.
 
@@ -167,16 +163,14 @@ Use this variant only when the value carries no domain semantics beyond "this is
 
 ### Package wiring
 
-Follow `general-python-package` to register the module in the subpackage `__init__.py`.
+Follow `architecture` §Python Package Structure to register the module in the subpackage `__init__.py`.
 
 ### Hard stops
 
-- Spec includes `id: UUID` and field mutation over time → stop, use `domain-entity`.
-- Spec describes a closed set of named string constants → stop, use `domain-enum`.
-- Spec needs cross-aggregate validation → stop, use `domain-service`.
+- Spec includes `id: UUID` and field mutation over time → stop, use §Domain Entity above.
+- Spec describes a closed set of named string constants → stop, use §Domain Enum below.
+- Spec needs cross-aggregate validation → stop, use `domain-ports` §Domain Service.
 
-
-<!-- merged from domain-enum -->
 
 ## Domain Enum
 
@@ -255,16 +249,14 @@ class Foo(Enum):
 
 ### Package wiring
 
-Follow `general-python-package` to register the module in the subpackage `__init__.py` and append to its `__all__`.
+Follow `architecture` §Python Package Structure to register the module in the subpackage `__init__.py` and append to its `__all__`.
 
 ### Hard stops
 
 - Spec asks for runtime-extensible values (load from a config file or DB) → stop, this isn't an enum; use a value object plus a lookup repository.
-- Spec asks for behavior that needs another aggregate's state → stop, use `domain-service`.
-- Spec asks for persistence of enum values to a SQL column → still produces the enum here; the column type and SA mapping live in `infra-sqlalchemy-table`.
+- Spec asks for behavior that needs another aggregate's state → stop, use `domain-ports` §Domain Service.
+- Spec asks for persistence of enum values to a SQL column → still produces the enum here; the column type and SA mapping live in `infra-persistence` `table.md`.
 
-
-<!-- merged from domain-filter -->
 
 ## Domain Filter Record
 
@@ -273,9 +265,9 @@ Produces one frozen dataclass that aggregates the parameters of a read-side repo
 ### When to use vs. neighbours
 
 - Read-side params bag passed into a repository `list`/`count` call → this skill.
-- A value held inside an entity → `domain-value-object`.
-- A closed set of sort keys → `domain-enum` (and then referenced here).
-- A query DTO crossing the application boundary → `application-query`. The filter record may be reused there; the query DTO wraps it plus authorization context.
+- A value held inside an entity → §Domain Value Object above.
+- A closed set of sort keys → §Domain Enum above (and then referenced here).
+- A query DTO crossing the application boundary → `application` `query.md`. The filter record may be reused there; the query DTO wraps it plus authorization context.
 
 ### Template
 
@@ -303,7 +295,7 @@ class FooListFilter:
 1. **Frozen dataclass, value equality.** `@dataclass(frozen=True)`. Generated `__eq__` / `__hash__` — never override.
 2. **Multi-valued filters are `frozenset[T]`.** Never `set[T]` or `list[T]`. Use `field(default_factory=frozenset)` so the default is a fresh empty frozenset, not shared state.
 3. **Scalar filters use `T | None = None`.** `None` means "no constraint on this field". Never use sentinel strings or `-1`.
-4. **Sort is an enum reference.** Never a bare string. The enum lives in its own module (use `domain-enum`).
+4. **Sort is an enum reference.** Never a bare string. The enum lives in its own module (see §Domain Enum above).
 5. **Pagination shape is explicit.** Either `limit: int` + `offset: int` with sane defaults, or a `cursor: str | None`. Pick one — never both. If the spec doesn't say which, ask.
 6. **No methods.** A filter record is a passive data bag. Anything computed (e.g. translating a sort key to a SQL column) belongs in the repository adapter.
 7. **No business invariants.** A repository receives whatever the caller passed; range / authorization checks live in the query handler. The only validation acceptable here is that `limit > 0` and similar self-consistency rules — and even those are usually better placed in the application query DTO. Default to no `__post_init__`.
@@ -317,16 +309,14 @@ class FooListFilter:
 
 ### Package wiring
 
-Follow `general-python-package` to register the module in the subpackage `__init__.py` and append to its `__all__`.
+Follow `architecture` §Python Package Structure to register the module in the subpackage `__init__.py` and append to its `__all__`.
 
 ### Hard stops
 
 - Spec asks the filter record to validate cross-aggregate state → stop, that's the query handler's job.
-- Spec asks for a method that translates the filter to SQL → stop, that's the repository adapter's job (use `infra-sqlalchemy-repository`).
+- Spec asks for a method that translates the filter to SQL → stop, that's the repository adapter's job (use `infra-persistence` `repository.md`).
 - Spec needs both `limit/offset` and `cursor` → stop, pick one with the user.
 
-
-<!-- merged from domain-exception -->
 
 ## Domain Exception
 
@@ -337,8 +327,8 @@ The `DomainError` root is **always present**: it is the base every subclass inhe
 ### When to use vs. neighbours
 
 - A spec needs a new named error to express a domain rule violation → declare it as a `domain.exceptions` entry; this skill gives its shape. **First confirm no existing class already serves the rule** (scan `__all__` for a semantic match, read the candidate's body); if one fits, reuse it rather than minting a near-duplicate.
-- A spec needs to map a low-level library exception to a domain exception inside a repository → `infra-sqlalchemy-repository` (which references this skill for the target class name).
-- A spec needs to advertise an error on a REST route → `restapi-error-responses` (which references the new `code`).
+- A spec needs to map a low-level library exception to a domain exception inside a repository → `infra-persistence` `repository.md` (which references this skill for the target class name).
+- A spec needs to advertise an error on a REST route → `restapi` `error-responses.md` (which references the new `code`).
 
 ### File shape (the contract every entry obeys)
 
@@ -444,6 +434,6 @@ The skill does not enforce the keys — the raise site and its test agree on the
 ### Hard stops
 
 - The spec asks to raise a new exception type from outside `domain/exceptions.py` → stop, define it here first.
-- The spec asks to log the error at the raise site → stop, logging happens centrally (`general-logging` for the rule; `restapi-error-responses` for HTTP).
+- The spec asks to log the error at the raise site → stop, logging happens centrally (`python-style` §Logging for the rule; `restapi` `error-responses.md` for HTTP).
 - The new class would duplicate an existing one's semantics → stop and recommend reuse.
 - The spec asks the subclass to override `__init__` or carry extra fields → stop, structured detail goes through the inherited `context` dict at the raise site.

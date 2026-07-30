@@ -8,8 +8,6 @@ when_to_use: Producing a domain repository protocol, a capability protocol, or a
 This merged skill covers 3 related artifacts. Each `## …` section below is one artifact's house style, keeping its own *When to use / Template(s) / Rules / Hard stops* structure. Consult the section matching what you are producing.
 
 
-<!-- merged from domain-repository-protocol -->
-
 ## Domain Repository Protocol
 
 Produces one protocol module: the collection-style data-access interface for a single aggregate root. Infrastructure implements it structurally (no explicit inheritance).
@@ -17,8 +15,8 @@ Produces one protocol module: the collection-style data-access interface for a s
 ### When to use vs. neighbours
 
 - Aggregate-root data access (CRUD + aggregate-specific reads) → this skill.
-- A single-action capability that doesn't fit "collection of an aggregate" (file rendering, token verification, blob storage) → `domain-capability-protocol`.
-- The concrete implementation → `infra-sqlalchemy-repository` (relational store, `infrastructure/postgres/repositories/`) or `infra-store-repository` (client-style store — qdrant/redis/…, `infrastructure/<store-kind>/repositories/`); the protocol itself is store-agnostic, the choice is the infra decision dispatched by store profile (`conventions` block C).
+- A single-action capability that doesn't fit "collection of an aggregate" (file rendering, token verification, blob storage) → §Domain Capability Protocol below.
+- The concrete implementation → `infra-persistence` `repository.md` (relational store, `infrastructure/postgres/repositories/`) or `infra-persistence` `store-repository.md` (client-style store — qdrant/redis/…, `infrastructure/<store-kind>/repositories/`); the protocol itself is store-agnostic, the choice is the infra decision dispatched by store profile (`conventions` block C).
 
 ### File location and naming
 
@@ -51,7 +49,7 @@ class IFooRepository(Protocol):
 ### Rules
 
 1. **`class IName(Protocol)` from `typing`.** Never `abc.ABC`, never a concrete base class.
-2. **Methods are async by default.** Sync only for pure-CPU operations (e.g. a JWT verification capability — but that belongs in `domain-capability-protocol`, not here). Repository methods always touch IO when implemented, so they are always `async`.
+2. **Methods are async by default.** Sync only for pure-CPU operations (e.g. a JWT verification capability — but that belongs in §Domain Capability Protocol below, not here). Repository methods always touch IO when implemented, so they are always `async`.
 3. **Method bodies are `...` (ellipsis), one line.** No docstrings. No default implementations.
 4. **Return types are domain types or `None`.** `Foo`, `Sequence[Foo]`, `int`, `bool`, `Foo | None`, or `None`. Never SQLAlchemy rows, never Pydantic models.
 5. **Use keyword-only arguments (`*,`) for `list` / `count` and any multi-parameter method.** Positional arguments belong only on single-parameter lookups (`get_by_id(id)`).
@@ -72,16 +70,14 @@ class IFooRepository(Protocol):
 
 ### Package wiring
 
-Follow `general-python-package` to add `from .i_<aggregate>_repository import *` to the subpackage `__init__.py` and extend its `__all__`.
+Follow `architecture` §Python Package Structure to add `from .i_<aggregate>_repository import *` to the subpackage `__init__.py` and extend its `__all__`.
 
 ### Hard stops
 
-- Spec lists more than ~3 single-action methods that don't share a collection mental model → stop, this is one or more `domain-capability-protocol`s, not a repository.
+- Spec lists more than ~3 single-action methods that don't share a collection mental model → stop, this is one or more capability protocols (§Domain Capability Protocol below), not a repository.
 - Spec asks for SQL or framework types on a method signature → stop, those are infrastructure concerns.
 - Spec asks the protocol to inherit from an `ABC` or a concrete base → stop, this codebase uses `typing.Protocol` only.
 
-
-<!-- merged from domain-capability-protocol -->
 
 ## Domain Capability Protocol
 
@@ -89,7 +85,7 @@ Produces one protocol module: a narrow, action-shaped interface that infrastruct
 
 ### When to use vs. neighbours
 
-- Aggregate-root CRUD → `domain-repository-protocol`, not this skill.
+- Aggregate-root CRUD → §Domain Repository Protocol above, not this skill.
 - Single action that does IO or talks to an external system → this skill.
 - Pure-CPU operation (e.g. JWT signature verification) → this skill, with a sync method instead of async.
 
@@ -146,7 +142,7 @@ class ICanVerifyFooToken(Protocol):
 
 ### Package wiring
 
-Follow `general-python-package` to add `from .i_can_<verb> import *` to the subpackage `__init__.py` and extend its `__all__`.
+Follow `architecture` §Python Package Structure to add `from .i_can_<verb> import *` to the subpackage `__init__.py` and extend its `__all__`.
 
 ### Hard stops
 
@@ -155,18 +151,16 @@ Follow `general-python-package` to add `from .i_can_<verb> import *` to the subp
 - Spec asks for a default implementation in the protocol → stop, that's behavior leaking into the domain interface.
 
 
-<!-- merged from domain-service -->
-
 ## Domain Service
 
 Produces one domain service: a stateless class that orchestrates a domain rule using injected protocols. Domain services live next to the aggregate they primarily concern. In DDD terms this is a *domain service*; the codebase uses the `*Service` suffix to mark it.
 
 ### When to use vs. neighbours
 
-- Rule enforceable from one entity's own fields → not a service; use `__post_init__` on the entity (see `domain-entity`).
+- Rule enforceable from one entity's own fields → not a service; use `__post_init__` on the entity (see `domain-model` §Domain Entity).
 - Rule needs to query other aggregates or a domain capability → this skill.
-- Rule is a numeric/boolean threshold (max rows, retention days) → not a service; model as a tunable value object via `domain-value-object`.
-- Orchestrating a use case across multiple aggregates → that's a command/query handler, not a service (see `application-command`).
+- Rule is a numeric/boolean threshold (max rows, retention days) → not a service; model as a tunable value object via `domain-model` §Domain Value Object.
+- Orchestrating a use case across multiple aggregates → that's a command/query handler, not a service (see `application` `command.md`).
 
 ### File location and naming
 
@@ -236,10 +230,10 @@ service has collaborators to inject.
 
 ### Package wiring
 
-Follow `general-python-package` to register the module in the subpackage `__init__.py` and append to its `__all__`. The DI provider that constructs this service is the responsibility of `infra-di-provider`, not this skill.
+Follow `architecture` §Python Package Structure to register the module in the subpackage `__init__.py` and append to its `__all__`. The DI provider that constructs this service is the responsibility of `infra-integration` `container.md`, not this skill.
 
 ### Hard stops
 
 - Method count grows past ~4–5 distinct rules → split into multiple services grouped by concern.
 - The class needs to call a SQLAlchemy session directly → stop, model the access as a protocol method on the existing repository and depend on the protocol.
-- The class needs to read settings → stop, wrap the relevant settings in a tunable value object (see `domain-value-object`) and inject that.
+- The class needs to read settings → stop, wrap the relevant settings in a tunable value object (see `domain-model` §Domain Value Object) and inject that.
