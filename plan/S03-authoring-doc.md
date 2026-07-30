@@ -103,3 +103,35 @@
 - Противоречие решено в пользу двух полей (`name`, `description`) → ОТКЛОНИТЬ: `when_to_use` работает,
   это подтверждено документацией и видно в листинге сессии.
 - Тронут любой из тринадцати скиллов → ОТКЛОНИТЬ.
+
+---
+
+## Заметки, переехавшие из `CONVENTIONS.md` (deliverable 7)
+
+Два раздела шипящегося файла были решениями **про каталог**, а не правилами авторства. Они сняты из
+`plugins/adw/skills/meta-skill-author/CONVENTIONS.md` и живут теперь здесь. Единственная правка при
+переезде — путь к агентам (`plugins/adw/agents/` вместо `.claude/agents/`, deliverable 8).
+
+### Out of scope (intentionally not in this catalog)
+
+- The agent roles live separately under `plugins/adw/agents/`. Skills describe *artifacts*; agents
+  describe *processes*.
+- Process-only skills (e.g. brainstorming, retrospective notes) are not part of this catalog. If
+  reintroduced, they belong in a separate prefix (e.g. `process-brainstorm`).
+
+### Read models — guidance for a future skill
+
+The catalog deliberately does **not** split repositories into write-side and read-side protocols. The
+CQRS guarantee that matters (commands mutate, queries read) is enforced by the handler split inside
+`application` (command vs query); partitioning every `IFooRepository` into read/write halves would
+double the protocol/DI/test surface across all aggregates for a benefit that only materializes with
+event sourcing, async projections, or a separate read store — none of which apply here today.
+
+Add a new `infra-read-model` skill the first time a query handler genuinely needs a
+denormalized/join-flattened DTO that is not "an aggregate read" (e.g. "foos with author name + tag
+count + last_modified_by name" joining three tables). Model it as an additive component (its own
+protocol, its own adapter, its own flat DTO), not as a partition of the existing repository. Until
+that use case appears, the unified `IFooRepository` with both reads and writes is the canonical shape.
+
+Этим закрывается и открытый пункт S00: `infra-read-model` — ссылка на скилл, которого нет, — больше не
+живёт в шипящемся каталоге, и отображать её никуда не нужно.

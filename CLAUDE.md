@@ -110,7 +110,8 @@ Every skill body has the same four sections: *When to use vs. neighbours · Temp
 Hard stops*. A theme past ~500 lines becomes a thin router `SKILL.md` plus one `<topic>.md` per
 artifact — only `SKILL.md` is injected on auto-invocation, so the router's pointers are
 instructions the agent acts on, not cross-references. Format details:
-`plugins/adw/skills/CONVENTIONS.md`. Add a skill with `meta-skill-author`.
+`plugins/adw/skills/meta-skill-author/SKILL.md`, with the placeholder vocabulary beside it in
+`meta-skill-author/CONVENTIONS.md`. Add a skill with `meta-skill-author`.
 
 Two standing rules:
 

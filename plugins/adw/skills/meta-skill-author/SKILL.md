@@ -8,7 +8,7 @@ when_to_use: "Adding a brand-new skill to the knowledge catalog, or checking tha
 
 A skill in this catalog is **theme-narrow**: it covers one coherent theme an agent can pick by its `description` / `when_to_use` (e.g. `domain-model`, `restapi`, `testing-unit`). A theme may span several closely-related artifacts: a small theme carries them in one body, a large one keeps a thin `SKILL.md` router plus one `<topic>.md` per artifact (both shapes below). Skills are read by agents (or humans) as reference knowledge; the skill's job is to show how the right file(s) are written. Uniformity matters more than expressiveness — an agent that has read one skill should be able to apply any other.
 
-This skill produces one new `SKILL.md` (plus its topic files, if the theme needs them). It does **not** modify other skills (that's an audit task), produce agents (`.claude/agents/`), or design the spec format.
+This skill produces one new `SKILL.md` (plus its topic files, if the theme needs them). It does **not** modify other skills (that's an audit task), produce agents (`agents/`), or design the spec format.
 
 ## When to use vs. neighbours
 
@@ -48,7 +48,7 @@ Description rules:
 - **First clause:** "Apply when …" — the trigger condition. The agent should be able to decide whether to invoke this skill from this clause alone.
 - **Middle:** what the skill produces — name the file(s) and key shape.
 - **End:** explicit "Does not produce X — use `<other-skill>`" pointers to adjacent skills. This is what makes the catalog navigable.
-- No application-specific names (no `Material`, no `Order`). Use `Foo` / `Bar` per CONVENTIONS.md.
+- No application-specific names (no `Material`, no `Order`): use the placeholder vocabulary → **read `CONVENTIONS.md` now**.
 - Read like a sentence; not a heading or list.
 
 ## Body — the canonical sections
@@ -66,7 +66,7 @@ Every skill has these sections, in this order, with these exact headings. Four a
 
 ## Template(s)
 
-<One or more literal file templates with placeholder names. Use `Foo`/`Bar` from CONVENTIONS.md. Show the entire file content, not a fragment. When the skill has multiple kinds (e.g. standalone vs UoW-managed repository, list vs cursor pagination), give one template per kind under `### <kind>` subheadings.>
+<One or more literal file templates with placeholder names — the placeholder vocabulary → **read `CONVENTIONS.md` now**. Show the entire file content, not a fragment. When the skill has multiple kinds (e.g. standalone vs UoW-managed repository, list vs cursor pagination), give one template per kind under `### <kind>` subheadings.>
 
 ## Rules
 
@@ -130,24 +130,39 @@ hard stops stay in their topic file.>
 
 Rules for this shape:
 
-- **Pointers are instructions, not cross-references.** Only `SKILL.md` is injected; a topic file reaches the agent only if the agent opens it. Write "→ **read `endpoint.md` now**", never "see also `endpoint.md`" or "more detail in `endpoint.md`".
+- **Pointers are instructions, not cross-references** → §Pointer form below.
 - **Every topic is pointed at exactly once, and every pointer resolves.** An unpointed topic file is dead knowledge; a dangling pointer sends the agent to nothing.
 - **A topic file carries the full four-section body** (plus the optional helpers when load-bearing) and **no frontmatter**.
 - **Name the file after the artifact, not the theme:** `restapi/endpoint.md`, never `restapi/restapi-endpoint.md`.
-- **Nothing else changes:** the theme keeps its name, its frontmatter, and its single `CONVENTIONS.md` index entry.
+- **Nothing else changes:** the theme keeps its name and its frontmatter.
+
+## Pointer form
+
+Every cross-reference a skill writes — to a section of itself, to another theme, to a bundled topic — takes one of four forms. One rule generates all four: **a pointer is qualified by its theme, except when it points inside the same file.**
+
+| Case | Form |
+|---|---|
+| a section of this same file | → §`<Heading>` below (or above) |
+| a single-topic theme (`architecture`, `python-style`, `conventions`, `domain-model`, `domain-ports`) | → `architecture` §`<Heading>` |
+| a topic file of another theme | → `restapi` `endpoint.md` |
+| a router pointing at its own topic | → **read `endpoint.md` now** |
+
+Why the third case names the theme as well as the file: a topic file is injected to nobody, not even when its theme is preloaded. A reader who has the theme opens the file directly; a reader who does not invokes the theme, gets its router, and the router's imperative sends them to the same file. Both branches land in one place.
+
+Why the fourth case is an imperative and not a name: only `SKILL.md` is injected, so a bundled topic reaches the agent only if the agent opens it. A soft cross-reference — "see also `endpoint.md`", "more detail in `endpoint.md`" — leaves the agent writing the artifact from the router's summary and never loading the rules.
 
 ## Rules
 
 1. **Match the section order exactly.** Agents scan section headings to decide what to read. Renaming or reordering breaks navigation.
-2. **No custom frontmatter fields.** Only `name` and `description`. Information that doesn't fit in the description goes in the body.
-3. **Templates are literal, not prose.** Show the entire file the agent should write. Use placeholders like `Foo`, `<root>`, `<subdomain>` consistently with CONVENTIONS.md.
+2. **No custom frontmatter fields.** Only `name`, `description`, and `when_to_use`. Information that doesn't fit in the description goes in the body.
+3. **Templates are literal, not prose.** Show the entire file the agent should write. Placeholders (`Foo`, `<root>`, `<subdomain>`) are used consistently → **read `CONVENTIONS.md` now**.
 4. **One theme per skill.** A skill covers one coherent theme, which may span several closely-related artifacts — held in one body, or in bundled topic files behind a router once the theme outgrows the threshold. "One theme" is one auto-invocation entry, not necessarily one file. If a candidate would cover two unrelated themes, split it into two skills. If its hard stops fire, the task asked for the wrong artifact — switch skills, don't stretch this one.
 5. **Cross-cutting rules are referenced, not restated.** Point to `architecture` (layers, packages, imports), `python-style` (typing, logging), and `conventions` (derivation) rather than copying their rules. Inlined slices (3–6 bullets) are acceptable when load-bearing. Toolchain commands are never restated — cite the project's toolchain config.
 6. **Hard stops are explicit.** Every plausible "wrong-skill" case becomes a hard stop with a redirect. This is how agents recover from misclassification without overreaching.
 7. **Use placeholder vocabulary.** `Foo` for the primary aggregate, `Bar` for the secondary, `myapp` for the project root. Never name a specific aggregate from the current application.
-8. **No meta-notes for skill authors inside the body.** Lines like "Do not duplicate these rules here" are instructions for the author, not the agent — they pollute runtime context. Put author-side notes in the commit message or in CONVENTIONS.md.
+8. **No meta-notes for skill authors inside the body.** Lines like "Do not duplicate these rules here" are instructions for the author, not the agent — they pollute runtime context. Put author-side notes in the commit message.
 9. **One paragraph descriptions read as sentences.** Not lists, not headings. The description is what an agent grep-scans to find the right skill.
-10. **No orchestration, no process leakage.** A skill is knowledge injected into context, not an executor. It must not describe what invokes it, what it returns to a caller, the change cycle, criteria files, or "report to the coordinator" — those are the enforcement/orchestration layer (agents, commands, the check script), not the skill. The purity test: would a new developer read this as onboarding docs? If they'd trip over a line, that line is a leaked layer — cut it.
+10. **No orchestration, no process leakage.** A skill is knowledge injected into context, not an executor. It must not describe what invokes it, what it returns to a caller, the change cycle, criteria files, or "report to the coordinator" — those are the orchestration layer (agents and commands), not the skill. The purity test: would a new developer read this as onboarding docs? If they'd trip over a line, that line is a leaked layer — cut it.
 
 ## Skill modes (a navigational aid, not a new requirement)
 
@@ -209,7 +224,7 @@ These document rules that apply continuously across the catalog (derivation, lay
 
 **Required sections:**
 
-- Frontmatter (`name`, `description`).
+- Frontmatter (`name`, `description`, `when_to_use`).
 - One opening paragraph.
 - `## When to use vs. neighbours` — list adjacent convention skills and the consuming layers ("Apply alongside every layer skill that touches X").
 - `## Rules` — the actual rules. May be subdivided (e.g. per layer for `general-logging`).
@@ -242,19 +257,9 @@ A process skill (brainstorm, retrospective) and a meta skill (this one) may prod
 - **A soft pointer in a router.** "See also `endpoint.md`" or "more detail in `endpoint.md`" leaves the agent writing the artifact from the router's summary, because only `SKILL.md` is injected. Every pointer is imperative and names the file: "→ **read `endpoint.md` now**".
 - **A router that keeps summarising its topics.** If the router explains how the artifact is written, the rules now live in two places and will drift. The router routes; the topic file teaches.
 
-## After writing the file
-
-Update `CONVENTIONS.md`:
-
-1. Insert a one-line entry under the matching layer section (e.g. `### Domain`, `### Tests`).
-2. Keep entries in the order they're conceptually used (`domain-entity` before `domain-value-object` before `domain-enum`, etc.).
-3. The entry follows the format: `- \`<skill-name>\` — <one-sentence summary that complements, not duplicates, the description>.`
-
-One entry per theme. A bundled topic file gets no index entry of its own — the router is the theme's only address.
-
 ## Hard stops
 
-- Spec asks for a skill that produces no file at all (pure documentation) → stop, that belongs in CONVENTIONS.md or a layer skill's body, not as its own skill.
+- Spec asks for a skill that produces no file at all (pure documentation) → stop, that belongs in a layer skill's body, not as its own skill.
 - Spec asks for a skill that requires custom frontmatter fields → stop, use the body for the information.
 - Spec proposes a skill whose description overlaps an existing one's by more than half its content → stop, this is an edit to the existing skill, not a new one.
 - Spec uses application-specific names (`Order`, `Material`, `Invoice`) in templates → stop, replace with `Foo`/`Bar`.

@@ -40,7 +40,7 @@
 | S00 | [отображение имён и форма указателя](S00-skill-reference-map.md) | дев-запись | — | ☑ решение |
 | S01 | [пять предзагружаемых монолитов](S01-preloaded-monoliths.md) | ядро | S00 | ☑ |
 | S02 | [роутеры и топики, пять тем](S02-routers-and-topics.md) | ядро | S00 | ☑ |
-| S03 | [`CONVENTIONS.md` к `meta-skill-author`](S03-authoring-doc.md) | ядро | S00 | ☐ |
+| S03 | [`CONVENTIONS.md` к `meta-skill-author`](S03-authoring-doc.md) | ядро | S00 | ☑ |
 | S04 | [маркер `ac` из скилла (F-50 «б», F-39)](S04-marker-out-of-the-skill.md) | ядро | — | ☐ |
 
 Порядок: **S00 → S01 → S02 → S03 → S04.** Не параллелить: S03 переносит дом правила, на которое
