@@ -1,17 +1,21 @@
 ---
 name: domain-exception
-description: Apply when the manifest declares one or more `domain.exceptions`. Produces the project's single error catalog `domain/exceptions.py` — one `DomainError` root with `code: str` + `http_status: int` class attributes and a `(message, context=None)` constructor that every subclass inherits unchanged, plus one bare subclass per declared exception. Does not handle raising — use `infra-sqlalchemy-repository` or `pattern-compensating-tx`. Does not handle HTTP translation — use `restapi-error-responses`.
+description: The house form for the project's single error catalog, `domain/exceptions.py` — a `DomainError` root carrying `code: str` + `http_status: int` and a `(message, context=None)` constructor every subclass inherits unchanged, plus one bare subclass per named error.
+when_to_use: Adding a new domain error class, or laying the exceptions catalog for the first time.
+paths: src/**/domain/**
 ---
 
 # Domain Exception
 
 The whole project uses a single error catalog: `src/<root>/domain/exceptions.py`. It holds the `DomainError` root plus one bare subclass per declared exception — every error the domain can raise lives in this one file, so the catalogue stays auditable.
 
-The `DomainError` root is **always present**: it is the base every subclass inherits, not a declared entry. Each `domain.exceptions` entry is a subclass that overrides only `code` and `http_status`.
+The `DomainError` root is **always present**: it is the base every subclass inherits. Each named error is a
+subclass that overrides only `code` and `http_status`.
 
 ## When to use vs. neighbours
 
-- A spec needs a new named error to express a domain rule violation → declare it as a `domain.exceptions` entry; this skill gives its shape. **First confirm no existing class already serves the rule** (scan `__all__` for a semantic match, read the candidate's body); if one fits, reuse it rather than minting a near-duplicate.
+- A new named error is needed to express a domain rule violation → this skill gives its shape. **First
+  confirm no existing class already serves the rule** (scan `__all__` for a semantic match, read the candidate's body); if one fits, reuse it rather than minting a near-duplicate.
 - A spec needs to map a low-level library exception to a domain exception inside a repository → `infra-sqlalchemy-repository` (which references this skill for the target class name).
 - A spec needs to advertise an error on a REST route → `restapi-error-responses` (which references the new `code`).
 
@@ -28,7 +32,9 @@ The `DomainError` root is **always present**: it is the base every subclass inhe
 
 ## Catalog file shape (illustrative)
 
-A populated `domain/exceptions.py` — the `DomainError` root plus the common errors a typical catalog declares. Which subclasses actually appear is determined by the manifest's `domain.exceptions` set; the shapes below are the form each takes.
+A populated `domain/exceptions.py` — the `DomainError` root plus the common errors a typical catalog
+carries. Which subclasses actually appear depends on the errors the domain needs; the shapes below are
+the form each takes.
 
 ```python
 __all__ = [
@@ -74,9 +80,10 @@ class InUseError(ConflictError):
     http_status = 409
 ```
 
-## How one declared exception renders
+## How one error renders
 
-Each `domain.exceptions` entry is a bare subclass of `DomainError` — or of the most specific existing parent, when a subclass is a semantic match (a refinement inherits `http_status` unless it differs):
+Each named error is a bare subclass of `DomainError` — or of the most specific existing parent, when one
+is a semantic match (a refinement inherits `http_status` unless it differs):
 
 ```python
 class FooConflictError(ConflictError):

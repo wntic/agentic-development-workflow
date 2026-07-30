@@ -1,6 +1,8 @@
 ---
 name: domain-service
-description: Apply when a business rule needs context an entity can't see — uniqueness across the collection, "does referenced X exist", a hash/sign/canonicalize transformation, or anything that requires a repository or capability protocol. Produces one plain class module that takes injected protocols and exposes async/sync methods following the `assert_*` / `is_*` / verb convention. For tunable thresholds (max size, quotas) use `domain-value-object` (the tunable-VO pattern). Defers package mechanics to `general-python-package`.
+description: The house form for a stateless domain service — the place for a business rule needing context an entity cannot see: uniqueness across the collection, "does referenced X exist", a hash or canonicalize transformation. One plain class taking injected protocols, with `assert_*` / `is_*` / verb methods.
+when_to_use: Producing or editing a domain service — a rule that needs cross-aggregate state or a domain capability.
+paths: src/**/domain/**
 ---
 
 # Domain Service

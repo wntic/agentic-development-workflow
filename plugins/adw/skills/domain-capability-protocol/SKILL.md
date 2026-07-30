@@ -1,6 +1,8 @@
 ---
 name: domain-capability-protocol
-description: Apply when a spec needs a single-action capability interface that does not fit "collection of an aggregate" — file rendering, token verification, blob storage, third-party gateway calls. Produces one `typing.Protocol` module named `i_can_<verb>.py` with `ICan<Verb>` containing one or two closely related methods. Does not implement it — infrastructure does that. Defers package mechanics to `general-python-package`.
+description: The house form for a single-action capability interface that does not fit "collection of an aggregate" — file rendering, token verification, blob storage, a third-party gateway call. One `typing.Protocol` module `i_can_<verb>.py` holding `ICan<Verb>` with one or two closely paired methods.
+when_to_use: Producing or editing a capability protocol — a narrow action the domain needs but cannot perform itself.
+paths: src/**/domain/**
 ---
 
 # Domain Capability Protocol

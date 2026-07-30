@@ -1,6 +1,8 @@
 ---
 name: domain-value-object
-description: Apply when a spec asks for a domain value object — an immutable type defined by its content, not by an identity (e.g. a money amount, a normalized email, a coordinate). Produces one `@dataclass(frozen=True)` module with value equality, optional `__post_init__` invariants, and the standard `__all__`. Does not produce entities, enums, filters, protocols, or tests — each is a separate skill. Defers package mechanics to `general-python-package`.
+description: The house form for a domain value object — an immutable type defined by its content rather than an identity (a money amount, a normalized email, a coordinate). One `@dataclass(frozen=True)` with value equality, optional `__post_init__` invariants, and the tunable-threshold variant.
+when_to_use: Producing or editing a domain value object, or shaping an env-tunable threshold the domain consumes.
+paths: src/**/domain/**
 ---
 
 # Domain Value Object

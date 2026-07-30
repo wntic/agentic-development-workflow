@@ -1,6 +1,8 @@
 ---
 name: domain-enum
-description: Apply when a spec asks for a closed set of named values in the domain layer (a role, a status, a sort key). Produces one `StrEnum` (string-valued) or `Enum` (non-string) module with `SCREAMING_SNAKE_CASE` members and, optionally, pure-logic methods on the enum itself. Does not produce entities, value objects, repositories, or persistence — each is a separate skill. Defers package mechanics to `general-python-package`.
+description: The house form for a closed set of named values in the domain — a role, a status, a sort key. One `StrEnum` (string-valued) or `Enum` (non-string) with `SCREAMING_SNAKE_CASE` members and, optionally, pure-logic methods on the enum itself.
+when_to_use: Producing or editing a domain enum.
+paths: src/**/domain/**
 ---
 
 # Domain Enum

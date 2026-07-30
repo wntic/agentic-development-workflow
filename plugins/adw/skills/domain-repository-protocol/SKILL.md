@@ -1,6 +1,8 @@
 ---
 name: domain-repository-protocol
-description: Apply when a spec needs a repository interface for an aggregate root. Produces one `typing.Protocol` module named `i_<noun>_repository.py` with `I<Noun>Repository` containing async CRUD-shaped methods. Does not implement the protocol — infrastructure does that via `infra-sqlalchemy-repository` (relational store) or `infra-store-repository` (client-style store). Defers package mechanics to `general-python-package`.
+description: The house form for an aggregate root's data-access interface — one `typing.Protocol` module `i_<noun>_repository.py` holding `I<Noun>Repository` with async CRUD-shaped methods, implemented by infrastructure through structural subtyping.
+when_to_use: Producing or editing the repository protocol for an aggregate root.
+paths: src/**/domain/**
 ---
 
 # Domain Repository Protocol

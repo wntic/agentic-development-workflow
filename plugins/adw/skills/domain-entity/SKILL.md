@@ -1,11 +1,23 @@
 ---
 name: domain-entity
-description: Apply when a spec asks for a new domain entity — a thing with a UUID identity and a lifecycle. Produces exactly one mutable `@dataclass` with identity equality, optional `__post_init__` invariants, and the standard `__all__`. Does not produce value objects, enums, protocols, repositories, or tests — each is a separate skill. Defers package mechanics (file placement, `__init__.py` re-exports) to `general-python-package`.
+description: The house form for a domain entity — a thing with a UUID identity and a lifecycle. One mutable `@dataclass` with identity equality, optional `__post_init__` invariants, and the standard `__all__`.
+when_to_use: Producing or editing a domain entity class.
+paths: src/**/domain/**
 ---
 
 # Domain Entity
 
-Produces one entity class in the domain layer. Out of scope: value objects, enums, protocols, repositories, policies, persistence, tests, package wiring (defer to `general-python-package`).
+Produces one entity class in the domain layer. Package mechanics — file placement, `__init__.py`
+re-exports — defer to `general-python-package`.
+
+## When to use vs. neighbours
+
+- A thing with a UUID and a lifecycle → this skill.
+- An immutable type defined by its content → `domain-value-object`.
+- A closed set of named values → `domain-enum`.
+- A read-side parameter bag for a repository call → `domain-filter`.
+- The interface a repository must satisfy → `domain-repository-protocol`.
+- A rule needing another aggregate's state → `domain-service`.
 
 ## Template
 

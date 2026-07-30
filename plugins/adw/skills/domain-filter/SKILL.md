@@ -1,6 +1,8 @@
 ---
 name: domain-filter
-description: Apply when a spec asks for a read-side parameter object passed to a repository `list`/`count` call (paging, sort, multi-valued filters). Produces one `@dataclass(frozen=True)` filter record with `frozenset` defaults, sort enum, and optional pagination fields. Does not produce repositories, query handlers, or schemas — each is a separate skill. Defers package mechanics to `general-python-package`.
+description: The house form for a read-side parameter object passed to a repository `list`/`count` call — paging, sort, multi-valued filters. One `@dataclass(frozen=True)` with `frozenset` defaults, a sort-enum reference and one explicit pagination shape.
+when_to_use: Producing or editing a filter record for a repository read call.
+paths: src/**/domain/**
 ---
 
 # Domain Filter Record
