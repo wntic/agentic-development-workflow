@@ -1,6 +1,8 @@
 ---
 name: test-domain-enum
-description: Apply when adding or modifying a unit test for one domain enum. Produces one test file at `tests/unit/domain/<subdomain>/test_<enum_snake>_enum.py` that pins every enum member's string value the database / API depends on and asserts that constructing the enum with an unknown value raises `ValueError`. When the enum defines pure-logic methods (e.g. `Role.satisfies(other)`), one additional `test_*` per method asserts the truth table. Stdlib + `pytest` + `<root>.domain.*` only. Does not produce entity tests (use `test-domain-entity`), value-object tests (use `test-domain-value-object`), service tests (use `test-domain-service`), or integration tests.
+description: The house form for one enum's unit test — pins every member's string value the database and API depend on, asserts an unknown value raises `ValueError`, and covers each pure-logic method's truth table.
+when_to_use: Writing or changing the unit test for a domain enum.
+paths: tests/**
 ---
 
 # Test — Domain Enum

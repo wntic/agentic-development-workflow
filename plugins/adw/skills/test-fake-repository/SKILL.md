@@ -1,6 +1,8 @@
 ---
 name: test-fake-repository
-description: Apply when a handler unit test needs an in-memory stand-in for an infrastructure adapter that does not yet exist under `tests/unit/fakes/`. Produces one `Fake<Aggregate>Repository` (or `Fake<Capability>`) module that satisfies the domain protocol structurally, stores rows in `dict[UUID, Entity]`, sorts `list(...)` results by the same key the real repository orders by, and raises the **same** domain exceptions the real adapter raises (with the same `context` keys). Default-happy-path only — atypical failure injection is done via inline subclass at the handler test site (see `test-application-handler`), not via flags on the fake. Does not produce the protocol (use `domain-repository-protocol` / `domain-capability-protocol`), the real adapter (use `infra-sqlalchemy-repository`), the handler test that consumes the fake (use `test-application-handler`), or any integration test.
+description: The house form for an in-memory stand-in satisfying a domain protocol structurally — rows in a `dict[UUID, Entity]`, `list(...)` sorted the way the real adapter orders, and the **same** domain exceptions with the same `context` keys the real adapter raises. Happy path only; one-off failures come from an inline subclass at the test site.
+when_to_use: A handler unit test needs a fake for an adapter that does not exist under `tests/unit/fakes/` yet.
+paths: tests/**
 ---
 
 # Test Fake — Repository / Capability

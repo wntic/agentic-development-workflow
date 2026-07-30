@@ -1,6 +1,8 @@
 ---
 name: test-principles
-description: Reference skill consulted by every `test-*` producer skill, and home of the catalog's paid-fixes guard. Documents the testing pyramid (domain unit → handler unit → repository contract → REST endpoint → discovery invariants), the conftest hierarchy and which fixtures live where, the fixture-vs-builder rule, when parametrize is allowed vs. forbidden, the AAA structure, the no-mocks contract, and per-layer speed targets. Also owns the meta-test that greps the whole catalog for every hard-won lesson so a later refactor cannot silently drop one. Does not produce a test file; it's the catalog-level testing constitution other test skills reference rather than restate.
+description: The testing constitution every other test skill consults — the pyramid and per-layer speed targets, the conftest hierarchy and which fixtures live where, the fixture-versus-builder rule, when parametrize is allowed, AAA structure, the no-mocks contract, and naming.
+when_to_use: Writing any test, as the shared groundwork beneath the skill that owns the specific test file.
+paths: tests/**
 ---
 
 # Test — Principles (reference)

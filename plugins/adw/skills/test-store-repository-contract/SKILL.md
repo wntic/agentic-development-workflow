@@ -1,6 +1,8 @@
 ---
 name: test-store-repository-contract
-description: Apply when adding or modifying an integration test for a client-style store repository — the `infra-store-repository` adapter for a vector / cache / document store (qdrant, redis, chroma, …). Produces one test file under `tests/integration/<store-kind>/test_<aggregate>_repository.py` that drives the real repository against a real store via testcontainers, isolated by a per-test namespace (a fresh collection / key-prefix) instead of transaction rollback, exercising the CRUD round-trip, the store's non-CRUD verbs (search, delete-by-filter, …), the entity↔record mapping, and the SDK-error → domain-exception (`UpstreamError` / `NotFoundError`) translation. Does not own the relational contract test (use `test-repository-contract`), the repository itself (use `infra-store-repository`), the protocol (use `domain-repository-protocol`), or any HTTP-layer test (use `test-restapi-endpoint`).
+description: The house form for one client-style store repository's integration test — a real store via testcontainers, isolated by a per-test namespace (a fresh collection or key prefix) rather than transaction rollback: CRUD, the store's non-CRUD verbs, the entity-record mapping, and the SDK-error to domain-exception translation.
+when_to_use: Writing or changing the contract test for a repository adapter on a vector, cache or document store.
+paths: tests/**
 ---
 
 # Test — Store Repository Contract
@@ -10,7 +12,7 @@ Produces one integration-test file per client-style store repository. This is th
 ## When to use vs. neighbours
 
 - A repository adapter under `infrastructure/<store-kind>/repositories/` (qdrant/redis/…) → this skill.
-- A repository on the relational (`uses_bootstrap`) store → `test-repository-contract` (it uses `sf` + transaction rollback).
+- A repository on a relational store → `test-repository-contract` (it uses `sf` + transaction rollback).
 - The repository being tested → `infra-store-repository`.
 - An in-memory fake of the same protocol for handler unit tests → `test-fake-repository`.
 - HTTP-layer integration (route, auth, OpenAPI) → `test-restapi-endpoint`.
@@ -145,7 +147,7 @@ async def test_search_against_unreachable_store_raises_upstream_error() -> None:
 3. **The container is session-scoped; the namespace is function-scoped.** One store per run (expensive to start); one namespace per test (cheap, gives each test sole ownership). CI reads a provided endpoint from env (the `os.getenv("CI")` branch) instead of starting a container.
 4. **Exercise the full protocol**, CRUD verbs and non-CRUD alike — `add_many`/`get`/`delete` AND the store's own verbs (`search`, `delete_by_<field>`, range/scan). A `search` test asserts ordering (nearest-first / score-ordered), not just membership.
 5. **Assert the entity↔record mapping round-trips.** What was written comes back as the same entity (ids, payload fields, and — when the read path hydrates it — the vector). A returned scored pair asserts both the entity and that the score is a real `float`, not a placeholder.
-6. **Assert the SDK-error → domain-exception translation end-to-end.** This is the load-bearing contract (the client-store analogue of the relational `context["constraint"]` assertion): point the repository at an unreachable/closed client, or trigger a store rejection, and assert the boundary raises the domain exception the adapter promises — `UpstreamError` for a network / store failure, `NotFoundError` for an absent record — never the raw SDK exception. These are the manifest-declared domain exceptions `infra-store-repository` translates into at its boundary (shown here as placeholders); assert whichever ones that adapter actually raises, not a frozen literal. Assert the `context` keys the adapter promises.
+6. **Assert the SDK-error → domain-exception translation end-to-end.** This is the load-bearing contract (the client-store analogue of the relational `context["constraint"]` assertion): point the repository at an unreachable/closed client, or trigger a store rejection, and assert the boundary raises the domain exception the adapter promises — `UpstreamError` for a network / store failure, `NotFoundError` for an absent record — never the raw SDK exception. These are the domain exceptions `infra-store-repository` translates into at its boundary (shown here as placeholders); assert whichever ones that adapter actually raises, not a frozen literal. Assert the `context` keys the adapter promises.
 7. **Fixed test values are fine.** Namespace isolation gives each test an empty store at start; no unique-suffix natural keys needed (same as the relational contract's rollback guarantee).
 8. **Small test vectors.** Use a tiny dimension (e.g. 3) created on the per-test collection; the production embedding dimension is a settings concern, not the contract's.
 9. **No FastAPI, no `httpx`, no DI container.** Import the repository class, construct it with the real client + a settings object scoped to the per-test namespace, call methods, assert. The HTTP surface is `test-restapi-endpoint`.
@@ -159,7 +161,7 @@ async def test_search_against_unreachable_store_raises_upstream_error() -> None:
 
 ## Hard stops
 
-- The repository is on the relational (`uses_bootstrap`) store → stop, use `test-repository-contract` (`sf` + rollback), not this skill.
+- The repository is on a relational store → stop, use `test-repository-contract` (`sf` + rollback), not this skill.
 - Spec asks to use `sf` / transaction rollback for a client store → stop, there is no nested transaction; isolate by per-test namespace + teardown.
 - Spec asks to mock the store SDK or assert against a fake → stop, this layer drives the real backend; the fake belongs to `test-fake-repository` at the handler-unit layer.
 - Spec asserts on `ConflictError` + `context["constraint"]` → stop, that is the relational `IntegrityError` contract; a client store asserts the domain exceptions its adapter translates SDK errors into (`UpstreamError` / `NotFoundError`) instead.

@@ -1,7 +1,8 @@
 ---
 name: test-infra-capability-adapter
-description: Apply when adding or modifying an integration or unit test for one infrastructure capability adapter (the class produced by `infra-capability-adapter`). Produces one test file that drives the real adapter against the real backend — a containerized service (MinIO / S3, Postgres, Redis) for IO-bearing adapters, `respx` over real `httpx` for HTTP gateway adapters, or stdlib + real crypto for pure-CPU verifiers — and asserts the SDK-exception-to-domain-exception translation map round-trip. Does not own the rollback / container fixtures (use `test-integration-isolation`), the adapter being tested (use `infra-capability-adapter`), the protocol (use `domain-capability-protocol`), or any unit test that consumes a fake instead of the real adapter (use `test-fake-repository` / `test-application-handler`).
-
+description: The house form for one capability adapter's test in three flavours — a containerized backend for IO-bearing adapters, `respx` over real `httpx` for HTTP gateways, stdlib plus real crypto for pure-CPU verifiers — each asserting the SDK-exception to domain-exception map round-trip.
+when_to_use: Writing or changing the test for an infrastructure capability adapter.
+paths: tests/**
 ---
 
 # Test — Infrastructure Capability Adapter

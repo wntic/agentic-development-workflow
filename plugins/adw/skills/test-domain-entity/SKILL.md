@@ -1,6 +1,8 @@
 ---
 name: test-domain-entity
-description: Apply when adding or modifying a unit test for one domain entity. Produces one test file at `tests/unit/domain/<subdomain>/test_<entity>_entity.py` with the identity-equality block (entity equality is by id only; `hash` agrees with `eq`), a module-level `_make_<entity>(**overrides)` builder for many-field entities, and one `test_*` function per `__post_init__` invariant using the `with pytest.raises(ValidationError) as exc: assert exc.value.context["field"] == "<field>"` pattern. Stdlib + `pytest` + `<root>.domain.*` only — no fixtures, no mocks, no fakes, no IO. Does not produce value-object tests (use `test-domain-value-object`), enum tests (use `test-domain-enum`), service tests (use `test-domain-service`), or any integration test (use `test-restapi-endpoint` / `test-repository-contract`).
+description: The house form for one domain entity's unit test — the identity-equality block, a module-level `_make_<entity>(**overrides)` builder, and one `test_*` per `__post_init__` invariant asserting `exc.value.context["field"]`. Stdlib plus pytest plus the domain, nothing else.
+when_to_use: Writing or changing the unit test for a domain entity.
+paths: tests/**
 ---
 
 # Test — Domain Entity
@@ -57,7 +59,7 @@ def test_name_must_be_non_empty() -> None:
     assert exc.value.context["field"] == "name"
 ```
 
-The builder spreads **only the entity's real declared fields** (`id` + its domain fields). Two things it must NOT carry: `created_at`/`updated_at` (audit timestamps are a DB-managed table convention, never entity fields — the validator forbids them as reserved names, so constructing `Foo(created_at=...)` fails), and any `import datetime` that exists only to feed them. `datetime` enters this file **only** if a specific entity genuinely declares a datetime domain field. If the entity has a computed property/method, add one `test_*` per Rule 7 (an entity without one needs no such test).
+The builder spreads **only the entity's real declared fields** (`id` + its domain fields). Two things it must NOT carry: `created_at`/`updated_at` (audit timestamps are a DB-managed table convention, never entity fields, so constructing `Foo(created_at=...)` fails), and any `import datetime` that exists only to feed them. `datetime` enters this file **only** if a specific entity genuinely declares a datetime domain field. If the entity has a computed property/method, add one `test_*` per Rule 7 (an entity without one needs no such test).
 
 ### Few-field entity (skip the builder)
 
@@ -104,4 +106,4 @@ def test_name_must_be_non_empty() -> None:
 - Spec asks to test `dataclass`-given equality / hash / immutability → stop, Python's data model already guarantees it; assert on `__post_init__` and methods only.
 - Spec re-implements the invariant in the test ("compute expected slug from name, then assert") → stop, assert literal values.
 - Spec asserts on log output / `caplog` → stop, entities don't log.
-- Spec puts `created_at` / `updated_at` in the builder or treats them as entity fields → stop, audit timestamps are a DB-managed table convention the validator forbids on an entity; the builder spreads only the entity's real domain fields.
+- Asked to put `created_at` / `updated_at` in the builder, or to treat them as entity fields → stop, audit timestamps are a DB-managed table convention and never live on an entity; the builder spreads only the entity's real domain fields.

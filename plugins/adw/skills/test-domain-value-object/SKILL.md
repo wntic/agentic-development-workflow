@@ -1,6 +1,8 @@
 ---
 name: test-domain-value-object
-description: Apply when adding or modifying a unit test for one domain value object that has a custom `__post_init__` or custom `__eq__`. Produces one test file at `tests/unit/domain/<subdomain>/test_<vo_snake>.py` covering the canonical-equality / normalization rule and one `test_*` per `__post_init__` invariant using `with pytest.raises(ValidationError) as exc: assert exc.value.context["field"] == "<field>"`. Skip the test file entirely when the VO is a plain `@dataclass(frozen=True)` with no `__post_init__` and no custom equality — frozen-dataclass equality is given by Python and needs no test. Does not produce entity tests (use `test-domain-entity`), enum tests (use `test-domain-enum`), service tests (use `test-domain-service`), or integration tests.
+description: The house form for one value object's unit test — canonical-equality and one `test_*` per `__post_init__` invariant. Skip the file entirely when the VO is a plain frozen dataclass with no `__post_init__` and no custom equality: Python already guarantees that.
+when_to_use: Writing or changing the unit test for a domain value object.
+paths: tests/**
 ---
 
 # Test — Domain Value Object

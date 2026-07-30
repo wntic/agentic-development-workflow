@@ -1,6 +1,8 @@
 ---
 name: test-restapi-endpoint
-description: Apply when adding or modifying an integration test for one REST endpoint. Produces one self-contained test file under `tests/integration/api/<resource>/test_<verb>_<noun>.py` that drives the real FastAPI app over ASGI against the rolled-back database from `test-integration-isolation`. Consumes `real_app` (always) and, per the resource's features, `authed_client` (auth apps), `sf` (relational apps), and `s3_prefix` (blob-store apps); declares any per-resource fixtures it needs in the sibling `conftest.py`. Validates 2xx response bodies through the Pydantic response schema. Does not own the rollback fixture (use `test-integration-isolation`), the auth-client factory (use `test-integration-authed-client`), the cross-cutting "every route returns 401 unauth" / "OpenAPI codes match `error_responses(...)`" tests (use `test-discovery-invariants`), the repository contract (use `test-repository-contract`), or any unit test.
+description: The house form for one endpoint's integration test — drives the real FastAPI app over ASGI against the rolled-back database, validates 2xx bodies through the Pydantic response schema, and keeps per-resource fixtures in the sibling `conftest.py`.
+when_to_use: Writing or changing the integration test for a REST endpoint.
+paths: tests/**
 ---
 
 # Test — REST API Endpoint
@@ -25,7 +27,7 @@ tests/integration/api/<resource>/
 └── test_<verb>_<noun>.py                        # one file per endpoint
 ```
 
-**The templates below assume an authenticated, role-gated, multi-tenant app** — `authed_client`, `Role.<MEMBER>`, and the `org_id` / cross-org examples are that app's model, not universal. Auth is manifest-declared (`restapi-auth-dependency`). For a **public route, or an app that declares no auth**, there is no `authed_client`, no `Role`, no `domain.auth` import — drive the route with a plain ASGI client (template below). A tenancy claim is passed to `authed_client` as a keyword arg whose name matches the app's JWT claim (e.g. `organization_id=...`); there is no built-in `org_id` parameter.
+**The templates below assume an authenticated, role-gated, multi-tenant app** — `authed_client`, `Role.<MEMBER>`, and the `org_id` / cross-org examples are that app's model, not universal. Whether an app has auth follows from its routes (`restapi-auth-dependency`). For a **public route, or an app with no auth**, there is no `authed_client`, no `Role`, no `domain.auth` import — drive the route with a plain ASGI client (template below). A tenancy claim is passed to `authed_client` as a keyword arg whose name matches the app's JWT claim (e.g. `organization_id=...`); there is no built-in `org_id` parameter.
 
 ### `test_<verb>_<noun>.py` — public route (app declares no auth)
 
@@ -124,7 +126,7 @@ async def test_get_foo_in_other_org_returns_404(authed_client, foo_in_org):
 
 ### Per-resource `conftest.py`
 
-The `make_foo` factory below seeds via a raw SQL `INSERT` through `sf` — that is the **relational-store** variant, valid when the resource is backed by a relational (`uses_bootstrap`) store. A resource backed by a client-style store (qdrant / redis / …) has no `sf` and no SQL table: seed it either by **POSTing through the API** (drive the create endpoint, then test against the result) or via the **store's own client** in the fixture. Pick the path from the resource's datastore kind; don't reach for `INSERT INTO` when there is no SQL table.
+The `make_foo` factory below seeds via a raw SQL `INSERT` through `sf` — that is the **relational-store** variant, valid when the resource is backed by a relational store. A resource backed by a client-style store (qdrant / redis / …) has no `sf` and no SQL table: seed it either by **POSTing through the API** (drive the create endpoint, then test against the result) or via the **store's own client** in the fixture. Pick the path from the resource's datastore kind; don't reach for `INSERT INTO` when there is no SQL table.
 
 ```python
 import uuid

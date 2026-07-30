@@ -1,6 +1,8 @@
 ---
 name: test-application-handler
-description: Apply when adding or modifying a unit test for an application command or query handler. Produces one self-contained test file under `tests/unit/application/test_<verb>_<noun>_handler.py` using AAA structure, an in-memory fake from `tests/unit/fakes/`, the `_CALLER` module-level UUID, and optional inline `_RaiseXxxRepo` subclasses for one-off failure injection (including the compensating-transaction "DB-fails-after-upload" path). No mocks, no fixtures, no real DB, no HTTP. Each test runs in milliseconds. Pairs with `application-command`, `application-query`, and `pattern-compensating-tx`. Defers fake creation to `test-fake-repository`; end-to-end coverage to `test-restapi-endpoint`.
+description: The house form for one command or query handler's unit test — AAA structure, an in-memory fake from `tests/unit/fakes/`, a module-level `_CALLER` UUID, and inline `_RaiseXxxRepo` subclasses for one-off failure injection. No mocks, no fixtures, no real database, no HTTP.
+when_to_use: Writing or changing the unit test for an application command or query handler.
+paths: tests/**
 ---
 
 # Test — Application Handler (unit)

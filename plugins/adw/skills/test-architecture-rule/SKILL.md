@@ -1,6 +1,8 @@
 ---
 name: test-architecture-rule
-description: Apply when extending `tests/unit/test_architecture.py` with a new grep-firewall rule — a "thou shalt not import X in layer Y" invariant the codebase needs enforced automatically. Produces one new `def test_no_<thing>` (or `test_<layer>_has_no_<thing>`) function using the standard `_grep(pattern, *paths)` shape, with an optional in-test allow-list for legitimate exceptions. Does not produce runtime tests (use `test-domain-entity` / `test-domain-value-object` / `test-domain-enum` / `test-domain-service` / `test-repository-contract` / `test-restapi-endpoint`), type-correctness rules (use `mypy` / `pyright`), or style rules (use `ruff`).
+description: The house form for one grep-firewall rule in `tests/unit/test_architecture.py` — a `def test_no_<thing>` using the standard `_grep(pattern, *paths)` shape, with an in-test allow-list for legitimate exceptions.
+when_to_use: Adding a static "layer Y must not import X" invariant to the architecture test.
+paths: tests/**
 ---
 
 # Test — Architectural Firewall Rule

@@ -1,6 +1,8 @@
 ---
 name: test-domain-service
-description: Apply when adding or modifying a unit test for one domain service — either an orchestrator that takes injected protocols (uniqueness check, existence guard, signing capability) or a pure-logic service with no injected dependencies (canonicalizer, validator). Produces one test file at `tests/unit/domain/<subdomain>/test_<service_snake>_service.py` (orchestrator) or `tests/unit/domain/<subdomain>/test_<service_snake>.py` (pure-logic). Orchestrator tests inject a minimal inline class implementing only the protocol methods the service actually calls (not a `Fake*Repository`); pure-logic tests construct the service once at module scope and assert against literal expected outputs plus a `test_idempotent` for canonicalizers. Does not produce entity tests (use `test-domain-entity`), value-object tests (use `test-domain-value-object`), enum tests (use `test-domain-enum`), or integration tests.
+description: The house form for one domain service's unit test — the orchestrator flavour injects a minimal inline class implementing only the protocol methods actually called, the pure-logic flavour constructs once at module scope and requires `test_idempotent` for canonicalizers.
+when_to_use: Writing or changing the unit test for a domain service.
+paths: tests/**
 ---
 
 # Test — Domain Service

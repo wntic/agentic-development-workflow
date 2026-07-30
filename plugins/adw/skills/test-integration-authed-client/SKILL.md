@@ -1,17 +1,19 @@
 ---
 name: test-integration-authed-client
-description: Apply once per project to install the authenticated HTTP client factory the integration suite uses. Produces `tests/integration/api/conftest.py` with the `authed_client` fixture (an async-context-manager factory minting fresh JWTs and wrapping `httpx.AsyncClient` over `ASGITransport(real_app)`), the supporting `rsa_keypair` + `jwt_settings` session fixtures, and the `tests/helpers/jwt.py` `sign_token(...)` helper. After this skill lands, every integration test that needs an authenticated HTTP call uses `async with authed_client(role=...) as client:` (app-specific claims passed as keyword args) — no raw `AsyncClient` construction, no token minting at the test site, no per-resource JWT helpers. Does not produce the rollback fixture (use `test-integration-isolation`), per-resource row fixtures (those live in the sibling `<resource>/conftest.py`), or any test file (use `test-restapi-endpoint`).
+description: The one-shot authenticated HTTP client for the integration suite — `authed_client`, an async-context-manager factory minting fresh JWTs over `ASGITransport(real_app)`, with the `rsa_keypair` and `jwt_settings` session fixtures and the `sign_token(...)` helper. After it lands, no test mints a token at its own call site.
+when_to_use: Laying the authenticated integration client for a project that has auth, or changing the JWT fixtures.
+paths: tests/**
 ---
 
 # Test — Integration Authed Client
 
 One-shot per project. Owns the JWT-minting `authed_client` factory and the keys it depends on. Every integration test that needs an authenticated HTTP call consumes this fixture; no other place in the test tree may construct `AsyncClient(transport=ASGITransport(...))` directly for an authenticated request.
 
-**Applies only to an app that declares auth.** This is the auth test-bootstrap — the same trigger that pulls `cryptography` into the dependency manifest (`conventions` block D). An auth-less app (every endpoint anonymous) has no authenticated client to mint, so it skips this skill and the auth fixtures it owns — `authed_client`, `rsa_keypair`, `jwt_settings`. It does **not** skip `tests/integration/api/conftest.py` as a file: that module is the api-integration suite's shared-fixture container (the standard pytest convention for fixtures visible to every test under `tests/integration/api/`), and auth is merely its current sole occupant. An auth-less app simply has none of these auth fixtures in that conftest (and, until something else populates it, no reason to create the file at all) — the skip is of the auth fixtures, not of the shared container per se.
+**Applies only to an app that has auth.** This is the auth test-bootstrap — the same condition that pulls `cryptography` into the project's dev dependencies (`conventions` block D). An auth-less app (every endpoint anonymous) has no authenticated client to mint, so it skips this skill and the auth fixtures it owns — `authed_client`, `rsa_keypair`, `jwt_settings`. It does **not** skip `tests/integration/api/conftest.py` as a file: that module is the api-integration suite's shared-fixture container (the standard pytest convention for fixtures visible to every test under `tests/integration/api/`), and auth is merely its current sole occupant. An auth-less app simply has none of these auth fixtures in that conftest (and, until something else populates it, no reason to create the file at all) — the skip is of the auth fixtures, not of the shared container per se.
 
 ## When to use vs. neighbours
 
-- First-time scaffold of `tests/integration/api/conftest.py` → this skill.
+- Laying `tests/integration/api/conftest.py` for the first time → this skill.
 - The rollback fixture, `sf`, `real_app` (DI override) → `test-integration-isolation` (one-shot, runs first).
 - The cross-cutting "every protected route returns 401 unauth" / OpenAPI invariants → `test-discovery-invariants` (consumes `real_app` directly, not `authed_client`).
 - A per-endpoint integration test → `test-restapi-endpoint` (consumes `authed_client`).

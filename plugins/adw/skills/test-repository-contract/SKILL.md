@@ -1,6 +1,8 @@
 ---
 name: test-repository-contract
-description: Apply when adding or modifying an integration test for a single SQLAlchemy repository class. Produces one test file under `tests/integration/postgres/test_<aggregate>_repository.py` that drives the real repository against a real Postgres via the `sf` fixture from `test-integration-isolation`, exercising CRUD round-trip, every unique constraint on insert AND update, every cascade, every `get_by_<field>`, and the `updated_at` advance. Asserts `context["constraint"]` on `ConflictError` to pin the `IntegrityError`-to-domain-exception translator's constraint-name map. Does not own the rollback fixture (use `test-integration-isolation`), the repository being tested (use `infra-sqlalchemy-repository`), the schema (use `infra-sqlalchemy-table`), the protocol (use `domain-repository-protocol`), Alembic migration regression tests (separate flat files under `tests/integration/postgres/`), or any HTTP-layer test (use `test-restapi-endpoint`).
+description: The house form for one relational repository's integration test — drives the real class against a real Postgres through the `sf` fixture: CRUD round-trip, every unique constraint on insert AND update, cascades, every `get_by_<field>`, the `updated_at` advance, and `context["constraint"]` asserted to pin the `IntegrityError` translator.
+when_to_use: Writing or changing the contract test for a repository adapter on a relational store.
+paths: tests/**
 ---
 
 # Test — Repository Contract
@@ -9,7 +11,7 @@ Produces one integration-test file per repository. Catches what unit-level cover
 
 ## When to use vs. neighbours
 
-- A new or modified repository adapter under `infrastructure/postgres/repositories/` (a relational `uses_bootstrap` store) → this skill.
+- A new or modified repository adapter under `infrastructure/postgres/repositories/` (a relational store) → this skill.
 - A repository on a client-style store (qdrant/redis/…, `infra-store-repository`) → `test-store-repository-contract` (namespace isolation, not `sf`/rollback).
 - Schema-only checks (an index exists, a migration carries data correctly) → separate flat files under `tests/integration/postgres/` (`test_indexes.py`, `test_<NNNN>_migration.py`) that use `db_settings` and `run_alembic`, not `sf`.
 - HTTP-layer integration (route, auth, OpenAPI) → `test-restapi-endpoint`.
