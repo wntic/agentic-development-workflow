@@ -47,12 +47,20 @@
 Слияния идут по одному на коммит: сначала `git mv` крупнейшего источника (чтобы `git log --follow`
 не порвался), затем слитое тело, затем `git rm` остальных.
 
-Сделано: `domain-model` (4→1), `domain-ports` (2→1), `application` (2→1), `patterns` (2→1).
-Скиллов в каталоге: **42**, цель 30.
+Сделано 6 из 13: `domain-model` (4→1), `domain-ports` (2→1), `application` (2→1), `patterns` (2→1),
+`architecture` (3→1), `python-style` (2→1). Скиллов в каталоге: **39**, цель 30.
 
-Осталось 9 слияний: `architecture` (3→1), `python-style` (2→1), `infra-persistence` (2→1),
-`infra-wiring` (2→1), `restapi-app` (2→1), `restapi-route-contracts` (2→1),
-`testing-unit-domain` (4→1), `testing-contract` (2→1), `testing-integration-setup` (2→1).
+Осталось 7 слияний, все по 2→1 кроме одного:
+
+| Цель | Из чего |
+|---|---|
+| `infra-persistence` | `infra-sqlalchemy-repository` + `infra-sqlalchemy-table` |
+| `infra-wiring` | `infra-settings` + `infra-di-provider` |
+| `restapi-app` | `restapi-app-bootstrap` + `restapi-middleware` |
+| `restapi-route-contracts` | `restapi-auth-dependency` + `restapi-error-responses` |
+| `testing-unit-domain` (4→1) | `test-domain-{entity,value-object,enum,service}` |
+| `testing-contract` | `test-repository-contract` + `test-store-repository-contract` |
+| `testing-integration-setup` | `test-integration-isolation` + `test-integration-authed-client` |
 
 **Затем два шага, и они обязательны — без них каталог несогласован:**
 
