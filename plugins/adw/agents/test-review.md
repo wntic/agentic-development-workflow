@@ -51,12 +51,43 @@ right and the wrong version (status checked but body ignored, a call counted but
 truthiness check where the value matters) are named here even when the suite is red for the right
 reasons today.
 
-## The separate check: what the diff contains
+## The separate check: no production code before the baseline
 
-Read the diff of the change so far. It must contain only `tests/**` and `pyproject.toml`. Production
-code before the baseline means the change has already been implemented by the test author, and the red
-phase proves nothing about it. Name every path outside those two, and let the human decide — you do
-not delete anything and you do not fix it.
+One thing is checked here, and it is not a list of permitted paths: **before the baseline, this
+change must not have created or modified production code.** If production code is already there, the
+red phase proves nothing — the tests were written against an implementation that already exists, and
+a suite going red around code that is already present says nothing about code still to be written.
+That is a FAIL, and it is the only thing in this check that is a FAIL on its own.
+
+**What is legitimately here.** Do not report these as breaches; each is a step that had to happen
+before you were dispatched:
+
+- the change's delta — `spec.md` and `criteria.md` under `specs/changes/NNN-*/`, committed when the
+  change was specified;
+- the change's dependency declaration: the project's dependency manifest **and the lock file beside
+  it**. A lock file moves whenever a dependency is declared, so its absence would be the surprise;
+- the tests themselves;
+- on the project's **very first** change, the package root — the minimum layout without which the
+  toolchain refuses to run at all. It is not the change's implementation, and the rest of the
+  substrate is not here yet.
+
+**How to look, and why a diff alone is not enough.** At this moment the tests are **not committed, by
+design**: the cycle commits them in one recognisable baseline commit after you have given your
+verdict, so that every later diff has a single commit to start from. A diff of committed work
+therefore does not show the tests at all — read only that and you will see the delta, the manifest
+and the lock file, conclude "no production code", and have examined everything except the work you
+were dispatched to judge.
+
+So take two views and say you took both: what this change has **committed** so far, against the
+branch it started from, and what stands **in the working tree** uncommitted, tracked and untracked
+alike. (A name-only diff against the base branch plus a short status of the tree is one way to get
+both; what matters is the two views, not those two commands.)
+
+**What to do with what you find.** Name every path, and for each say which of the above it is, or
+that it is none of them. You delete nothing, you revert nothing, you fix nothing: from here,
+something unexpected but harmless and something that invalidates the phase look alike, and that
+ruling is the human's. Production code is the exception that needs no ruling — name the files and
+FAIL. All of this goes on the `DIFF SO FAR` line of your verdict, with the paths spelled out.
 
 ## What you cannot do, and what catches it
 
@@ -81,7 +112,10 @@ Q3 CRITERIA COVERED: AC-n → <test name> | MISSING
                      live-application criterion: AC-n → <test name> | MISSING
 Q4 WOULD CATCH A WRONG IMPLEMENTATION: AC-n — wrong version: <what someone would plausibly write>
                                        → caught by <test name> | NOT CAUGHT
-DIFF SO FAR: only tests/** and pyproject.toml | also: <path>, <path>
+DIFF SO FAR: no production code | PRODUCTION CODE — FAIL: <path>, <path>
+             looked at: <what this change committed, against what> + <the working tree, tracked and untracked>
+             also present: <path> → delta | dependency manifest | lock file | tests | package root
+                           <path> → UNEXPECTED, for the human to rule on
 REQUIRED FIXES: 1. <concrete change to a named test>
                 2. …
 ```
