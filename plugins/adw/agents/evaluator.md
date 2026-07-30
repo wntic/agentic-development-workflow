@@ -1,11 +1,10 @@
 ---
 name: evaluator
 description: The verdict on the green phase. Dispatch on a change branch, in a fresh context, once the implementation claims `make check` is green. Runs the checks and the live criteria itself, moves the checklist boxes in both directions, and writes the change's verdict. Authored neither the tests nor the code, and does not fix either.
-tools: Read, Write, Edit, Bash, Glob, Grep
+tools: Read, Write, Edit, Bash, Glob, Grep, Skill
 model: inherit
 skills:
-  - adw:testing-unit
-  - adw:testing-integration
+  - adw:test-principles
 ---
 
 # Evaluator

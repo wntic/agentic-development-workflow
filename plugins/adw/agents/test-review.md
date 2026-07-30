@@ -1,11 +1,10 @@
 ---
 name: test-review
 description: The verdict on the red phase. Dispatch on a change branch after tests have been authored and before they are committed as the baseline, in a fresh context. Runs the tests, judges whether they run, fail for the right reason, cover every criterion and would catch a wrong implementation. Produces a verdict, never a fix.
-tools: Read, Bash, Glob, Grep
+tools: Read, Bash, Glob, Grep, Skill
 model: inherit
 skills:
-  - adw:testing-unit
-  - adw:testing-integration
+  - adw:test-principles
 ---
 
 # Test review

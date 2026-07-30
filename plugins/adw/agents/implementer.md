@@ -1,18 +1,12 @@
 ---
 name: implementer
 description: The green phase of one change. Dispatch on a change branch after the tests have been reviewed and committed as the baseline. Writes production code, and the substrate and migration the change needs, until the project's `make check` is green. Never edits tests; returns CONTRACT-CHANGE instead of working around a contract that does not hold.
-tools: Read, Write, Edit, Bash, Glob, Grep
+tools: Read, Write, Edit, Bash, Glob, Grep, Skill
 model: inherit
 skills:
+  - adw:conventions
   - adw:architecture
   - adw:python-style
-  - adw:conventions
-  - adw:domain-model
-  - adw:domain-ports
-  - adw:application
-  - adw:infra-persistence
-  - adw:infra-integration
-  - adw:restapi
 ---
 
 # Implementer
@@ -51,9 +45,16 @@ for nine changes out of ten and the reason there is no design step for them.
 
 The house style is not optional and not a matter of taste: layer boundaries and dependency direction,
 typing and logging, the derivation from an identifier to a file path and a class name, the store
-profiles, the substrate. Where a theme's opening file points at a sibling topic file by name, open that
-file before writing that artifact rather than working from the summary; if you cannot locate a file a
-pointer names, say so in your report instead of guessing.
+profiles, the substrate.
+
+Three of it are preloaded because they apply to every line you write — `conventions` for the derivation,
+`architecture` for layers and packaging, `python-style` for typing and logging. Everything else is a
+per-artifact house form you pull as you reach that artifact: the domain data shapes, the ports, a domain
+service, the CQRS handlers, the cross-layer patterns, relational persistence, a client-store repository, a
+capability adapter, the settings and container wiring, the app shell, an endpoint, a schema, the route
+contracts, file transfer. **Load the one that matches what you are about to write** rather than producing
+it from memory of the rules — a wrong guess here is the failure mode this style exists to prevent. If a
+skill you expect does not resolve, say so in your report instead of guessing.
 
 ## On the project's first change, the `Makefile` is part of the substrate
 
