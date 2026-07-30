@@ -24,39 +24,39 @@
 
 | Старое имя | Адрес сегодня |
 |---|---|
-| `general-python-package` | `architecture`, раздел про механику пакетов |
-| `general-layered-architecture` | `architecture`, раздел про четыре слоя |
-| `general-imports-conventions` | `architecture`, раздел про импорты |
-| `general-typing-conventions` | `python-style`, раздел про типизацию |
-| `general-logging` | `python-style`, раздел про логирование |
-| `domain-entity`, `domain-value-object`, `domain-enum`, `domain-filter`, `domain-exception(s)` | `domain-model` (монолит, разделы по артефактам) |
-| `domain-repository-protocol`, `domain-capability-protocol`, `domain-protocols` | `domain-ports` |
-| `application-command` | `application`, `command.md` |
-| `application-query` | `application`, `query.md` |
-| `pattern-compensating-tx` | `application`, `compensating-tx.md` |
-| `pattern-unit-of-work` | `application`, `unit-of-work.md` |
-| `infra-sqlalchemy-repository` | `infra-persistence`, `repository.md` |
-| `infra-sqlalchemy-table` | `infra-persistence`, `table.md` |
-| `infra-store-repository` | `infra-persistence`, `store-repository.md` |
-| `infra-capability-adapter` | `infra-integration`, `adapter.md` |
-| `infra-di-provider` | `infra-integration`, `container.md` |
-| `infra-settings` | `infra-integration`, `settings.md` |
-| `restapi-endpoint` | `restapi`, `endpoint.md` |
-| `restapi-schema` | `restapi`, `schema.md` |
-| `restapi-auth-dependency` | `restapi`, `auth-dependency.md` |
-| `restapi-error-responses` | `restapi`, `error-responses.md` |
-| `restapi-app-bootstrap` | `restapi`, `bootstrap.md` |
-| `restapi-file-transfer` | `restapi`, `file-transfer.md` |
-| `test-domain-entity` | `testing-unit`, `entity.md` |
-| `test-domain-value-object` | `testing-unit`, `value-object.md` |
-| `test-domain-enum` | `testing-unit`, `enum.md` |
-| `test-application-handler` | `testing-unit`, `handler.md` |
-| `test-fake-repository` | `testing-unit`, `fake.md` |
-| `test-architecture-rule` | `testing-unit`, `architecture-rule.md` |
-| `test-restapi-endpoint` | `testing-integration`, `endpoint.md` |
-| `test-repository-contract` | `testing-integration`, `repository-contract.md` |
-| `test-store-repository-contract` | `testing-integration`, `store-repository-contract.md` |
-| `test-discovery-invariants` | `testing-integration`, `discovery.md` |
+| `general-python-package` | `architecture` §Python Package Structure |
+| `general-layered-architecture` | `architecture` §Layered Architecture |
+| `general-imports-conventions` | `architecture` §Imports Conventions |
+| `general-typing-conventions` | `python-style` §Typing Conventions |
+| `general-logging` | `python-style` §Logging |
+| `domain-entity`, `domain-value-object`, `domain-enum`, `domain-filter`, `domain-exception(s)` | `domain-model` §Domain Entity / §Domain Value Object / §Domain Enum / §Domain Filter Record / §Domain Exception |
+| `domain-repository-protocol`, `domain-capability-protocol`, `domain-protocols` | `domain-ports` §Domain Repository Protocol / §Domain Capability Protocol |
+| `application-command` | `application` `command.md` |
+| `application-query` | `application` `query.md` |
+| `pattern-compensating-tx` | `application` `compensating-tx.md` |
+| `pattern-unit-of-work` | `application` `unit-of-work.md` |
+| `infra-sqlalchemy-repository` | `infra-persistence` `repository.md` |
+| `infra-sqlalchemy-table` | `infra-persistence` `table.md` |
+| `infra-store-repository` | `infra-persistence` `store-repository.md` |
+| `infra-capability-adapter` | `infra-integration` `adapter.md` |
+| `infra-di-provider` | `infra-integration` `container.md` |
+| `infra-settings` | `infra-integration` `settings.md` |
+| `restapi-endpoint` | `restapi` `endpoint.md` |
+| `restapi-schema` | `restapi` `schema.md` |
+| `restapi-auth-dependency` | `restapi` `auth-dependency.md` |
+| `restapi-error-responses` | `restapi` `error-responses.md` |
+| `restapi-app-bootstrap` | `restapi` `bootstrap.md` |
+| `restapi-file-transfer` | `restapi` `file-transfer.md` |
+| `test-domain-entity` | `testing-unit` `entity.md` |
+| `test-domain-value-object` | `testing-unit` `value-object.md` |
+| `test-domain-enum` | `testing-unit` `enum.md` |
+| `test-application-handler` | `testing-unit` `handler.md` |
+| `test-fake-repository` | `testing-unit` `fake.md` |
+| `test-architecture-rule` | `testing-unit` `architecture-rule.md` |
+| `test-restapi-endpoint` | `testing-integration` `endpoint.md` |
+| `test-repository-contract` | `testing-integration` `repository-contract.md` |
+| `test-store-repository-contract` | `testing-integration` `store-repository-contract.md` |
+| `test-discovery-invariants` | `testing-integration` `discovery.md` |
 
 **Два имени решаются контекстом, а не похожестью.** `domain-service` — это и раздел `domain-ports`
 (сам сервис), и `testing-unit/domain-service.md` (тест на него); `test-domain-service` — только
@@ -78,7 +78,7 @@
 |---|---|
 | раздел этого же файла | `→ §<Заголовок> ниже` (или `выше`) |
 | монолитная тема (`architecture`, `python-style`, `conventions`, `domain-model`, `domain-ports`) | ``→ `architecture` §<Заголовок>`` |
-| топик-файл чужой темы | ``→ `restapi`, `endpoint.md`` ` |
+| топик-файл чужой темы | ``→ `restapi` `endpoint.md`` ` |
 | роутер → свой топик | ``→ **read `endpoint.md` now**`` — **не меняется** |
 
 Одно правило: **указатель всегда квалифицирован темой, кроме случая «этот же файл».**
