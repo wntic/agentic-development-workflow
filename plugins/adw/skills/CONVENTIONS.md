@@ -4,56 +4,94 @@ Shared vocabulary used by every skill in this directory. When a skill needs a wo
 
 ## How to choose a skill
 
-Each skill is **theme-narrow**: it covers one coherent theme an agent can pick by its `description` / `when_to_use` frontmatter (`domain-model`, `restapi`, `testing-unit`, …). A theme may span several closely-related artifacts; a large theme carries them as sibling `<topic>.md` files that its `SKILL.md` routes to, read on demand (see [Skill format](#skill-format)). A single feature usually invokes several skills; which ones auto-load is decided by their `description` / `when_to_use`, not by this index.
+**Producer** skills are **component-narrow** — each produces exactly one kind of artifact (one entity file, one repository module, one endpoint, …). Pick the producer whose `description` line matches what the spec asks the agent to produce. A single feature usually invokes several skills in sequence; sequencing is the runner's concern, not the skill's.
 
-If a skill's hard stops fire, it means the task asked for the wrong artifact — switch to the right skill rather than stretching the current one.
+Producers are not the only category. **Companion / cross-cutting `pattern-` skills** (which span layers or wrap a producer's work), **bootstrap** skills (run once, triggered by the working tree), and **reference** skills (always consulted, never dispatched) are the deliberate exceptions to component-narrowness — see the full taxonomy in the `conventions` reference skill (registry B). A `pattern-` skill claims no single layer precisely because it touches several.
 
-One skill is a **reference** skill (consulted, never producing a file): `conventions`, the mechanical derivation registry. Toolchain commands and the definition of "green" are stated in no skill at all — they live in the project's own toolchain config, which `conventions` cites.
+If a skill's hard-stops fire, it means the spec asked for the wrong artifact — switch to the right skill rather than stretching the current one.
 
 ## Index
 
-### Reference
-
-- `conventions` — the mechanical derivation registry: identifier → file path / class name, store profiles, the stack substrate (names, no versions), the relational/Alembic bootstrap, and multi-context resolution. Cites the project's toolchain config; never restates a command.
-
 ### Meta
 
-- `meta-skill-author` — produces one new `skills/<name>/SKILL.md` in the canonical format (`name` + `description` + `when_to_use` frontmatter, four-section body). Use when extending this catalog.
-- `meta-uc-author` — produces one new `specs/use-cases/UC-NN-<slug>.md` in the narrative BA-dictated style. Use when hand-authoring a new use case.
+- `meta-skill-author` — produces one new `.claude/skills/<name>/SKILL.md` in the canonical format (frontmatter, four-section body). Use when extending this catalog.
+- `meta-uc-author` — produces one new `specs/use-cases/UC-NN-<slug>.md` in the narrative BA-dictated style (title, actor, module, description, main flow(s), alternative flows, business rules, notes). Use when seeding a new use case for the agentic workflow.
 
-### Architecture & style
+### Cross-cutting (apply to every layer)
 
-- `architecture` — the four-layer split (domain / application / infrastructure / entrypoints) and allowed inward dependency direction; Python package mechanics (one class per module, `__all__`, the `from .module import *` re-export contract); and import conventions (relative vs absolute, the collapsed same-package form, importing a re-exported name from its immediate parent, never a grandparent).
-- `python-style` — cross-cutting typing (`X | None`, immutable collections in the domain, `Any` only at raw boundaries, the ban on `from __future__ import annotations`) and logging (`structlog` setup, per-layer rules, success-only events in `application/`, never log-and-re-raise).
+- `general-typing-conventions` — `X | None`, immutable collections in domain, `Any` only at raw boundaries, prohibition on `from __future__ import annotations`.
+- `general-imports-conventions` — relative vs absolute, the collapsed same-package import form, the `from .module import *` re-export contract.
+- `general-python-package` — one class per module, `__all__` placement, the subpackage `__init__.py` mechanics every component skill defers to.
+- `general-layered-architecture` — the four-layer split (domain / application / infrastructure / entrypoints), allowed dependency direction.
+- `general-logging` — `structlog` setup, per-layer logging rules, success-only events in `application/`, never-log-and-re-raise.
 
 ### Domain
 
-- `domain-model` — entities (mutable `@dataclass`, identity equality, `__post_init__` invariants), value objects (frozen, value equality, tunable-threshold variant), enums (`StrEnum`), filter records (frozen parameter bags), and the single `domain/exceptions.py` catalog.
-- `domain-ports` — repository protocols (`IFooRepository`), capability protocols (`ICan<Verb>`), and stateless domain services that orchestrate injected protocols.
+- `domain-entity` — mutable `@dataclass`, identity equality, `__post_init__` invariants.
+- `domain-value-object` — `@dataclass(frozen=True)`, value equality, optional canonical-form escape hatch.
+- `domain-enum` — `StrEnum` for closed sets of named values; optional pure-logic methods.
+- `domain-filter` — frozen dataclass for repository list/query parameter bags; `frozenset` defaults.
+- `domain-exception` — append one class to the single `domain/exceptions.py` source-of-truth file.
+- `domain-repository-protocol` — `IFooRepository` protocol module; async CRUD-shaped methods.
+- `domain-capability-protocol` — `ICan<Verb>` single-action protocol module.
+- `domain-service` — stateless orchestrator (DDD domain service) that takes injected protocols; `assert_*` / `is_*` / verb methods. Use for rules that need cross-aggregate state or a domain capability.
+- (Tunable thresholds — `max_rows`, retention days, quotas — are documented as a **variant** of `domain-value-object`, not a separate skill.)
 
 ### Application
 
-- `application` — command handlers (frozen command DTO + handler returning `UUID | None`, success-only logging), query handlers (query DTO + optional `*Result` DTO), the compensating-transaction pattern (the sanctioned try/except), and the unit-of-work pattern (atomic commit across ≥2 repositories).
+- `application-command` — frozen command DTO + handler returning `UUID | None`, success-only logging.
+- `application-query` — frozen query DTO + handler + optional `*Result` DTO.
+
+### Patterns (cross-cutting)
+
+The `pattern-` prefix marks a skill that **spans layers** (a domain port + an infra adapter + an application usage) rather than producing one layer's artifact.
+
+- `pattern-compensating-tx` — the only sanctioned `try/except` in `application/`: catch → undo → re-raise, shaping a command handler's body when an external side-effect precedes the DB write.
+- `pattern-unit-of-work` — `IUnitOfWork` protocol (domain) + SQLAlchemy implementation (infra) + the handler form that uses it (application), when ≥2 repositories must commit atomically.
+
+(How each pattern is keyed to a producer's work — and the deferred unit-of-work manifest signal — lives in the `conventions` reference skill's registry B, not here.)
 
 ### Infrastructure
 
-- `infra-persistence` — relational repositories on SQLAlchemy Core (never the ORM) with an `IntegrityError`-to-domain-exception translator, the write-once `Table` scaffold, client-style store repositories (vector/cache/document), and the implementer-owned Alembic revision discipline.
-- `infra-integration` — capability adapters wrapping SDKs (with an SDK-exception-to-domain-exception translator), `pydantic-settings` classes (env prefix stems on the product), and `dependency-injector` container wiring.
+- `infra-sqlalchemy-table` — the write-once SQLAlchemy Core `Table` scaffold (the Alembic revision is authored separately via `alembic revision`, not generated); constraint-naming convention.
+- `infra-sqlalchemy-repository` — repository adapter satisfying a domain protocol on a **relational** store; `IntegrityError`-to-domain-exception translator.
+- `infra-store-repository` — repository adapter for an aggregate on a **client-style** store (vector/cache/document: qdrant, redis, chroma, …); one vendor-agnostic skill, dispatched by store profile (`uses_bootstrap: no`). SDK-error-to-domain-exception translator at the boundary.
+- `infra-capability-adapter` — adapter satisfying a domain `ICan<Verb>` capability protocol (object storage, HTTP gateway, token verifier, renderer); SDK-exception-to-domain-exception translator at the boundary.
+- `infra-settings` — one `pydantic-settings.BaseSettings` per integration.
+- `infra-di-provider` — wires a class into `containers.py` with the right `Singleton`/`Factory` choice and declaration order.
 
-### REST API
+### REST API entrypoint
 
-- `restapi` — the one-shot app bootstrap shell, thin endpoints in routers, Pydantic request/response schemas, the auth-dependency decision (`get_current_user` vs `require_role`), route-level error advertisement, multipart upload / streaming download, and custom middleware ordering.
+- `restapi-app-bootstrap` — **one-shot per project.** Creates `main.py`, `error_handler.py`, `dependencies.py`, `schemas/errors.py`. Attaches the DI container, lifespan, CORS, max-request-size middleware, and the central `DomainError` handler. The catalog of allowed error statuses derives dynamically from `domain.exceptions.__all__` — no `domain/error_catalog.py` is created or maintained.
+- `restapi-endpoint` — one HTTP endpoint in a `restapi/routers/<resource>.py` file. Consumes the route's auth decision (from `restapi-auth-dependency`) and the error codes it advertises (via `restapi-error-responses`); does not own them.
+- `restapi-schema` — Pydantic Request/Response models for one resource.
+- `restapi-auth-dependency` — decision rule for `get_current_user` vs `require_role(Role.X)` and the `_` vs `user` binding. Owns the auth choice; `restapi-endpoint` consumes it.
+- `restapi-error-responses` — route-level `responses=error_responses(...)` advertisement and the rare middleware-code registration. Adding a `DomainError` subclass needs no registry append — the catalog is dynamic.
+- `restapi-file-transfer` — multipart upload and streaming download patterns; the single sanctioned route-body `try/except`. Specialized variant of `restapi-endpoint`.
 
 ### Tests
 
-- `testing-unit` — fast no-IO unit tests (domain, application handler with in-memory fakes, the fake-repository pattern, the seven assert-strength recipes, the `@pytest.mark.ac` marker, the grep-firewall architecture rule) plus the unit-tier constitution (pyramid, fixture-vs-builder, AAA, no-mocks, naming).
-- `testing-integration` — real-backend tests via testcontainers (repository contract, REST endpoint, discovery invariants, capability adapters) plus the integration-tier constitution (conftest hierarchy, fixture scope, reliability rules) and the Docker-absence skip rule.
+- `test-principles` — **reference skill** every other `test-*` skill consults. Documents the testing pyramid + per-layer speed targets, the conftest hierarchy (which fixtures live where), the fixture-vs-builder rule, when to parametrize, AAA structure, the no-mocks contract, naming conventions, and the reliability rules that produce local-vs-CI parity.
+- `test-integration-isolation` — **one-shot per project.** Produces `tests/integration/conftest.py` with session-scoped containers + engine, function-scoped outer transaction, `sf`, and `real_app` (with DI overrides for `session_factory`, `db_settings`, `storage_settings`, `jwt_settings`). Rollback at teardown drops everything the test wrote. Load-bearing — every integration test depends on it.
+- `test-integration-authed-client` — **one-shot per project.** Produces `tests/integration/api/conftest.py` with the `authed_client` factory plus `rsa_keypair` + `jwt_settings` session fixtures (the latter consumed by `real_app`) and the `tests/helpers/jwt.py` `sign_token(...)` helper.
+- `test-discovery-invariants` — **one-shot per project.** Five test files under `tests/integration/api/` that iterate `app.routes` and `app.openapi()` to assert global properties. Adding an endpoint never requires editing these.
+- `test-fake-repository` — pairs with `infra-sqlalchemy-repository` (and with `domain-repository-protocol` / `domain-capability-protocol`). Produces one in-memory `Fake<Aggregate>Repository` under `tests/unit/fakes/`, copying the real adapter's exception contract verbatim. No flags; one-off failures come from inline subclasses at the handler-test site.
+- `test-application-handler` — pairs with `application-command` / `application-query` / `pattern-compensating-tx`. One file per handler under `tests/unit/application/`. AAA + fakes + inline `_RaiseXxxRepo` subclasses for one-off failure injection, including the compensating-tx "DB-fails-after-upload" assertion.
+- `test-domain-entity` — pairs with `domain-entity`. Identity-equality block, `_make_<entity>(**overrides)` builder, one `test_*` per `__post_init__` invariant.
+- `test-domain-value-object` — pairs with `domain-value-object`. Canonical-equality + invariant tests; skip the file entirely when the VO has no `__post_init__` and no custom `__eq__`.
+- `test-domain-enum` — pairs with `domain-enum`. Pins every member's value, asserts unknown-value rejection, covers pure-logic methods.
+- `test-domain-service` — pairs with `domain-service`. Orchestrator flavor uses a minimal inline-class protocol stub; pure-logic flavor constructs once at module scope and requires `test_idempotent` for canonicalizers.
+- `test-repository-contract` — pairs with `infra-sqlalchemy-repository` (relational store). One file per repository under `tests/integration/postgres/`; consumes `sf`. CRUD round-trip, every UNIQUE on insert AND update with `context["constraint"]` assertions, `updated_at` advance, cascades, `get_by_*` found/not-found, pagination + sort.
+- `test-store-repository-contract` — pairs with `infra-store-repository` (client-style store: qdrant/redis/…). One file per repository under `tests/integration/<store-kind>/`; real store via testcontainers, isolated by a per-test namespace (collection/key-prefix), no transaction rollback. CRUD + non-CRUD verbs (search, delete-by-filter), entity↔record mapping round-trip, and SDK-error → `UpstreamError`/`NotFoundError` translation.
+- `test-infra-capability-adapter` — pairs with `infra-capability-adapter`. One file per adapter; three flavors — containerized (S3/MinIO/Redis under `tests/integration/<adapter>/`), `respx` over real `httpx` for HTTP gateways (also integration), pure-CPU verifier/renderer (`tests/unit/infrastructure/<adapter>/`). Asserts `context` keys on every translated `DomainError` to pin the SDK-exception map row-by-row.
+- `test-restapi-endpoint` — pairs with `restapi-endpoint`. One self-contained file per endpoint under `tests/integration/api/<resource>/`; consumes `real_app` + `authed_client`. Pydantic-validated 2xx bodies, exact counts (rollback isolation), cross-org returns 404 (not 403), per-resource fixtures live in the sibling `conftest.py`.
+- `test-architecture-rule` — adds one grep-firewall function to `tests/unit/test_architecture.py`.
 
 ## Placeholder aggregates
 
 | Role | Name | snake_case | plural | Use for |
 
-Derived names follow mechanically (the authoritative, exhaustive derivation registry — path/class/suffix, store profiles, the stack substrate — lives in the [`conventions`](conventions/SKILL.md) reference skill; these examples only anchor the shared vocabulary):
+Derived names follow mechanically (the authoritative, exhaustive derivation registry — kind→path/class/suffix, store profiles, the kind→skill map, the stack substrate — lives in the [`conventions`](conventions/SKILL.md) reference skill; these examples only anchor the shared vocabulary):
 
 - Module: `foo.py`, `bar.py`
 - Subdomain package: `domain/foos/`, `application/foos/`, `infrastructure/postgres/repositories/foo_repository.py` (infra groups by tech)
@@ -69,57 +107,22 @@ Examples use `myapp` as the project's root Python package (e.g. `from myapp.doma
 
 ## Skill format
 
-Every skill has `name` + `description` + `when_to_use` frontmatter — no other custom fields. `description` + `when_to_use` are the two fields the runtime lists for auto-invocation, so they stay ≤1536 characters combined. Only `SKILL.md` carries frontmatter, and `SKILL.md` is the only file the runtime injects when the theme triggers.
-
-An artifact's knowledge is always written as the same **four-section body**, so an agent (or reader) knows where to look:
+Every skill has the standard `name:` + `description:` frontmatter only — no custom fields. The body follows the same four-section structure so an agent (or reader) knows where to look:
 
 1. **When to use vs. neighbours** — disambiguates the skill from skills that produce adjacent artifacts.
 2. **Template(s)** — literal file content with placeholders, not prose.
 3. **Rules** — only the rules that apply when *writing this artifact*. Cross-cutting concerns (typing, imports) are referenced, not restated, except for a brief inlined slice when it's load-bearing.
 4. **Hard stops** — explicit cases where the agent must stop and switch to a different skill.
 
-Two optional helper sections (`Inlined typing / import rules`, `Package wiring`) appear only when load-bearing. A skill carries **no** orchestration section (what it returns, who invokes it) and **no** spec-input table — those layers belong to the agents/commands and the spec format, not to the skill.
-
-What varies between skills is *where* those bodies live. A theme's artifacts are its **topics**; a theme takes one of two shapes, differing only in whether a topic is a section or a file.
-
-### Shape 1 — single-topic skill
-
-One file, `<skill>/SKILL.md`: frontmatter plus the four-section body. When the theme covers a few closely-related artifacts an author reaches for together, each gets its own `## ` heading inside that one body, still four-sectioned. Examples: `conventions`, `python-style`, `domain-model`.
-
-### Shape 2 — multi-topic theme (thin router + bundled topics)
-
-The theme stays **one** skill and one auto-invocation entry; only its bodies move out of `SKILL.md` into sibling topic files the agent reads on demand.
-
-- `SKILL.md` is a **thin router**: unchanged frontmatter + a one-paragraph opening + a `## When to use vs. neighbours` section that names every topic and points at its file + any genuinely cross-topic material kept inline (e.g. a testing tier's constitution — pyramid, naming, fixture discipline — which no single topic owns; a long constitution may live in its own clearly-pointed `constitution.md`). The router may keep a short theme-level `## Hard stops` for "wrong theme → use `<other-skill>`" redirects; artifact-level hard stops stay with their topic.
-- One `<topic>.md` per artifact, sibling to `SKILL.md` (`restapi/endpoint.md`, `restapi/schema.md`, …), each carrying the **full** four-section body for that artifact plus the optional helper sections when load-bearing. The file name names the artifact, not the theme — `restapi/endpoint.md`, never `restapi/restapi-endpoint.md`.
-- A bundled topic file carries **no frontmatter**. Only `SKILL.md` is a skill; a stray `name:` / `description:` block in a topic file would advertise a phantom skill in the catalog listing.
-
-**A pointer is an instruction, not a cross-reference.** The runtime injects `SKILL.md` alone, so a bundled topic reaches the agent only if the agent opens the file. Every pointer is therefore one imperative line naming the file:
-
-```markdown
-- Writing or changing an endpoint (router function, status codes, error advertisement) → **read `endpoint.md` now**.
-- Writing a request/response schema → **read `schema.md` now**.
-```
-
-Never "see also `endpoint.md`" or "more detail in `endpoint.md`". A soft cross-reference is the one failure mode of this shape: the agent writes the artifact from the router's summary and never loads the rules.
-
-### When to split
-
-**A `SKILL.md` that would exceed ~500 lines becomes a router with bundled topic files.** Below that, stay single-topic however many artifacts the theme covers. The number is a cost line, not an aesthetic one: past ~500 lines a single artifact's own body (100–250 lines in this catalog) is a minority of what gets injected, so a reader writing one artifact pays several times over for knowledge it will not use — while below it the whole theme is cheaper to inject than a routing round-trip is to risk.
-
-Deliberately **not** a trigger: the number of artifacts. Five cohesive artifacts an author decides together (`domain-model`: entity, value object, enum, filter record, exception catalog) read as one document; splitting them would buy nothing and cost a pointer the agent can skip.
-
-Splitting a theme changes no catalog fact: same themes, same frontmatter, same index entries — only the bodies move.
-
-Three of the shape-2 rules are enforced rather than advised: `tools/test_skill_format.py` reds when a topic file opens with a frontmatter block, when a topic file is not pointed at by its own `SKILL.md`, or when a pointer names a file that does not exist. What it deliberately cannot check — a router that keeps an imperative pointer *and* re-summarises the topic underneath it — is stated in that file's docstring.
+Two optional helper sections (`Inlined typing / import rules`, `Package wiring`) appear only when load-bearing. A skill carries **no** orchestration section (what it returns, who invokes it) and **no** manifest-input table — those layers belong to the runner and the manifest schema, not to the skill.
 
 ## Out of scope (intentionally not in this catalog)
 
-- The agent roles live separately under `.claude/agents/`. Skills describe *artifacts*; agents describe *processes*.
+- The agent roles (analyst, architect, implementer) live separately under `.claude/agents/`. Skills describe *artifacts*; agents describe *processes*.
 - Process-only skills (e.g. brainstorming, retrospective notes) are not part of this catalog. If reintroduced, they belong in a separate prefix (e.g. `process-brainstorm`).
 
 ## Read models — guidance for a future skill
 
-The catalog deliberately does **not** split repositories into write-side and read-side protocols. The CQRS guarantee that matters (commands mutate, queries read) is enforced by the handler split inside `application` (command vs query); partitioning every `IFooRepository` into read/write halves would double the protocol/DI/test surface across all aggregates for a benefit that only materializes with event sourcing, async projections, or a separate read store — none of which apply here today.
+The catalog deliberately does **not** split repositories into write-side and read-side protocols. The CQRS guarantee that matters (commands mutate, queries read) is enforced by the handler split (`application-command` vs `application-query`); partitioning every `IFooRepository` into read/write halves would double the protocol/DI/test surface across all aggregates for a benefit that only materializes with event sourcing, async projections, or a separate read store — none of which apply here today.
 
 Add a new `infra-read-model` skill the first time a query handler genuinely needs a denormalized/join-flattened DTO that is not "an aggregate read" (e.g. "foos with author name + tag count + last_modified_by name" joining three tables). Model it as an additive component (its own protocol, its own adapter, its own flat DTO), not as a partition of the existing repository. Until that use case appears, the unified `IFooRepository` with both reads and writes is the canonical shape.

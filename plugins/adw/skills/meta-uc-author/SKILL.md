@@ -1,21 +1,20 @@
 ---
 name: meta-uc-author
-description: Apply when hand-authoring a new use-case file under `specs/use-cases/`. Produces one `UC-NN-<slug>.md` in the narrative, BA-dictated style — title line, Actor / Module header, Description, one or more Main flow blocks, Alternative flows, business rules, Notes. Preserves the "thinking-out-loud" tone (TBDs, "discuss with X", cross-references to other UCs) because a `/spec` change (and any future upstream stage) reads those signals to surface design questions. Does not produce specs, groupings, or any code.
-when_to_use: Hand-authoring a brand-new use case in the BA corpus under `specs/use-cases/`. Not for editing an existing UC (edit it directly) or for bulk extraction from a PDF (a future upstream stage, not part of the v3 core today).
+description: Apply when adding a new use-case file under `specs/use-cases/`. Produces one `UC-NN-<slug>.md` in the narrative, BA-dictated style that the downstream pipeline reads — title line, Actor / Module header, Description, one or more Main flow blocks, Alternative flows, business rules, Notes. Preserves the "thinking-out-loud" tone (TBDs, "discuss with X", cross-references to other UCs) because downstream stages rely on those signals to surface design questions. Does not produce epic groupings, manifests, or any code — those are downstream pipeline stages.
 ---
 
 # Meta — Use-Case Author
 
-A use case in `specs/use-cases/` is a **business-analyst narrative**: one feature described the way a BA would dictate it after a product conversation, including the parts that aren't decided yet. It is the raw input a `/spec` change reads (and, in future, upstream extraction / ingestion / refinement stages would read); those readers depend on the file shape (heading order, A-numbered alternatives, an explicit rules section) and on the narrative signals (TBDs, "discuss with X", cross-UC references) to do their job.
+A use case in `specs/use-cases/` is a **business-analyst narrative**: one feature described the way a BA would dictate it after a product conversation, including the parts that aren't decided yet. It is the raw input to the downstream pipeline (ingestion, refinement, manifest build); those stages depend on the file shape (heading order, A-numbered alternatives, an explicit rules section) and on the narrative signals (TBDs, "discuss with X", cross-UC references) to do their job.
 
 This skill produces one new use-case file. It does not interpret or normalize the content the way the downstream agents do — its job is to write a UC that *looks like* the ones already in `specs/use-cases/`.
 
 ## When to use vs. neighbours
 
 - Adding a brand-new use case to `specs/use-cases/` → this skill.
-- Extracting UCs in bulk from an existing PDF / export → a future upstream extraction stage, not part of the v3 core today (and not this skill).
+- Extracting UCs from an existing PDF / export → `extract-ucs` (the `uc-extractor` agent), not this skill.
 - Editing an existing UC to fix a rule or add a flow → not this skill; just edit the file directly.
-- Synthesizing design or grouping UCs into a change → the `/spec` session and downstream stages, not this skill.
+- Synthesizing design, grouping UCs into epics, or writing a manifest → downstream pipeline stages, not this skill.
 
 ## File location
 
@@ -94,13 +93,13 @@ If the UC has a single main flow (no web/extension/admin variants), drop the par
 3. **Module line is a `Area / Sub-area` slash-path.** It groups UCs in the index; mirror an existing module path when this UC extends one (e.g. `Leads / Lead editing` alongside `Leads / Lead capture`).
 4. **Description is narrative, not bullets.** Two to four paragraphs of prose. Include the product debate ("we considered X but decided Y") — downstream stages use it to surface design questions. Do not summarize the flow as a list here; that's what `## Main flow` is for.
 5. **Main-flow steps are numbered and imperative.** Each step names a user action and the system's response in one or two sentences. Nested bullets are fine for field lists and validation lists.
-6. **Field lists use bold field names and a parenthetical type / required hint.** `**Company name** (required, free text)` — mirror the shape used by UC-02 so a later stage can lift entity attributes directly.
+6. **Field lists use bold field names and a parenthetical type / required hint.** `**Company name** (required, free text)` — mirror the shape used by UC-02 so the manifest stage can lift entity attributes directly.
 7. **Alternative flows are labelled `A1`, `A2`, …** in the order they appear. Each describes one edge case in 1–4 sentences. TBDs are encouraged where the product hasn't decided — write them verbatim as `**TBD**` or `(<question>? TBD.)`.
 8. **Business rules are bullets, one invariant each.** Include hard rules, soft rules, known simplifications, and cross-cutting rules that recur in other UCs. A rule that applies in more than one UC should say so: `(applies everywhere, see also UC-XX)`.
 9. **Notes is the catch-all for informal context.** Performance hints, out-of-scope markers, "discuss with X", forward references to UCs that don't exist yet. Anything that informs the design but doesn't fit a flow step or a rule.
 10. **Cross-reference other UCs by number.** `see UC-02`, `same picker as UC-03`, `referenced in UC-04 A4`. Use `UC-XX` literal form so grep finds them.
 11. **Do not invent acceptance criteria, Gherkin scenarios, or formal preconditions / postconditions.** This catalog deliberately avoids that ceremony — the BA's narrative is the spec, and downstream stages do the normalization.
-12. **The business-rules heading is `## Business Rules` for new UCs.** An existing catalogue may mix English and non-English headings; existing files keep whatever they contain, but new files this skill writes use the English heading unless the user explicitly asks otherwise.
+12. **The business-rules heading is `## Business Rules` for new UCs.** The existing catalogue mixes English and Russian (`## Бизнес-правила`); existing files keep whatever they contain, but new files this skill writes should use English unless the user explicitly asks otherwise.
 
 ## Hard stops
 
