@@ -1,6 +1,7 @@
 ---
 name: general-imports-conventions
-description: Apply when adding or modifying any import statement, or when restructuring `__init__.py` re-exports. Enforces relative imports up to two dots within a package, absolute imports beyond, the same-package collapse rule (one `from X import (A, B, C)` line — not many), and the `from .module import *` re-export contract that every subpackage `__init__.py` must satisfy so collapsed absolute imports work.
+description: Cross-cutting import conventions — relative imports up to two dots inside a package, absolute beyond, the same-package collapse rule (one `from X import (A, B, C)` line, not many), and the `from .module import *` re-export contract every subpackage `__init__.py` must satisfy for collapsed absolute imports to work.
+when_to_use: Adding or changing an import statement, or restructuring an `__init__.py` re-export.
 ---
 
 # Imports Conventions

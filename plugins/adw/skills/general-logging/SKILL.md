@@ -1,6 +1,7 @@
 ---
 name: general-logging
-description: Apply when adding or modifying any log call anywhere in the codebase. Defines the `structlog` setup, the per-layer rules (where to log, what to log, what NOT to log), the snake_case `event` naming convention for application-layer success logs, and the "never log and re-raise" rule that prevents duplicate entries. Cross-cutting — referenced by `application-command`, `infra-sqlalchemy-repository`, `restapi-error-responses`.
+description: Cross-cutting logging rules — the `structlog` setup, the per-layer rules for where and what to log and what never to log, the snake_case `event` naming convention for application-layer success logs, and the never-log-and-re-raise rule that prevents duplicate entries.
+when_to_use: Adding or changing any log call anywhere in the codebase.
 ---
 
 # Logging

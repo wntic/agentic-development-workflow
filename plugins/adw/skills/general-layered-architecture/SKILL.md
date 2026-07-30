@@ -1,6 +1,7 @@
 ---
 name: general-layered-architecture
-description: Apply when scaffolding a new feature, moving code between layers, or deciding where a new module belongs. Defines the four-layer split (domain, application, infrastructure, entrypoints), the allowed dependency direction, and what each layer may import.
+description: The four-layer split — domain, application, infrastructure, entrypoints — with the inward-only dependency direction and what each layer may import.
+when_to_use: Deciding which layer a module belongs to, moving code between layers, or laying out a new feature.
 ---
 
 # Layered Architecture
@@ -9,7 +10,7 @@ A project is split into four layers. Three are core (`domain/`, `application/`, 
 
 ## When to use vs. neighbours
 
-- Scaffolding a new feature or deciding where a module belongs → consult this skill.
+- Laying out a new feature or deciding where a module belongs → consult this skill.
 - Producing a specific artifact at a given layer → the per-layer skill (`domain-entity`, `application-command`, `infra-sqlalchemy-repository`, `restapi-endpoint`, …). This skill defines the boundary; the per-layer skills define the file shape.
 - An "imports may cross this boundary?" question → this skill.
 - Package mechanics inside a layer → `general-python-package`.

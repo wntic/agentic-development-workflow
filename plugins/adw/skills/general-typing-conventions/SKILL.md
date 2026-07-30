@@ -1,6 +1,7 @@
 ---
 name: general-typing-conventions
-description: Apply when writing or modifying any type annotation anywhere in the codebase (domain, application, infrastructure, entrypoints). Enforces `X | None` over `Optional[X]`, the prohibition on `from __future__ import annotations`, the `Any`-only-at-raw-external-boundaries rule, `TypeAlias` for repeated complex types, immutable collection types in domain (`frozenset` / `tuple` over `set` / `list`), full annotation coverage on every signature, and selective `@runtime_checkable` use on protocols.
+description: Cross-cutting typing conventions for every layer — `X | None` over `Optional[X]`, immutable collections in the domain, `Any` only at raw external boundaries, `TypeAlias` for repeated complex types, full annotation coverage, and the project-wide ban on `from __future__ import annotations`.
+when_to_use: Deciding an annotation form anywhere in the codebase. Consulted alongside the skill that owns the artifact, not instead of it.
 ---
 
 # Typing Conventions

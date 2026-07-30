@@ -1,6 +1,7 @@
 ---
 name: general-python-package
-description: Apply when **creating** a new module file, a new `__init__.py`, or restructuring a package's public surface (adding/removing modules, reorganizing wildcard re-exports). Do **not** apply for ordinary edits to an existing module's body — the layer-specific skill (e.g. `domain-entity`, `application-command`, `infra-sqlalchemy-repository`, `restapi-endpoint`, `restapi-schema`) owns content rules. This skill only governs package mechanics: one class per module, `__all__` placement, and the `from .module import *` re-export contract that `general-imports-conventions` depends on.
+description: Package mechanics — one class per module, `__all__` placement, and the `from .module import *` re-export contract that `general-imports-conventions` depends on. Governs how a module is packaged, never what goes inside it.
+when_to_use: Creating a new module or a new `__init__.py`, or restructuring a package's public surface. Not for ordinary edits to an existing module's body.
 ---
 
 # Python Package Structure
@@ -9,7 +10,7 @@ This skill governs **package mechanics** only — the file layout and `__init__.
 
 ## When to use vs. neighbours
 
-This skill fires when **package mechanics change** — a new `.py` module is created, a new `__init__.py` is scaffolded, an existing `__init__.py`'s re-export surface is changed (module added/renamed/removed), or a package is restructured (modules split or merged).
+This skill fires when **package mechanics change** — a new `.py` module is created, a new `__init__.py` is laid down, an existing `__init__.py`'s re-export surface is changed (module added/renamed/removed), or a package is restructured (modules split or merged).
 
 - Editing the body of an existing module (adding a method, tightening a signature) → defer to the layer skill (`domain-entity`, `application-command`, `infra-sqlalchemy-repository`, `restapi-endpoint`, …). The layer skill knows the package conventions it relies on.
 - What types go in `domain/` vs `application/` vs `infrastructure/` → `general-layered-architecture`.
