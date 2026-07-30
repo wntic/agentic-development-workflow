@@ -1,6 +1,8 @@
 ---
 name: application-query
-description: Apply when a spec asks for a read use case (get/list/count/search). Produces two or three files — a frozen-dataclass query DTO, a handler with `async def execute(self, query) -> <data>`, and (when the response is more than a single entity) a frozen-dataclass `*Result` DTO. Reads never mutate, never log business events. Use `application-command` for mutations. Defers package mechanics to `general-python-package`.
+description: The house form for a read use case — a frozen query DTO, a handler with `async def execute(self, query) -> <data>`, and a frozen `*Result` DTO when the response is more than a single entity. Reads never mutate and never log business events.
+when_to_use: Producing or editing an application query handler — get, list, count, search.
+paths: src/**/application/**
 ---
 
 # Application Query

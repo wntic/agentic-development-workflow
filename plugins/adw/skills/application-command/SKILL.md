@@ -1,6 +1,8 @@
 ---
 name: application-command
-description: Apply when a spec asks for a mutation use case (create, update, delete, rename, …). Produces two files — a frozen-dataclass command DTO and a handler class with a single `async def execute(self, cmd) -> UUID | None`. Enforces CQRS for commands: success-only structured log, no business logic in the handler, no try/except except compensating-tx (separate skill). Use `application-query` for reads. Defers package mechanics to `general-python-package`.
+description: The house form for a mutation use case — a frozen command DTO plus a handler with a single `async def execute(self, cmd) -> UUID | None`, success-only structured logging, no business logic in the handler body, and no `try/except`.
+when_to_use: Producing or editing an application command handler — create, update, delete, rename, any write.
+paths: src/**/application/**
 ---
 
 # Application Command
@@ -27,7 +29,7 @@ src/<root>/application/<subdomain>/
 
 ## Template — command DTO
 
-(Authenticated form — carries `caller_id`. A command dispatched only by anonymous routes, or any command in an app that declares no auth, drops `caller_id` entirely; see DTO rule 2.)
+(Authenticated form — carries `caller_id`. A command reached only by anonymous routes, or any command in an app with no auth at all, drops `caller_id` entirely; see DTO rule 2.)
 
 ```python
 from dataclasses import dataclass
@@ -93,7 +95,7 @@ class DeleteFooHandler:
 ### Command DTO
 
 1. **`@dataclass(frozen=True)`.** Always frozen.
-2. **`caller_id: UUID` is the first field — when the command runs behind an authenticated route.** Auth is manifest-declared (`restapi-auth-dependency`), so the actor is conditional: a command dispatched only by anonymous routes — or any command in an app that declares no auth — has no caller to thread, so it **omits `caller_id`** (there is no source to populate it). The templates here show the authenticated form; for the auth-free case drop the field. Presence is derived from whether the dispatching endpoint(s) are authenticated, never a blanket convention.
+2. **`caller_id: UUID` is the first field — when the command runs behind an authenticated route.** Whether an app has auth at all is a property of its routes (`restapi-auth-dependency`), so the actor is conditional: a command reached only by anonymous routes — or any command in an app with no auth — has no caller to thread, so it **omits `caller_id`** (there is no source to populate it). The templates here show the authenticated form; for the auth-free case drop the field. Presence follows from whether the calling endpoints are authenticated, never a blanket convention.
    - **Other auth-derived fields stamp the same way.** A multi-tenant app threads more than the actor: a `workspace_id` / `tenant_id` / `org_id` the token carries is a field on the command **stamped by the endpoint from `CurrentUser`** (`workspace_id=user.workspace_id`), exactly like `caller_id=user.id` — never read from the request body or path (a client must not choose its own tenant). The handler then scopes every repository call by it. The same rule holds for a query (rule below) and the endpoint (`restapi-endpoint` / `restapi-auth-dependency`): auth-derived inputs come from the token, request-derived inputs from the body/path.
 3. **No methods, no behavior.** Just data.
 4. **Optional fields use `field: T | None = None`** or a concrete default — never sentinel strings.

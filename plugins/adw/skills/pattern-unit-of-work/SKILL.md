@@ -1,6 +1,7 @@
 ---
 name: pattern-unit-of-work
-description: Apply when a single operation must persist changes across multiple repositories atomically (typically a write paired with an audit-log append, or update + outbox row). Produces three artifacts — the `IUnitOfWork` protocol in `domain/`, the SQLAlchemy implementation in `infrastructure/postgres/`, and the handler integration pattern. Use only when ≥2 repositories must commit together; single-repo handlers stay on `session_factory` style (see `infra-sqlalchemy-repository`).
+description: The unit-of-work pattern for one atomic commit across two or more repositories — the `IUnitOfWork` protocol in `domain/`, its SQLAlchemy implementation in `infrastructure/postgres/`, and the handler form that consumes it.
+when_to_use: One operation must persist changes across two or more repositories atomically — a write paired with an audit append, or an update plus an outbox row.
 ---
 
 # Application Unit of Work
@@ -11,7 +12,7 @@ Produces the cross-cutting transactional-boundary abstraction. Three artifacts:
 2. **Implementation:** `src/<root>/infrastructure/postgres/sqlalchemy_unit_of_work.py`.
 3. **Handler integration:** a command handler that needs atomic multi-repository commits takes `uow_factory: Callable[[], IUnitOfWork]` and wraps its mutations in `async with self._uow_factory() as uow: ...` (the handler form `application-command` writes for this case).
 
-## When to use it
+## When to use vs. neighbours
 
 Use when a handler writes to **two or more repositories in one transaction** (write + audit; aggregate + outbox).
 

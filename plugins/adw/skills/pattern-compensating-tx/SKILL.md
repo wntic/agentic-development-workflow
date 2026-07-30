@@ -1,6 +1,8 @@
 ---
 name: pattern-compensating-tx
-description: Apply when a command handler must perform an external side effect (blob upload, third-party POST, file write) before the DB write that records it, and the side effect must be undone if a later step fails. Defines the catch → undo → re-raise pattern that is the only sanctioned `try/except` in `application/`. Used in tandem with `application-command`.
+description: The catch → undo → re-raise pattern — the only sanctioned `try/except` in `application/`. For a command handler that performs an external side effect (blob upload, third-party POST, file write) before the DB write recording it, and must undo that side effect when a later step fails.
+when_to_use: Shaping a command handler whose external side effect precedes the DB write and needs a compensating undo.
+paths: src/**/application/**
 ---
 
 # Compensating Transactions
