@@ -1,3 +1,5 @@
+<!-- merged from test-discovery-invariants -->
+
 # Test — Discovery Invariants
 
 One-shot per project. Four or five integration files under `tests/integration/api/` (the `test_unauth_returns_401.py` probe is emitted only when the app declares auth — see Rules) plus one unit-level app-construction smoke. Each one iterates — or constructs — the running app and asserts a single global property; none of them needs to be edited when an endpoint is added or removed.
@@ -8,7 +10,7 @@ One-shot per project. Four or five integration files under `tests/integration/ap
 - A per-endpoint integration test → `endpoint.md`.
 - The rollback fixture / containers / `real_app` → `isolation.md` (owns `real_app`, which every test here imports).
 - The `authed_client` factory → `authed-client.md` (not consumed here — see Rule 8).
-- A grep-firewall static rule → `testing-unit` `architecture-rule.md` (compile-time, not runtime).
+- A grep-firewall static rule → `test-architecture-rule` (compile-time, not runtime).
 
 ## Template(s)
 
@@ -42,7 +44,7 @@ def test_app_constructs_and_renders_openapi() -> None:
     assert app.openapi()["paths"]  # forces the full schema build over every route
 ```
 
-This lives at the **unit** layer, not under `tests/integration/`, on purpose: `create_app` needs **no** database — `dependency-injector` providers are lazy, so it wires routers/middleware/error-handlers without resolving a handler or opening a connection. Placing it under `tests/integration/` would drag that tree's session-autouse `_migrated_db` / `_guard_against_real_db` fixtures and require Postgres, defeating the point — the construct-time defect class must be catchable with no Docker daemon (exactly the environment where mypy/ruff/unit run green and miss it). The test is structural, not a body test: it passes on a fresh scaffold (route functions exist with valid signatures; their `NotImplementedError` bodies are never *called* by construction or `openapi()`), so a missing dependency reds it at scaffold time, before any of those bodies exist.
+This lives at the **unit** layer, not under `tests/integration/`, on purpose: `create_app` needs **no** database — `dependency-injector` providers are lazy, so it wires routers/middleware/error-handlers without resolving a handler or opening a connection. Placing it under `tests/integration/` would drag that tree's session-autouse `_migrated_db` / `_guard_against_real_db` fixtures and require Postgres, defeating the point — the construct-time defect class must be catchable with no Docker daemon (exactly the environment where mypy/ruff/unit run green and miss it). The test is structural, not a body test: it passes on a fresh scaffold (route functions exist with valid signatures; their `NotImplementedError` bodies are never *called* by construction or `openapi()`), so a missing dependency reds it at scaffold time, before any implementer runs.
 
 ### `test_unauth_returns_401.py`
 

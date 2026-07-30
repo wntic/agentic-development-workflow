@@ -1,3 +1,5 @@
+<!-- merged from restapi-schema -->
+
 # REST API Schema
 
 Produces one resource's schema module — the Pydantic models that define the HTTP wire format. Schemas are the boundary between FastAPI/JSON and the domain: domain entities never cross the wire, schemas never cross into application/domain code.
@@ -63,7 +65,7 @@ class FooUpdateRequest(BaseModel):
 | Schema | Purpose |
 |--------|---------|
 | `<Resource>Response` | Single-entity GET / POST / PATCH response |
-| `<Resource>ListResponse` | List GET response — `items` + the resource's pagination fields (offset: `total`/`limit`/`offset`; cursor: `next_cursor`/`limit`), matching `domain-model` §Domain Filter Record |
+| `<Resource>ListResponse` | List GET response — `items` + the resource's pagination fields (offset: `total`/`limit`/`offset`; cursor: `next_cursor`/`limit`), matching `domain-filter` |
 | `<Resource>CreateRequest` | POST body |
 | `<Resource>UpdateRequest` | PATCH body — every field `T \| None = None` |
 | `<Resource>WithXResponse` | Single-entity response that embeds a sub-resource collection |
@@ -89,7 +91,7 @@ Do **not** introduce alternates (`Dto`, `Schema`, `In`, `Out`). The five names a
 
 ### `*ListResponse`
 
-7. **`*ListResponse` carries the resource's pagination shape — whichever one its filter record declared** (`domain-model` §Domain Filter Record Rule 5 picks exactly one), never a third:
+7. **`*ListResponse` carries the resource's pagination shape — whichever one its `domain-filter` declared** (`domain-filter` Rule 5 picks exactly one), never a third:
    - **offset paging** → `items: Sequence[<Resource>Response]`, `total: int`, `limit: int`, `offset: int`.
    - **cursor paging** → `items: Sequence[<Resource>Response]`, `next_cursor: str | None`, `limit: int`.
    The route `endpoint.md` builds constructs whichever shape the filter uses, so the schema must match it (see `endpoint.md`'s cursor-list note). Don't mix the two.

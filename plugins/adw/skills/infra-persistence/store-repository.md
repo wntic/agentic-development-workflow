@@ -1,16 +1,18 @@
+<!-- merged from infra-store-repository -->
+
 # Infrastructure Store Repository
 
-Produces one repository class that adapts a domain repository protocol to a client-style datastore — any store reached through an injected SDK client rather than the shared SQLAlchemy bootstrap. The adapter does not inherit from the protocol — structural subtyping at the DI injection site is the contract. The skill is **vendor-agnostic** the same way `infra-integration` `adapter.md` is: the pattern (client injection, record↔entity mapping, boundary error translation) is fixed here; the vendor rides in via the injected client type, the store's settings, and the spec's notes.
+Produces one repository class that adapts a domain repository protocol to a client-style datastore — any store reached through an injected SDK client rather than the shared SQLAlchemy bootstrap. The adapter does not inherit from the protocol — structural subtyping at the DI injection site is the contract. The skill is **vendor-agnostic** the same way `infra-capability-adapter` is: the pattern (client injection, record↔entity mapping, boundary error translation) is fixed here; the vendor rides in via the injected client type, the store's settings, and the spec's notes.
 
 ## When to use vs. neighbours
 
 - The aggregate's store is the relational bootstrap store (SQLAlchemy/Postgres) → `repository.md`.
-- The protocol file (`i_foo_repository.py`) → `domain-ports` §Domain Repository Protocol.
-- A single-action `ICan<Verb>` port (not an aggregate's collection) → `infra-integration` `adapter.md`.
-- The settings class the store's connection factory consumes → `infra-integration` `settings.md`.
-- The DI provider that constructs this repository → `infra-integration` `container.md`.
-- An in-memory test stand-in for handler unit tests → `testing-unit` `fake.md`.
-- The integration contract test that drives this adapter against the real store → `testing-integration` `store-repository-contract.md`.
+- The protocol file (`i_foo_repository.py`) → `domain-repository-protocol`.
+- A single-action `ICan<Verb>` port (not an aggregate's collection) → `infra-capability-adapter`.
+- The settings class the store's connection factory consumes → `infra-settings`.
+- The DI provider that constructs this repository → `infra-di-provider`.
+- An in-memory test stand-in for handler unit tests → `test-fake-repository`.
+- The integration contract test that drives this adapter against the real store → `test-store-repository-contract`.
 
 ## File layout
 
@@ -213,10 +215,10 @@ class FooRepository:
 
 ### Vendor & semantics
 
-12. **Vendor semantics come from the SDK + the spec's notes, not from this skill.** Query API, filter DSL, batching, consistency options — read them from the SDK and the node's notes. A **new vendor is a store-profile row plus `requires_packages` on the node — never a fork of this skill** (the same way `infra-integration` `adapter.md` serves boto3, httpx, PyJWT, and openai with one skill).
+12. **Vendor semantics come from the SDK + the spec's notes, not from this skill.** Query API, filter DSL, batching, consistency options — read them from the SDK and the node's notes. A **new vendor is a store-profile row plus `requires_packages` on the node — never a fork of this skill** (the same way `infra-capability-adapter` serves boto3, httpx, PyJWT, and openai with one skill).
 13. **No provisioning.** The repository never creates collections, indexes, buckets, or schemas — provisioning is a deployment/bootstrap concern.
 14. **Ordering is explicit.** A `list`/`search` that promises an order must produce it deliberately (the store's score order, an explicit sort key) — never rely on insertion accident.
-15. **No logging, no retries, no caching, no domain reasoning.** Same thinness contract as every adapter (see `infra-integration` `adapter.md` rules 13–15).
+15. **No logging, no retries, no caching, no domain reasoning.** Same thinness contract as every adapter (see `infra-capability-adapter` rules 13–15).
 
 ## Inlined typing / import rules
 
@@ -227,13 +229,13 @@ class FooRepository:
 
 ## Package wiring
 
-The `repositories/__init__.py` must re-export the new module via `from .foo_repository import *`. Follow `architecture` §Python Package Structure.
+The `repositories/__init__.py` must re-export the new module via `from .foo_repository import *`. Follow `general-python-package`.
 
 ## Hard stops
 
 - The aggregate's store is the relational bootstrap store (profile `uses_bootstrap`) → stop, use `repository.md`.
 - Spec asks for SQL, SQLAlchemy, or a `Table` for this aggregate → stop, that is the relational path (`repository.md` + `table.md`).
 - Spec asks the repository to create or migrate the collection/index/bucket → stop, provisioning is not the repository's concern.
-- Spec asks for atomicity across this store and another (two stores in one transaction) → stop, there is no cross-store transaction; compensation lives in the handler (`application` `compensating-tx.md`).
+- Spec asks for atomicity across this store and another (two stores in one transaction) → stop, there is no cross-store transaction; compensation lives in the handler (`pattern-compensating-tx`).
 - Spec asks the repository to log → stop, repositories never log.
-- The port is a single-action capability (`ICan<Verb>`), not an aggregate's collection → stop, use `infra-integration` `adapter.md`.
+- The port is a single-action capability (`ICan<Verb>`), not an aggregate's collection → stop, use `infra-capability-adapter`.

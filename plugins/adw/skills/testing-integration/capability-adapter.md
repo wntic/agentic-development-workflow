@@ -1,3 +1,5 @@
+<!-- merged from test-infra-capability-adapter -->
+
 # Test — Infrastructure Capability Adapter
 
 Produces one test file per capability adapter. Catches what unit-level coverage cannot: real SDK exception shapes, real upstream wire format, real crypto/parsing behavior, and the SDK-exception-to-domain-exception translator's mapping. This is the capability-adapter analogue of `repository-contract.md` for SQLAlchemy repositories.
@@ -6,9 +8,9 @@ Produces one test file per capability adapter. Catches what unit-level coverage 
 
 - A new or modified adapter under `infrastructure/<adapter>/` (not `infrastructure/postgres/repositories/`) → this skill.
 - A SQLAlchemy repository → `repository-contract.md`, not this skill.
-- A fake the unit-test layer consumes → `testing-unit` `fake.md`. The fake's exception contract must match what the integration test pins here.
+- A fake the unit-test layer consumes → `test-fake-repository`. The fake's exception contract must match what the integration test pins here.
 - The rollback / container `conftest.py` itself → `isolation.md` (one-shot).
-- A handler test that consumes a fake of this capability → `testing-unit` `handler.md`.
+- A handler test that consumes a fake of this capability → `test-application-handler`.
 - HTTP-layer (route + auth + OpenAPI) → `endpoint.md`.
 
 ## Pick the flavor
@@ -17,7 +19,7 @@ Produces one test file per capability adapter. Catches what unit-level coverage 
 - **HTTP gateway with `respx`.** Adapter speaks `httpx` to a third-party HTTP API. Wraps the real `httpx.AsyncClient` with `respx.mock` and asserts the request shape (URL, headers, body) on the way out and the translated response on the way back. The adapter code is real; only the network is intercepted. **Lives under `tests/integration/<adapter>/`.**
 - **Pure-CPU.** Adapter does no IO — a JWT verifier, a canonicalizer, a renderer over in-memory bytes. Stdlib + the real crypto / parsing library. No fixtures, no containers. **Lives under `tests/unit/infrastructure/<adapter>/`.**
 
-The flavor mirrors the adapter's template in `infra-integration` `adapter.md` (real-SDK, HTTP gateway, sync pure-CPU). If the spec asks for two flavors in one file, split — one file per adapter, but `unit/` for pure-CPU and `integration/` for IO-bearing means a containerized adapter and a CPU adapter live in different roots regardless.
+The flavor mirrors the adapter's template in `infra-capability-adapter` (real-SDK, HTTP gateway, sync pure-CPU). If the spec asks for two flavors in one file, split — one file per adapter, but `unit/` for pure-CPU and `integration/` for IO-bearing means a containerized adapter and a CPU adapter live in different roots regardless.
 
 ## Template(s)
 
@@ -282,7 +284,7 @@ def test_verify_tampered_signature_raises_auth_error() -> None:
 
 9. **Use the real SDK client.** No `unittest.mock`, no `MagicMock`. The SDK is the boundary; mocking it defeats the test's purpose (catching mismatches between assumed and actual SDK exception shapes).
 10. **`respx` is not a mock of our code** — it intercepts the network only. The `httpx.AsyncClient` and the adapter under test are both real. This is the HTTP analogue of "real Postgres via Testcontainer."
-11. **No fake / in-memory implementation of the protocol in this test.** Fakes are for handler unit tests (`testing-unit` `fake.md` / `handler.md`). This test exercises the real adapter — that's the whole point.
+11. **No fake / in-memory implementation of the protocol in this test.** Fakes are for handler unit tests (`test-fake-repository` / `test-application-handler`). This test exercises the real adapter — that's the whole point.
 
 ### Containerized flavor specifics
 
@@ -313,7 +315,7 @@ def test_verify_tampered_signature_raises_auth_error() -> None:
 
 - `tests/integration/conftest.py` does not provide the required resource fixture (`s3_session`, `redis`, …) for a containerized flavor → stop, extend `isolation.md` first.
 - Spec asks for `unittest.mock` / `MagicMock` of the SDK client → stop, the SDK boundary is exactly what this test exists to verify; use containers or `respx` instead.
-- Spec asks to mock the adapter itself → stop, that's a handler unit test (`testing-unit` `handler.md` + `fake.md`).
+- Spec asks to mock the adapter itself → stop, that's a handler unit test (`test-application-handler` + `test-fake-repository`).
 - Spec asks for `@pytest.mark.integration` or `@pytest.mark.asyncio` → stop, neither marker is used in this project.
 - Spec asks to assert `pytest.raises(<SdkExceptionClass>)` directly → stop, the SDK exception must never escape the adapter; the test asserts the translated `DomainError` subclass.
 - Spec asks to assert on a translated exception without checking `context` keys → stop, the context map is the load-bearing contract this test exists to pin.

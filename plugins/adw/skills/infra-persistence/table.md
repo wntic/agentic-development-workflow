@@ -1,3 +1,5 @@
+<!-- merged from infra-sqlalchemy-table -->
+
 # Infrastructure SQLAlchemy Table
 
 Produces the SQLAlchemy **Core** `Table`. Column types are a **design decision** (jsonb/pgvector/check/FK), not a mechanical transcription of the entity's fields — that is why this guide leads with the column-type rules. The Alembic migration is **not** part of this file — Alembic owns the revision chain (`alembic revision`); a schema change is a coordinated pair (the `Table` here + a new revision), but only the `Table` is this skill's output, and a later field change is reconciled by authoring a **new** revision, never by rewriting a prior one. Naming follows the project metadata `naming_convention` so that integrity-error translation can dispatch on `constraint_name`.
@@ -182,7 +184,7 @@ A schema change is two coordinated edits: the `Table` here (this skill's output)
 
 ## Package wiring
 
-The `tables/__init__.py` must re-export the new module — `from . import foos` + `from .foos import *` — otherwise Alembic autogenerate cannot see the table. Follow `architecture` §Python Package Structure for the mechanics.
+The `tables/__init__.py` must re-export the new module — `from . import foos` + `from .foos import *` — otherwise Alembic autogenerate cannot see the table. Follow `general-python-package` for the mechanics.
 
 ## Hard stops
 

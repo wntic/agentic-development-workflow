@@ -5,8 +5,10 @@ when_to_use: Scaffolding a new feature, moving code between layers, deciding whe
 ---
 # Architecture — layers, packages, imports
 
-This skill covers 3 related artifacts. Each `## …` section below is one artifact's house style, keeping its own *When to use / Template(s) / Rules / Hard stops* structure. Consult the section matching what you are producing.
+This merged skill covers 3 related artifacts. Each `## …` section below is one artifact's house style, keeping its own *When to use / Template(s) / Rules / Hard stops* structure. Consult the section matching what you are producing.
 
+
+<!-- merged from general-layered-architecture -->
 
 ## Layered Architecture
 
@@ -15,9 +17,9 @@ A project is split into four layers. Three are core (`domain/`, `application/`, 
 ### When to use vs. neighbours
 
 - Scaffolding a new feature or deciding where a module belongs → consult this skill.
-- Producing a specific artifact at a given layer → the per-layer skill (`domain-model` §Domain Entity, `application` `command.md`, `infra-persistence` `repository.md`, `restapi` `endpoint.md`, …). This skill defines the boundary; the per-layer skills define the file shape.
+- Producing a specific artifact at a given layer → the per-layer skill (`domain-entity`, `application-command`, `infra-sqlalchemy-repository`, `restapi-endpoint`, …). This skill defines the boundary; the per-layer skills define the file shape.
 - An "imports may cross this boundary?" question → this skill.
-- Package mechanics inside a layer → §Python Package Structure below.
+- Package mechanics inside a layer → `general-python-package`.
 
 ### The shape
 
@@ -105,7 +107,7 @@ src/myapp/
 #### Where new code goes
 
 - Pure logic that depends only on data → `domain/`.
-- A rule that needs a repository or capability → `domain/` (as a service, see `domain-ports` §Domain Service).
+- A rule that needs a repository or capability → `domain/` (as a service, see `domain-service`).
 - Orchestration of domain + protocols, ID generation, logging business events → `application/`.
 - Anything that talks to a database, a file system, an HTTP API, or an SDK → `infrastructure/`.
 - Anything that knows about HTTP / CLI / queues → an entrypoint package.
@@ -123,14 +125,14 @@ If you're tempted to import `application` from `infrastructure`, you have an ada
 #### Protocols vs. concrete
 
 - Application handlers depend on **domain protocol types** in their constructor signatures (`repo: IFooRepository`), never on concrete classes (`repo: PostgresFooRepository`).
-- Infrastructure adapters do not explicitly inherit from protocols (structural subtyping; see `domain-ports`).
+- Infrastructure adapters do not explicitly inherit from protocols (structural subtyping; see `domain-protocols`).
 
 ### How to apply
 
 1. When adding a feature, decide the entry path: HTTP route → `restapi/...`, scheduled job → `worker/...`, etc.
 2. Sketch the use case as a CQRS handler in `application/<subdomain>/` (see `cqrs`).
-3. List what the handler needs from the outside world. Each of those is a protocol in `domain/<subdomain>/` (see `domain-ports`).
-4. Implement each protocol as an adapter under `infrastructure/<tech>/` — grouped by the external technology (`postgres/`, `qdrant/`, `jwt/`), never by subdomain (see `conventions` block A). Adapters import domain types, translate raw payloads, raise domain exceptions (see `domain-model` §Domain Exception).
+3. List what the handler needs from the outside world. Each of those is a protocol in `domain/<subdomain>/` (see `domain-protocols`).
+4. Implement each protocol as an adapter under `infrastructure/<tech>/` — grouped by the external technology (`postgres/`, `qdrant/`, `jwt/`), never by subdomain (see `conventions` block A). Adapters import domain types, translate raw payloads, raise domain exceptions (see `domain-exceptions`).
 5. Wire the adapters in `containers.py` and resolve the handler in the entrypoint.
 6. Verify the dependency direction by scanning the new files' imports — `domain/` files must import only stdlib + domain; `application/` files must not import `infrastructure/`; `infrastructure/` must not import `application/`.
 
@@ -150,6 +152,8 @@ If you're tempted to import `application` from `infrastructure`, you have an ada
 - An entrypoint module instantiates a concrete adapter directly → stop, the DI container in `containers.py` is the only place that binds concrete classes.
 
 
+<!-- merged from general-python-package -->
+
 ## Python Package Structure
 
 This skill governs **package mechanics** only — the file layout and `__init__.py` re-export contract that lets the project's collapsed-import convention work. It does not say anything about *what* goes inside a module; that's the layer-specific skill's job.
@@ -158,9 +162,9 @@ This skill governs **package mechanics** only — the file layout and `__init__.
 
 This skill fires when **package mechanics change** — a new `.py` module is created, a new `__init__.py` is scaffolded, an existing `__init__.py`'s re-export surface is changed (module added/renamed/removed), or a package is restructured (modules split or merged).
 
-- Editing the body of an existing module (adding a method, tightening a signature) → defer to the layer skill (`domain-model` §Domain Entity, `application` `command.md`, `infra-persistence` `repository.md`, `restapi` `endpoint.md`, …). The layer skill knows the package conventions it relies on.
-- What types go in `domain/` vs `application/` vs `infrastructure/` → §Layered Architecture above.
-- How to *consume* the re-exports (relative-vs-absolute, collapse rule) → §Imports Conventions below.
+- Editing the body of an existing module (adding a method, tightening a signature) → defer to the layer skill (`domain-entity`, `application-command`, `infra-sqlalchemy-repository`, `restapi-endpoint`, …). The layer skill knows the package conventions it relies on.
+- What types go in `domain/` vs `application/` vs `infrastructure/` → `general-layered-architecture`.
+- How to *consume* the re-exports (relative-vs-absolute, collapse rule) → `general-imports-conventions`.
 - How to write a protocol / handler / repository / router / schema body → the matching layer skill.
 
 ### Rules
@@ -170,7 +174,7 @@ This skill fires when **package mechanics change** — a new `.py` module is cre
 - In module files: `__all__` goes **after** imports and **before** the class definition, never at the very top.
 - In `__init__.py`: always `from .module import *`, never `from .module import ClassName`. Each wildcard re-export line **carries a trailing `# noqa: F403`** — a bare `from .module import *` trips the toolchain's `F403` ("import `*` used; unable to detect undefined names"), and the wildcard is the intentional idiom here, so it is suppressed per line. This `# noqa` is permitted: only `# noqa: F401` (unused-import laundering) is forbidden. The `__all__ = module.__all__` reference that follows does **not** need `# noqa: F405`, because it names the module bound by the explicit `from . import <module>` line, not a symbol pulled in by the star.
 - In `__init__.py`: always `__all__ = module.__all__` (or `+`-joined across modules), never `__all__ = ["ClassName"]`.
-- A **literal** `__all__` list (a module file's `__all__ = ["A", "B"]`, never the `+`-joined `__init__` form) is sorted the way the toolchain's `RUF022` expects — an isort-style order where SCREAMING_SNAKE constants precede `CamelCase` classes precede `lower_snake` callables (e.g. `__all__ = ["MIDDLEWARE_ERRORS", "ErrorResponse", "error_responses"]`). `RUF022` reds an unsorted literal.
+- A **literal** `__all__` list (a module file's `__all__ = ["A", "B"]`, never the `+`-joined `__init__` form) is sorted the way the toolchain's `RUF022` expects — an isort-style order where SCREAMING_SNAKE constants precede `CamelCase` classes precede `lower_snake` callables (e.g. `__all__ = ["MIDDLEWARE_ERRORS", "ErrorResponse", "error_responses"]`). An unsorted literal is a gate finding.
 - In `__init__.py`: **precede the wildcards with one `from . import <module>, …` line** naming every re-exported submodule (alphabetical). The wildcard binds the submodule at runtime, but **mypy does not model that side effect** — without the explicit `from . import …`, the `__all__ = module.__all__` reference fails type-checking (`name-defined`). The explicit import is what makes the re-export contract type-check; it is **required, not redundant**.
 - Subpackages are directories with their own `__init__.py`; only the top-level package's `__init__.py` carries a `__version__`.
 - **A package re-exports its immediate children — direct modules AND child subpackages — except the three carve-outs below.** A layer package (`domain/`, `application/`, `infrastructure/`) re-exports its subdomain subpackages, not only its direct modules: `from . import auth, support` + `from .auth import *` + `from .support import *` + `__all__ = auth.__all__ + support.__all__`. An **empty layer `__init__.py` that has children is wrong** — re-export them so `from <root>.domain import X` resolves.
@@ -182,8 +186,8 @@ This skill fires when **package mechanics change** — a new `.py` module is cre
 
 The rule is binding everywhere **except** for these two named files, each of which deliberately holds multiple classes because the classes co-evolve and splitting them would harm readability without any decoupling benefit:
 
-1. **`<root>/domain/exceptions.py`** — `DomainError` plus every subclass live in this single file (the error catalogue stays auditable). See `domain-model` §Domain Exception for the file's structure.
-2. **`<root>/restapi/schemas/<resource>.py`** — the four Pydantic wire schemas for one HTTP resource (`<Resource>Response`, `<Resource>ListResponse`, `<Resource>CreateRequest`, `<Resource>UpdateRequest`) sit in one file because they describe the same wire contract from different angles. See `restapi` `schema.md` for the file's structure.
+1. **`<root>/domain/exceptions.py`** — `DomainError` plus every subclass live in this single file (the error catalogue stays auditable). See `domain-exception` for the file's structure.
+2. **`<root>/restapi/schemas/<resource>.py`** — the four Pydantic wire schemas for one HTTP resource (`<Resource>Response`, `<Resource>ListResponse`, `<Resource>CreateRequest`, `<Resource>UpdateRequest`) sit in one file because they describe the same wire contract from different angles. See `restapi-schema` for the file's structure.
 
 These are the **only** exceptions. The carve-out is by exact file path, not by directory or category — adding a third domain entity to a `domain/foos/foo.py` is still wrong; bundling two adapters into one `infrastructure/postgres/repositories/` module is still wrong; combining a command and its handler in one `application/` file is still wrong.
 
@@ -260,6 +264,8 @@ package_name/
 - An `__init__.py` that references `module.__all__` (in its own `__all__`) without a matching `from . import module` line → stop, add the explicit submodule import; the wildcard alone does not bind the name for mypy (`name-defined`), so the re-export contract won't type-check.
 
 
+<!-- merged from general-imports-conventions -->
+
 ## Imports Conventions
 
 Imports follow three rules: how far you reach with relative dots, how you collapse multiple symbols from the same package, and how `__init__.py` re-exports underwrite the collapsed form.
@@ -267,9 +273,9 @@ Imports follow three rules: how far you reach with relative dots, how you collap
 ### When to use vs. neighbours
 
 - Adding or modifying any import statement → consult this skill.
-- Restructuring `__init__.py` re-exports → consult both §Imports Conventions (re-export contract) and §Python Package Structure (package mechanics).
-- Choosing `frozenset` vs `set` or `X | None` vs `Optional[X]` → `python-style` §Typing Conventions.
-- Layer boundaries (what each layer may import) → §Layered Architecture above.
+- Restructuring `__init__.py` re-exports → consult both this skill (re-export contract) and `general-python-package` (package mechanics).
+- Choosing `frozenset` vs `set` or `X | None` vs `Optional[X]` → `general-typing-conventions`.
+- Layer boundaries (what each layer may import) → `general-layered-architecture`.
 
 ### Relative vs absolute
 
@@ -334,9 +340,9 @@ from .i_foo_repository import *  # noqa: F403
 
 Rules:
 
-- Precede the wildcards with one `from . import <module>, …` line naming every submodule (alphabetical). It binds the submodule names so the `__all__ = module.__all__` concatenation below type-checks under mypy — `from .module import *` binds them at runtime but **not** for the type-checker (`name-defined`). See §Python Package Structure above.
-- One `from .module import *` per submodule, in alphabetical order, **each with a trailing `# noqa: F403`** (the wildcard is the intentional re-export idiom; `F403` is suppressed per line — this `# noqa` is allowed, only `# noqa: F401` is forbidden). See §Python Package Structure above.
-- Every module being wildcarded must declare `__all__` listing its public symbols (see §Python Package Structure above). Wildcard imports without `__all__` leak private helpers.
+- Precede the wildcards with one `from . import <module>, …` line naming every submodule (alphabetical). It binds the submodule names so the `__all__ = module.__all__` concatenation below type-checks under mypy — `from .module import *` binds them at runtime but **not** for the type-checker (`name-defined`). See `general-python-package`.
+- One `from .module import *` per submodule, in alphabetical order, **each with a trailing `# noqa: F403`** (the wildcard is the intentional re-export idiom; `F403` is suppressed per line — this `# noqa` is allowed, only `# noqa: F401` is forbidden). See `general-python-package`.
+- Every module being wildcarded must declare `__all__` listing its public symbols (see `general-python-package`). Wildcard imports without `__all__` leak private helpers.
 - The package's own `__all__` is the concatenation of submodule `__all__`s, e.g.:
 
   ```python
@@ -348,7 +354,7 @@ Rules:
   )
   ```
 
-  This is what `restapi/schemas/__init__.py` does — see `restapi` `schema.md` for the pattern.
+  This is what `restapi/schemas/__init__.py` does — see `restapi-schema` for the pattern.
 
 - `__init__.py` files contain **only imports and `__all__`**. No class definitions, no constants, no logic.
 
@@ -356,7 +362,7 @@ Rules:
 
 Standard PEP 8 grouping, with a blank line between groups:
 
-1. `__future__` — **disallowed in this project** (see `python-style` §Typing Conventions); this slot stays empty.
+1. `__future__` — **disallowed in this project** (see `general-typing-conventions`); this slot stays empty.
 2. Standard library (`uuid`, `datetime`, `collections.abc`, ...).
 3. Third-party (`pydantic`, `fastapi`, `sqlalchemy`, ...).
 4. First-party absolute (`myapp.domain...`, `myapp.application...`).
@@ -373,7 +379,7 @@ Subpackages designed to be the public face of a subdomain (the typical `domain/<
 - All policies.
 - All commands, queries, results, handlers (in `application/<subdomain>/`).
 
-**Layer packages re-export their subdomains too.** The same contract applies one level up: `domain/__init__.py`, `application/__init__.py`, and `infrastructure/__init__.py` re-export their child subpackages (`from . import bars, foos` + `from .bars import *` + … + `__all__ = bars.__all__ + foos.__all__`), so `from <root>.domain import X` resolves and `__all__` aggregates to the layer root. An empty layer `__init__.py` that has children is a gap. The lone exception is the entrypoint package `restapi/__init__.py`, kept minimal because wildcarding `main.py` would trigger app construction at import (see §Python Package Structure above).
+**Layer packages re-export their subdomains too.** The same contract applies one level up: `domain/__init__.py`, `application/__init__.py`, and `infrastructure/__init__.py` re-export their child subpackages (`from . import bars, foos` + `from .bars import *` + … + `__all__ = bars.__all__ + foos.__all__`), so `from <root>.domain import X` resolves and `__all__` aggregates to the layer root. An empty layer `__init__.py` that has children is a gap. The lone exception is the entrypoint package `restapi/__init__.py`, kept minimal because wildcarding `main.py` would trigger app construction at import (see `general-python-package`).
 
 If a symbol isn't re-exported, the collapsed-import form breaks at the first call site — and any contributor who adds a new symbol later will hit confusing import errors. Adding a new module means: declare `__all__` in the module, then add it to the `from . import …` line, add `from .<module> import *` to the subpackage `__init__.py`, and append `<module>.__all__` to the package's own `__all__`.
 
@@ -383,5 +389,5 @@ If a symbol isn't re-exported, the collapsed-import form breaks at the first cal
 - `from foo import *` outside `__init__.py` → stop, wildcard imports inside regular modules pollute namespaces and break linting.
 - Three-or-more-dot relative imports → stop, switch to absolute.
 - `import myapp.domain.foos as fs` followed by `fs.Foo` → stop, use `from ... import` everywhere; module aliases hide what's actually used.
-- Imports inside function/method bodies to break a circular import → stop, the cycle almost always points to a layering violation (see §Layered Architecture above); fix the structure.
+- Imports inside function/method bodies to break a circular import → stop, the cycle almost always points to a layering violation (see `general-layered-architecture`); fix the structure.
 - `if TYPE_CHECKING:` imports purely to dodge a circular import → stop, refactor the cycle.

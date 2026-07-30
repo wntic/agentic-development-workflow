@@ -1,3 +1,5 @@
+<!-- merged from pattern-compensating-tx -->
+
 # Compensating Transactions
 
 A pattern applied inside a command handler when it has already done something the outside world can see (an upload, a webhook, a file) before a later step (usually the DB write) can still fail. The handler must undo the visible side effect before letting the exception propagate.
@@ -87,6 +89,6 @@ That trailing call is normal cleanup, not compensation — it runs only on succe
 
 ## Hard stops
 
-- The capability protocol lacks a `*_best_effort` cleanup method → stop, update the protocol via `domain-ports` §Domain Capability Protocol first.
+- The capability protocol lacks a `*_best_effort` cleanup method → stop, update the protocol via `domain-capability-protocol` first.
 - The compensation method can itself raise non-trivially (e.g. it calls a flaky third-party DELETE) → stop, the protocol contract is wrong; the method must internally swallow its own errors.
 - The handler needs to compensate across two unrelated backends (Postgres + Redis) → stop, this is a saga, not a single compensating-tx. Out of scope for this skill.

@@ -1,3 +1,5 @@
+<!-- merged from infra-settings -->
+
 # Infrastructure Settings
 
 Produces one settings class per external integration. The class is the **only** place this codebase reads environment variables — adapters always receive a settings object via DI.
@@ -6,7 +8,7 @@ Produces one settings class per external integration. The class is the **only** 
 
 - Adding/extending env-backed configuration for an integration → this skill.
 - Wiring the settings into `containers.py` as a Singleton → `container.md`.
-- A frozen-dataclass domain-shaped view of these settings (a tunable knob the domain consults) → the tunable-VO variant in `domain-model` §Domain Value Object (it consumes fields from the settings class).
+- A frozen-dataclass domain-shaped view of these settings (a tunable knob the domain consults) → the tunable-VO variant in `domain-value-object` (it consumes fields from the settings class).
 
 ## File location and naming
 
@@ -136,7 +138,7 @@ All three keys are mandatory:
 
 ## Package wiring
 
-Follow `architecture` §Python Package Structure to re-export the settings class from the subpackage `__init__.py`. The DI Singleton wiring is in `container.md`.
+Follow `general-python-package` to re-export the settings class from the subpackage `__init__.py`. The DI Singleton wiring is in `container.md`.
 
 ## Hard stops
 

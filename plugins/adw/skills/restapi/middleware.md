@@ -1,3 +1,5 @@
+<!-- merged from restapi-middleware -->
+
 # REST API Middleware
 
 Produces one ASGI middleware — a class that wraps the whole app to handle **any** cross-cutting request/response concern that belongs to no single route (correlation ids, a body-size cap, rate limiting, timing — an open list, not a fixed catalog). One class per file under `restapi/middleware/<snake>.py`, named `<Name>Middleware`.
@@ -101,11 +103,11 @@ and this middleware is the app-layer defense-in-depth on top of it.
 
 - ASGI types from `starlette.types` (`ASGIApp`, `Scope`, `Receive`, `Send`; add `Message` only if a `__call__` wraps `receive`/`send`). `X | None` over `Optional[X]`; full annotations on `__init__` and `__call__`. No `from __future__ import annotations`.
 - A middleware that rejects emits its body through the shared `ErrorResponse` schema (`from ..schemas.errors import ErrorResponse`) — never hand-roll the `{"code", "message", "context"}` dict, so the wire shape stays single-sourced.
-- When the middleware logs, `import structlog` (+ `structlog.contextvars` helpers) at module top — see `python-style` §Logging.
+- When the middleware logs, `import structlog` (+ `structlog.contextvars` helpers) at module top — see `general-logging`.
 
 ## Package wiring
 
-Register the module in `restapi/middleware/__init__.py` per `architecture` §Python Package Structure.
+Register the module in `restapi/middleware/__init__.py` per `general-python-package`.
 
 ## Hard stops
 
