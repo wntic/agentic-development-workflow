@@ -1,16 +1,14 @@
-<!-- merged from infra-di-provider -->
-
 # DI Provider Wiring
 
 `src/<root>/containers.py` is the composition root. Every concrete class is bound to the protocol it satisfies here, and **only** here. Domain and application code never instantiates concrete types — they receive them through DI.
 
-This skill modifies `containers.py`. It does **not** produce settings classes (`settings.md`), repositories (`infra-sqlalchemy-repository`), domain services or tunable value objects (`domain-service`, `domain-value-object`), or handlers (`application-command` / `application-query`) — those classes must already exist.
+This skill modifies `containers.py`. It does **not** produce settings classes (`settings.md`), repositories (`infra-persistence` `repository.md`), domain services or tunable value objects (`domain-ports` §Domain Service, `domain-model` §Domain Value Object), or handlers (`application` `command.md` / `query.md`) — those classes must already exist.
 
 ## When to use vs. neighbours
 
 - New handler, repository, domain service, tunable value object, settings class, or external adapter → this skill (for the wiring).
 - The class itself → its layer-specific skill.
-- The lifespan teardown of any long-lived connection (engine / client pool, when the graph wires one) → handled in `restapi/main.py` (`restapi-app-bootstrap`, alongside `restapi-endpoint`); lifespan resource cleanup happens there, not in the container.
+- The lifespan teardown of any long-lived connection (engine / client pool, when the graph wires one) → handled in `restapi/main.py` (`restapi` `bootstrap.md`, alongside `restapi` `endpoint.md`); lifespan resource cleanup happens there, not in the container.
 
 ## File touched
 
@@ -106,7 +104,7 @@ When adding a new provider, **find the right section in `containers.py` and inse
 
 ## Adding a UoW factory
 
-When the handler uses a Unit of Work (`pattern-unit-of-work`):
+When the handler uses a Unit of Work (`application` `unit-of-work.md`):
 
 ```python
 uow_factory: providers.Provider[IUnitOfWork] = providers.Factory(
@@ -121,9 +119,9 @@ create_foo_handler: providers.Provider[CreateFooHandler] = providers.Factory(
 
 ## Package wiring
 
-This skill edits `containers.py` directly and does **not** touch any subpackage `__init__.py` — `containers.py` is a top-level module at the project root, not a package member. The classes the container imports (handlers, repositories, services, settings) are re-exported by their own subpackage `__init__.py` (managed by `general-python-package` in the producing skill). No additional package wiring step here.
+This skill edits `containers.py` directly and does **not** touch any subpackage `__init__.py` — `containers.py` is a top-level module at the project root, not a package member. The classes the container imports (handlers, repositories, services, settings) are re-exported by their own subpackage `__init__.py` (managed by `architecture` §Python Package Structure in the producing skill). No additional package wiring step here.
 
-**Import each class from the package that DIRECTLY re-exports it — one `from .module import *` hop — never a grandparent** (`general-imports-conventions`). This bites the nested infra layout: a repository class lives in `infrastructure/<store>/repositories/<x>.py`, so import it from the **`repositories` subpackage** — `from myapp.infrastructure.postgres.repositories import MeetingRepository`, `from myapp.infrastructure.qdrant.repositories import MeetingSearchIndex` — **not** from the `<store>` tech package (`from myapp.infrastructure.postgres import MeetingRepository`). The tech-package form resolves at runtime but mypy reports `[attr-defined]` ("Module ... has no attribute MeetingRepository"), because the intermediate `repositories/__init__.py` has a computed `__all__` mypy can't evaluate across the `from .repositories import *` hop. Classes sitting directly under the tech package (the `engine` / `settings` modules, a capability adapter) are one hop away, so importing them from the tech package is correct.
+**Import each class from the package that DIRECTLY re-exports it — one `from .module import *` hop — never a grandparent** (`architecture` §Imports Conventions). This bites the nested infra layout: a repository class lives in `infrastructure/<store>/repositories/<x>.py`, so import it from the **`repositories` subpackage** — `from myapp.infrastructure.postgres.repositories import MeetingRepository`, `from myapp.infrastructure.qdrant.repositories import MeetingSearchIndex` — **not** from the `<store>` tech package (`from myapp.infrastructure.postgres import MeetingRepository`). The tech-package form resolves at runtime but mypy reports `[attr-defined]` ("Module ... has no attribute MeetingRepository"), because the intermediate `repositories/__init__.py` has a computed `__all__` mypy can't evaluate across the `from .repositories import *` hop. Classes sitting directly under the tech package (the `engine` / `settings` modules, a capability adapter) are one hop away, so importing them from the tech package is correct.
 
 ## What never goes in the container
 

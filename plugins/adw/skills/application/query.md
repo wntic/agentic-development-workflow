@@ -1,5 +1,3 @@
-<!-- merged from application-query -->
-
 # Application Query
 
 Produces a read use case as two or three files in `application/<subdomain>/`:
@@ -12,7 +10,7 @@ Produces a read use case as two or three files in `application/<subdomain>/`:
 
 - Read (get/list/count/search/detect) → this skill.
 - Mutation → `command.md`.
-- Domain filter dataclass that the query handler passes into the repository → `domain-filter` (this skill consumes it).
+- Domain filter dataclass that the query handler passes into the repository → `domain-model` §Domain Filter Record (this skill consumes it).
 - Authorization-scoped read ("things I can see") → still this skill; the query DTO carries `caller_id`.
 
 ## Read models — the CQRS read/write split
@@ -165,11 +163,11 @@ class ListFoosResult:
 
 ## Package wiring
 
-Follow `general-python-package` to register all produced modules in the subpackage `__init__.py`. The DI provider that constructs this handler is the responsibility of `infra-di-provider`.
+Follow `architecture` §Python Package Structure to register all produced modules in the subpackage `__init__.py`. The DI provider that constructs this handler is the responsibility of `infra-integration` `container.md`.
 
 ## Hard stops
 
 - Spec asks the query handler to mutate state → stop, use `command.md`.
-- Spec asks for the response to include a Pydantic model → stop, that translation is the entrypoint's job (`restapi-schema`).
+- Spec asks for the response to include a Pydantic model → stop, that translation is the entrypoint's job (`restapi` `schema.md`).
 - Result shape exceeds ~3 fields and starts looking like a different concept → stop, model the response as a domain value object and return that instead of a `*Result`.
 - Spec asks the handler to log a read event → stop, audit logging belongs in the entrypoint.

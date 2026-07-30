@@ -1,15 +1,13 @@
-<!-- merged from infra-sqlalchemy-repository -->
-
 # Infrastructure SQLAlchemy Repository
 
 Produces one repository class that adapts a domain repository protocol to SQLAlchemy Core + Postgres. The adapter does not inherit from the protocol — structural subtyping at the DI injection site is the contract.
 
 ## When to use vs. neighbours
 
-- The protocol file (`i_foo_repository.py`) → `domain-repository-protocol`.
+- The protocol file (`i_foo_repository.py`) → `domain-ports` §Domain Repository Protocol.
 - The table + Alembic migration → `table.md`.
-- The DI provider that constructs this repository → `infra-di-provider`.
-- The UoW protocol/impl/integration when the repo joins multi-repo transactions → `pattern-unit-of-work`.
+- The DI provider that constructs this repository → `infra-integration` `container.md`.
+- The UoW protocol/impl/integration when the repo joins multi-repo transactions → `application` `unit-of-work.md`.
 
 ## Pick the constructor style
 
@@ -216,7 +214,7 @@ class FooRepository:
 
 7. `get_by_id(id)` raises `NotFoundError` when absent (never returns `None`).
 8. `get_by_<other>(value)` returns `Entity | None` via `result.one_or_none()`.
-9. `list(*, filter)` returns `Sequence[Entity]`; always include `order_by`, and derive it from `filter.sort` — a module-level `_SORT_COLUMNS` map from each sort-enum member to its ordered column (`.asc()` / `.desc()`). This is the sort-key→column translation `domain-filter` Rule 6 delegates to the adapter; never hardcode a single `created_at.desc()` that ignores the caller's chosen sort.
+9. `list(*, filter)` returns `Sequence[Entity]`; always include `order_by`, and derive it from `filter.sort` — a module-level `_SORT_COLUMNS` map from each sort-enum member to its ordered column (`.asc()` / `.desc()`). This is the sort-key→column translation `domain-model` §Domain Filter Record Rule 6 delegates to the adapter; never hardcode a single `created_at.desc()` that ignores the caller's chosen sort.
 10. `count(*, filter)` returns `int` from `select(func.count()).select_from(table)`.
 11. Multi-field filter logic extracts to a module-level `_apply_filter(stmt, filter)`.
 
@@ -232,7 +230,7 @@ class FooRepository:
 15. **Every `IntegrityError` is translated** before escaping the repository. Use `raise _map_integrity_error(exc) from exc` (or an inline mapping for 1–2 cases).
 16. **Mandatory mapper fallback.** The mapper must end by raising a domain exception (`ConflictError("integrity violation", {"constraint": constraint or "unknown", "pgcode": pgcode or "unknown"})`) when no specific case matches. **Never `return exc`** — letting `IntegrityError` leak out of the repository breaks the no-framework-exceptions-cross-layer rule and produces a 500 instead of a 409 at the entrypoint.
 17. **Pick the most specific exception.** Domain subclass beats `ConflictError`. `InUseError` beats `ConflictError` for FK-on-delete.
-18. **Populate `context` with the offending field and the constraint name.** Always include `"constraint": constraint` (the full conventional name) so the entrypoint and tests can assert on it. Field/value keys are added on top; the raise site and its handler test simply agree on them (see `domain-exception`).
+18. **Populate `context` with the offending field and the constraint name.** Always include `"constraint": constraint` (the full conventional name) so the entrypoint and tests can assert on it. Field/value keys are added on top; the raise site and its handler test simply agree on them (see `domain-model` §Domain Exception).
 19. **The constraint full names are load-bearing.** They must match what `table.md` declared. A constraint rename is a breaking change — update this file in the same commit.
 20. **Driver assumption:** the mapper reads `exc.orig.__cause__.constraint_name` (asyncpg) and `exc.orig.pgcode` (Postgres SQLSTATE). The project is locked to asyncpg + Postgres; changing the driver requires updating the access path here.
 
@@ -267,7 +265,7 @@ Don't introduce this preemptively. Add it the first time a third repository forc
 
 ## Package wiring
 
-The `repositories/__init__.py` must re-export the new module via `from .foo_repository import *`. Follow `general-python-package`.
+The `repositories/__init__.py` must re-export the new module via `from .foo_repository import *`. Follow `architecture` §Python Package Structure.
 
 ## Hard stops
 

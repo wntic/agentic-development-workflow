@@ -1,5 +1,3 @@
-<!-- merged from restapi-app-bootstrap -->
-
 # REST API App Bootstrap
 
 One-shot per project. Creates the FastAPI app skeleton so subsequent skills (`endpoint.md`, `schema.md`, `error-responses.md`, etc.) have somewhere to land their work. After bootstrap, the only file this skill ever touches again is `restapi/main.py` (when a router needs to be registered or a CORS-exposed header added), and that's normally folded into the consuming skill.
@@ -10,7 +8,7 @@ One-shot per project. Creates the FastAPI app skeleton so subsequent skills (`en
 
 - First-time FastAPI scaffold for the project → this skill.
 - A new router added afterwards → `endpoint.md` (which also `app.include_router(...)`s itself).
-- A new domain exception is plumbed → `domain-exception` (creates/extends `domain/exceptions.py`). The catalog used by `error_responses(...)` derives from `domain.exceptions.__all__` automatically.
+- A new domain exception is plumbed → `domain-model` §Domain Exception (creates/extends `domain/exceptions.py`). The catalog used by `error_responses(...)` derives from `domain.exceptions.__all__` automatically.
 - A new middleware needs a new HTTP status registered → `error-responses.md` middleware-code path.
 
 **This is the app shell; per-resource work lands inside it.** Produced once per project. `endpoint.md` and `schema.md` add their routers and schema modules into the `main.py` / `schemas/` this skill creates, and `error-responses.md` / `file-transfer.md` extend routes the shell hosts — so the shell must already exist when they run. That is a structural precondition (the artifacts depend on the shell), not a fixed run-schedule this skill dictates. **Application middleware is not part of this bootstrap** — it is declared per app and produced by `middleware.md`. This skill presumes **none** (no request-size cap, no request-id); `main.py` leaves a placeholder where declared middlewares are wired in declared order.
@@ -287,7 +285,7 @@ from .errors import *  # noqa: F403
 __all__ = errors.__all__
 ```
 
-Per-resource schema modules (e.g. `foos.py`) are added later by `schema.md`; each invocation appends a new `from . import <module>` + `from .<module> import *  # noqa: F403` line and extends the package `__all__` (the wildcard re-export idiom and its `# noqa: F403` are `architecture`'s — see `general-python-package`).
+Per-resource schema modules (e.g. `foos.py`) are added later by `schema.md`; each invocation appends a new `from . import <module>` + `from .<module> import *  # noqa: F403` line and extends the package `__all__` (the wildcard re-export idiom and its `# noqa: F403` are `architecture` §Python Package Structure's).
 
 ### `restapi/__init__.py`
 
@@ -309,5 +307,5 @@ Empty file — `restapi/` is the entrypoint package and does not re-export anyth
 - The spec asks to add `domain/error_catalog.py` → stop, the catalog is dynamic; reject as obsolete.
 - The spec asks to attach business logic to lifespan → stop, lifespan handles infrastructure teardown only (disposing the resources the graph's datastores opened).
 - The spec asks the translator to branch on more than `UnauthorizedError` → stop, encode new behavior via subclass `code`/`http_status` instead.
-- `domain/exceptions.py` does not exist yet → stop, run `domain-exception` bootstrap first.
-- `<root>/containers.py` does not exist yet → stop, run `infra-di-provider` first.
+- `domain/exceptions.py` does not exist yet → stop, bootstrap it via `domain-model` §Domain Exception first.
+- `<root>/containers.py` does not exist yet → stop, run `infra-integration` `container.md` first.

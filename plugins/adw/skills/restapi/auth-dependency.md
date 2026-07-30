@@ -1,5 +1,3 @@
-<!-- merged from restapi-auth-dependency -->
-
 # REST API Auth Dependency
 
 A reference rule for choosing the right auth dependency on each route. Both dependencies live in `src/<root>/restapi/dependencies.py` (produced by `bootstrap.md`) and are imported as `from ..dependencies import get_current_user, require_role` inside router files.
@@ -11,8 +9,8 @@ A reference rule for choosing the right auth dependency on each route. Both depe
 - Picking the dependency for a specific endpoint → this skill (`endpoint.md` / `file-transfer.md` consume the decision; the route's own `auth` declaration is what carries it).
 - Writing the endpoint function body and signature → `endpoint.md` (which consumes this decision).
 - Advertising the matching error codes (401, optionally 403) on the route decorator → `error-responses.md`.
-- Adding a new auth-related error class → `domain-exception` then `error-responses.md`.
-- Authorization rules finer than a single role-rank check → push them into the application handler (`application-command` / `application-query`); the handler raises `ForbiddenError`.
+- Adding a new auth-related error class → `domain-model` §Domain Exception then `error-responses.md`.
+- Authorization rules finer than a single role-rank check → push them into the application handler (`application` `command.md` / `query.md`); the handler raises `ForbiddenError`.
 - Modifying `restapi/dependencies.py` itself or adding a third dependency → `bootstrap.md` owns that file; this skill consults the existing two.
 
 ## Rules
@@ -35,7 +33,7 @@ A reference rule for choosing the right auth dependency on each route. Both depe
 
 Don't bind to `user` and leave it unused — code review will read it as "did the author forget to pass caller_id?".
 
-**All auth-derived fields come from `CurrentUser`, never the request.** In a multi-tenant app the token also carries the tenant — stamp it from the bound user (`workspace_id=user.workspace_id`, `tenant_id=user.tenant_id`), exactly like `caller_id=user.id`, and bind `user` (not `_`). A tenant id must never be read from the path/query/body — that would let a client choose another tenant's scope. The command/query DTO carries the field (`application-command` / `application-query` DTO rule 2); the route stamps it here.
+**All auth-derived fields come from `CurrentUser`, never the request.** In a multi-tenant app the token also carries the tenant — stamp it from the bound user (`workspace_id=user.workspace_id`, `tenant_id=user.tenant_id`), exactly like `caller_id=user.id`, and bind `user` (not `_`). A tenant id must never be read from the path/query/body — that would let a client choose another tenant's scope. The command/query DTO carries the field (`application` `command.md` / `query.md` DTO rule 2); the route stamps it here.
 
 ```python
 # read — no caller_id needed

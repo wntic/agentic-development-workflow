@@ -1,5 +1,3 @@
-<!-- merged from restapi-endpoint -->
-
 # REST API Endpoint
 
 Produces one HTTP endpoint for one resource. Routers grow incrementally — this skill adds one route at a time. A "router file" exists once per resource; subsequent endpoint additions extend it.
@@ -11,7 +9,7 @@ Produces one HTTP endpoint for one resource. Routers grow incrementally — this
 - The auth dependency choice (`get_current_user` vs `require_role`) → `auth-dependency.md`.
 - The `responses=error_responses(...)` declaration → `error-responses.md`.
 - Multipart upload or streaming download → `file-transfer.md`.
-- The `Container.<handler>()` provider this route resolves → `infra-di-provider`.
+- The `Container.<handler>()` provider this route resolves → `infra-integration` `container.md`.
 
 ## File location
 
@@ -103,9 +101,9 @@ async def create_foo(
 
 (A read — `list`/`get` — drops the same: the `_: CurrentUser = Depends(get_current_user)` line, the imports, and the `401`. The `caller_id` drop applies only where the command/query carried it.)
 
-### `list` (paginated read) — pagination shape mirrors `domain-filter`
+### `list` (paginated read) — pagination shape mirrors the filter record
 
-Use the **`limit`/`offset`** template when the matching `domain-filter` declared `pagination: limit/offset`. Use the **`cursor`** template when it declared `pagination: cursor`. The two forms are mutually exclusive — never both.
+Use the **`limit`/`offset`** template when the matching `domain-model` §Domain Filter Record declared `pagination: limit/offset`. Use the **`cursor`** template when it declared `pagination: cursor`. The two forms are mutually exclusive — never both.
 
 `limit`/`offset`:
 
@@ -275,7 +273,7 @@ For 204 endpoints, the function return annotation is `-> Response` and the body 
 handler: ListFoosHandler = request.app.state.container.list_foos_handler()
 ```
 
-- The container method name is `<handler_class_snake>()`: `ListFoosHandler` → `list_foos_handler()`. The provider name is mechanical — see `infra-di-provider`.
+- The container method name is `<handler_class_snake>()`: `ListFoosHandler` → `list_foos_handler()`. The provider name is mechanical — see `infra-integration` `container.md`.
 - Always annotate the local `handler:` with the concrete handler class so the type checker sees `execute`.
 - Resolve inside the route function. **Never at module level** — that captures container state too early and breaks per-request container overrides in tests.
 - For create/update with read-back, resolve `handler` and `get_handler` as two separate locals with distinct names.
@@ -321,4 +319,4 @@ app.include_router(foos_router)
 - Spec asks for a `try/except` in the route body → stop, the only sanctioned case is `file-transfer.md`.
 - Spec asks the route to construct a domain entity → stop, that's the handler's job; the route maps body fields to a command.
 - Static collection path would be declared after `/{id}` in the file → stop, reorder.
-- Response schema requires fields the command/query result doesn't provide → stop, add a read-back via `GetFooHandler` (or extend the result DTO via `application-query`).
+- Response schema requires fields the command/query result doesn't provide → stop, add a read-back via `GetFooHandler` (or extend the result DTO via `application` `query.md`).

@@ -1,16 +1,14 @@
-<!-- merged from infra-capability-adapter -->
-
 # Infrastructure Capability Adapter
 
 Produces one adapter class that adapts a domain `ICan<Verb>` capability protocol to a concrete external system. The adapter does not inherit from the protocol — structural subtyping at the DI injection site is the contract. Boundary translation of SDK exceptions to domain exceptions is the central rule.
 
 ## When to use vs. neighbours
 
-- Aggregate-root CRUD over Postgres → `infra-sqlalchemy-repository`, not this skill.
-- The `ICan<Verb>` protocol file → `domain-capability-protocol`.
+- Aggregate-root CRUD over Postgres → `infra-persistence` `repository.md`, not this skill.
+- The `ICan<Verb>` protocol file → `domain-ports` §Domain Capability Protocol.
 - The settings class (`<Tech>Settings`) the adapter consumes → `settings.md`.
 - The DI provider that constructs this adapter → `container.md` (almost always `Singleton`).
-- An in-memory test stand-in for this capability → `test-fake-repository` (the `Fake<Capability>` flavor).
+- An in-memory test stand-in for this capability → `testing-unit` `fake.md` (the `Fake<Capability>` flavor).
 
 ## File layout
 
@@ -85,7 +83,7 @@ class S3FooStorage:
                 response = await s3.get_object(Bucket=self._bucket, Key=key)
                 # `Body.read()` is typed `Any` by the SDK. Narrow it to the protocol's `bytes`
                 # return with `cast` AT THE BOUNDARY — never an inline `# type: ignore[no-any-return]`
-                # (conventions block E; the no-silenced-types gate forbids it).
+                # (conventions block E; mypy reports the error, an inline ignore only hides it).
                 return cast(bytes, await response["Body"].read())
         except ClientError as exc:
             raise _map_client_error(exc, key=key) from exc
@@ -194,7 +192,7 @@ class PyJwtBarTokenVerifier:
 
 ### Exception translation
 
-8. **Catch the SDK's exception family at the boundary and raise a domain exception.** This is the capability-adapter analogue of `infra-sqlalchemy-repository`'s `IntegrityError` rule. Use `raise <DomainException>(...) from exc` so the original cause is preserved for logging.
+8. **Catch the SDK's exception family at the boundary and raise a domain exception.** This is the capability-adapter analogue of `infra-persistence` `repository.md`'s `IntegrityError` rule. Use `raise <DomainException>(...) from exc` so the original cause is preserved for logging.
 9. **The SDK's exception type never escapes the adapter.** No `ClientError`, `HTTPStatusError`, `jwt.InvalidTokenError`, etc., crosses into application or entrypoints. The application layer catches only `DomainError`.
 10. **Mandatory fallback.** When no specific case matches, raise a sensible default: `UpstreamError` for third-party / network failures, `AuthError` for auth-verifier failures, `ValidationError` only when the input was demonstrably malformed. Never return the raw exception; never `pass`.
 11. **Populate `context` with the stable identifying inputs** (`key`, `subject`, `tenant_id`) plus the upstream code/status (`code`, `status`). Tests assert on these, and the central error handler logs them.
@@ -203,29 +201,29 @@ class PyJwtBarTokenVerifier:
 ### No business logic, no logging
 
 13. **Adapters are thin.** No retries (use the SDK's built-in retry policy via settings), no caching, no batching, no domain reasoning. If the spec asks for retry or backoff, it goes in the SDK config or a dedicated wrapper — not in this class body.
-14. **No logging in the adapter.** The central error handler logs the resulting `DomainError`. The calling handler logs success. Adapters never log, never `print`. See `general-logging`.
+14. **No logging in the adapter.** The central error handler logs the resulting `DomainError`. The calling handler logs success. Adapters never log, never `print`. See `python-style` §Logging.
 15. **No instance state across calls** beyond constructor-injected handles. An adapter is safe to share as a `Singleton`.
 
 ### Compensating-transaction contract
 
-16. **Mutating capabilities expose both the forward operation and the undo.** A storage adapter has `upload` *and* `delete`; a publisher that supports retraction has `publish` *and* `retract`. The catch-and-undo logic lives in the application handler (see `pattern-compensating-tx`), not in the adapter. The adapter's job is to make the undo callable.
+16. **Mutating capabilities expose both the forward operation and the undo.** A storage adapter has `upload` *and* `delete`; a publisher that supports retraction has `publish` *and* `retract`. The catch-and-undo logic lives in the application handler (see `application` `compensating-tx.md`), not in the adapter. The adapter's job is to make the undo callable.
 
 ## Inlined typing / import rules
 
 - Domain imports absolute (`from myapp.domain.bars import BarToken` — the entities/VOs the signatures name). **Never import the capability protocol the adapter satisfies** (`ICanStoreFoos`, `ICanFetchBarToken`, …) — structural subtyping needs no import (Rule 2); importing it is a dead F401. Sibling modules within the same `infrastructure/<adapter>/` package use relative imports (`from .settings import BlobsSettings`).
 - No `from __future__ import annotations`. Full annotations on every method.
 - `X | None` over `Optional`. `Mapping[K, V]` / `Sequence[T]` (from `collections.abc`) for read-only views.
-- **A raw SDK value typed `Any` is narrowed with `cast`, never silenced.** An SDK return that mypy sees as `Any` (`response["Body"].read()`, an untyped client method) flowing into a typed protocol return is a `[no-any-return]`/`[return-value]` error — fix it with `cast(<protocol-return-type>, …)` at the boundary, the same way `restapi/dependencies.py` casts the DI-resolved verifier. An inline `# type: ignore[...]` on the adapter body is never sanctioned (`conventions` block E; the `/verify` no-silenced-types gate greps for it).
+- **A raw SDK value typed `Any` is narrowed with `cast`, never silenced.** An SDK return that mypy sees as `Any` (`response["Body"].read()`, an untyped client method) flowing into a typed protocol return is a `[no-any-return]`/`[return-value]` error — fix it with `cast(<protocol-return-type>, …)` at the boundary, the same way `restapi/dependencies.py` casts the DI-resolved verifier. An inline `# type: ignore[...]` on the adapter body is never sanctioned (`conventions` block E): mypy reports the error, and the ignore comment hides it rather than fixing it — the `Any` is still flowing into a typed return.
 - SDK types stay inside the adapter; method signatures use domain types or primitives only.
 - No `Any` except at the immediate raw-SDK-payload boundary (e.g. `payload: dict[str, Any] = response.json()` — convert to the domain type on the next line).
 
 ## Package wiring
 
-The `infrastructure/<adapter>/__init__.py` re-exports the new module via `from .s3_foo_storage import *`. Follow `general-python-package`.
+The `infrastructure/<adapter>/__init__.py` re-exports the new module via `from .s3_foo_storage import *`. Follow `architecture` §Python Package Structure.
 
 ## Hard stops
 
-- Spec asks the adapter to talk to Postgres / SQLAlchemy / Alembic → stop, use `infra-sqlalchemy-repository` and `infra-sqlalchemy-table`.
+- Spec asks the adapter to talk to Postgres / SQLAlchemy / Alembic → stop, use `infra-persistence` `repository.md` and `table.md`.
 - Spec asks the adapter to inherit from `ICanX` explicitly → stop, structural subtyping is the contract.
 - Spec asks the adapter to log → stop, adapters do not log; the central error handler owns failure logs.
 - Spec asks the adapter to retry, cache, or batch internally → stop, configure that on the SDK client (in `containers.py`) or extract a separate wrapper class.

@@ -1,5 +1,3 @@
-<!-- merged from test-integration-isolation -->
-
 # Test — Integration Isolation
 
 One-shot per project. Produces `tests/integration/conftest.py` with the transaction-rollback fixture every other integration skill depends on. The contract this skill enforces: every integration test starts with an empty database; rows the test (and its handler) commit are rolled back at teardown.
@@ -278,7 +276,7 @@ One `.reset()` line per such Singleton. Skip the entire fixture if none exist �
 
 ## Rules
 
-1. **`sf` is the only sanctioned sessionmaker.** Every integration test, fixture, and overridden DI provider binds through `sf` (function-scoped, joins the outer transaction). Direct `async_sessionmaker(bind=engine, ...)` inside `tests/integration/` bypasses rollback and leaks rows. The `test-architecture-rule` skill enforces this with a grep.
+1. **`sf` is the only sanctioned sessionmaker.** Every integration test, fixture, and overridden DI provider binds through `sf` (function-scoped, joins the outer transaction). Direct `async_sessionmaker(bind=engine, ...)` inside `tests/integration/` bypasses rollback and leaks rows. The `testing-unit` `architecture-rule.md` artifact enforces this with a grep.
 2. **`join_transaction_mode="create_savepoint"` is non-negotiable.** Without it, the handler's `session.commit()` either commits to disk (defeating rollback) or raises `InvalidRequestError`. With it, commit() releases a SAVEPOINT inside the outer transaction — exactly what the test needs.
 3. **`expire_on_commit=False`** keeps loaded entities usable after a savepoint release. With `True`, every commit detaches attributes; tests asserting on returned entities then trigger lazy loads against a closed session.
 4. **The outer connection is function-scoped, engine is session-scoped.** One Postgres container + one engine for the whole run; one connection (and one transaction) per test. Reversing this — session-scoped connection — serializes the whole suite and defeats `pytest-xdist`. Reversing the engine — function-scoped — re-establishes the pool every test and adds seconds.
@@ -299,7 +297,7 @@ One `.reset()` line per such Singleton. Skip the entire fixture if none exist �
 
 ## Hard stops
 
-- Container has no overridable `session_factory` provider → stop, run `infra-di-provider` first to introduce the provider and the override hook.
+- Container has no overridable `session_factory` provider → stop, run `infra-integration` `container.md` first to introduce the provider and the override hook.
 - Spec asks to keep `function`-scoped engine (one engine per test) → stop, that's the old slow model; engine is session-scoped, only the connection is function-scoped.
 - Spec asks to drop `join_transaction_mode="create_savepoint"` → stop, that flag is the whole point — without it the handler's commits either escape or fail.
 - Spec asks for session-scoped row fixtures (`make_org` returning the same id across tests) → stop, rows are per-test; factories return fresh rows per call.
@@ -307,4 +305,4 @@ One `.reset()` line per such Singleton. Skip the entire fixture if none exist �
 - Spec asks to add a `truncate_all_tables` teardown alongside rollback → stop, rollback alone is sufficient; truncate is the fallback for DBs without nested transactions and is strictly slower.
 - Project does not use S3 / MinIO but spec includes the bucket fixtures → strip the storage block; no need to start MinIO every session.
 - App has no relational (`uses_bootstrap`) store — e.g. a qdrant/redis-only app → stop emitting the Postgres engine / Alembic / savepoint-`sf` machinery; there is no SQL transaction to roll back. Isolate the client stores by per-test namespace + session-end cleanup (the `s3_prefix` pattern), not by this fixture.
-- Project declares no auth (every endpoint anonymous) but spec includes the JWT override → strip the `jwt_settings` parameter and the `container.jwt_settings.override(...)` / `reset_override()` lines from `real_app`. An auth-less app has no `jwt_settings` provider, so the override raises `AttributeError`; auth is an app-declared feature (see `restapi-auth-dependency`), not a universal.
+- Project declares no auth (every endpoint anonymous) but spec includes the JWT override → strip the `jwt_settings` parameter and the `container.jwt_settings.override(...)` / `reset_override()` lines from `real_app`. An auth-less app has no `jwt_settings` provider, so the override raises `AttributeError`; auth is an app-declared feature (see `restapi` `auth-dependency.md`), not a universal.

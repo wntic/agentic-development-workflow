@@ -1,6 +1,6 @@
 ---
 name: infra-persistence
-description: "House style for persistence adapters under polyglot storage: relational repositories on SQLAlchemy Core (never the ORM) with an IntegrityError-to-domain-exception translator, the write-once `Table` scaffold, client-style store repositories (vector / cache / document), and the Alembic revision discipline the implementer owns."
+description: "House style for persistence adapters under polyglot storage: relational repositories on SQLAlchemy Core (never the ORM) with an IntegrityError-to-domain-exception translator, the write-once `Table` scaffold, client-style store repositories (vector / cache / document), and the Alembic revision discipline that pairs with a schema change."
 when_to_use: Producing a repository adapter (relational or client-style store), a SQLAlchemy `Table`, or authoring the Alembic revision that pairs with a schema change.
 ---
 # Infrastructure — persistence
@@ -23,4 +23,4 @@ router only routes. Read the file matching what you are producing.
 
 ## Declaring `ConflictError` on a first unique-insert (catalog side)
 
-When a change first inserts or renames against a **unique constraint**, the error catalog must declare `ConflictError` (`code: CONFLICT`, HTTP 409) so the relational repository's `IntegrityError` translator (`repository.md`) can map to it. Omit it and a duplicate surfaces as a bare `DomainError` → **HTTP 500 instead of 409**. Phrased for the spec-author / test-author reader: a unique constraint introduced by the change implies a `ConflictError` in `domain/exceptions.py` and a 409 acceptance test. The same earn-per-need rule governs `NotFoundError` / `ValidationError` / `InUseError` — declare each the first time a behaviour needs it, never as a blanket catalog.
+When a change first inserts or renames against a **unique constraint**, the error catalog must declare `ConflictError` (`code: CONFLICT`, HTTP 409) so the relational repository's `IntegrityError` translator (`repository.md`) can map to it. Omit it and a duplicate surfaces as a bare `DomainError` → **HTTP 500 instead of 409**. A unique constraint introduced by the change implies a `ConflictError` in `domain/exceptions.py` and a 409 acceptance test. The same earn-per-need rule governs `NotFoundError` / `ValidationError` / `InUseError` — declare each the first time a behaviour needs it, never as a blanket catalog.

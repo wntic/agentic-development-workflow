@@ -1,5 +1,3 @@
-<!-- merged from test-repository-contract -->
-
 # Test — Repository Contract
 
 Produces one integration-test file per repository. Catches what unit-level coverage cannot: real `UNIQUE` / `FK` violations, real `ON DELETE CASCADE` semantics, the `IntegrityError`-to-domain-exception translator's constraint-name map, and the `onupdate=` clause on `updated_at`.
@@ -7,11 +5,11 @@ Produces one integration-test file per repository. Catches what unit-level cover
 ## When to use vs. neighbours
 
 - A new or modified repository adapter under `infrastructure/postgres/repositories/` (a relational `uses_bootstrap` store) → this skill.
-- A repository on a client-style store (qdrant/redis/…, `infra-store-repository`) → `store-repository-contract.md` (namespace isolation, not `sf`/rollback).
+- A repository on a client-style store (qdrant/redis/…, `infra-persistence` `store-repository.md`) → `store-repository-contract.md` (namespace isolation, not `sf`/rollback).
 - Schema-only checks (an index exists, a migration carries data correctly) → separate flat files under `tests/integration/postgres/` (`test_indexes.py`, `test_<NNNN>_migration.py`) that use `db_settings` and `run_alembic`, not `sf`.
 - HTTP-layer integration (route, auth, OpenAPI) → `endpoint.md`.
 - The rollback `conftest.py` itself → `isolation.md` (one-shot).
-- Pure domain test → `test-domain-entity` / `test-domain-value-object` / `test-domain-enum` / `test-domain-service`.
+- Pure domain test → `testing-unit` `entity.md` / `value-object.md` / `enum.md` / `domain-service.md`.
 
 ## Template(s)
 

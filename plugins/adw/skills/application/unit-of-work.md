@@ -1,5 +1,3 @@
-<!-- merged from pattern-unit-of-work -->
-
 # Application Unit of Work
 
 Produces the cross-cutting transactional-boundary abstraction. Three artifacts:
@@ -14,7 +12,7 @@ Use when a handler writes to **two or more repositories in one transaction** (wr
 
 Skip when:
 
-- Only one repository → the `session_factory` style (`infra-sqlalchemy-repository`) is simpler.
+- Only one repository → the `session_factory` style (`infra-persistence` `repository.md`) is simpler.
 - Atomic group is blob upload + DB write → that's `compensating-tx.md`. The patterns nest: compensation outside, UoW inside.
 - The only motivation is read performance → `expire_on_commit=False` already covers it.
 
@@ -80,7 +78,7 @@ class SqlAlchemyUnitOfWork:
         await self._session.commit()
 ```
 
-The implementation does **not** inherit from `IUnitOfWork` — structural subtyping (see `domain-repository-protocol`).
+The implementation does **not** inherit from `IUnitOfWork` — structural subtyping (see `domain-ports` §Domain Repository Protocol).
 
 ## Template — handler integration
 
@@ -152,12 +150,12 @@ class FooRepository:
 6. **Repositories joining the UoW take `session: AsyncSession`.** The same repository class cannot serve both `session_factory` and UoW callers — split into two adapters if you genuinely need both forms.
 7. **Don't retry a failing UoW in the handler.** Propagate to the central error handler.
 
-## DI wiring (owned by `infra-di-provider`)
+## DI wiring (owned by `infra-integration` `container.md`)
 
-The container wires the UoW as a `Factory` and passes `uow_factory.provider` — the `.provider` attribute exposes the zero-arg callable that matches `Callable[[], IUnitOfWork]`. The provider declarations themselves are `infra-di-provider`'s.
+The container wires the UoW as a `Factory` and passes `uow_factory.provider` — the `.provider` attribute exposes the zero-arg callable that matches `Callable[[], IUnitOfWork]`. The provider declarations themselves are `infra-integration` `container.md`'s.
 
 ## Hard stops
 
-- Only one repository participates → stop, this isn't a UoW case; keep the handler on `session_factory` via `infra-sqlalchemy-repository`.
+- Only one repository participates → stop, this isn't a UoW case; keep the handler on `session_factory` via `infra-persistence` `repository.md`.
 - The "atomic group" spans two backends (Postgres + S3) → stop, this is `compensating-tx.md` or a saga, not a UoW.
 - Spec asks for a UoW per aggregate (`IFooUnitOfWork`) → stop, that's the wrong shape; one shared UoW for the scope.

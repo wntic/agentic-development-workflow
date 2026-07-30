@@ -1,5 +1,3 @@
-<!-- merged from test-integration-authed-client -->
-
 # Test — Integration Authed Client
 
 One-shot per project. Owns the JWT-minting `authed_client` factory and the keys it depends on. Every integration test that needs an authenticated HTTP call consumes this fixture; no other place in the test tree may construct `AsyncClient(transport=ASGITransport(...))` directly for an authenticated request.
@@ -12,7 +10,7 @@ One-shot per project. Owns the JWT-minting `authed_client` factory and the keys 
 - The rollback fixture, `sf`, `real_app` (DI override) → `isolation.md` (one-shot, runs first).
 - The cross-cutting "every protected route returns 401 unauth" / OpenAPI invariants → `discovery.md` (consumes `real_app` directly, not `authed_client`).
 - A per-endpoint integration test → `endpoint.md` (consumes `authed_client`).
-- The auth dependencies on the route side (`get_current_user`, `require_role`) → `restapi-auth-dependency` (route-side, not test-side).
+- The auth dependencies on the route side (`get_current_user`, `require_role`) → `restapi` `auth-dependency.md` (route-side, not test-side).
 
 ## Template(s)
 

@@ -1,18 +1,16 @@
-<!-- merged from test-restapi-endpoint -->
-
 # Test — REST API Endpoint
 
 Produces one integration-test file per endpoint. Self-contained: every test in the file constructs its own state by calling factory fixtures or POSTing through the API; no cross-test state, no shared registries, no cross-file edits when a new endpoint is added.
 
 ## When to use vs. neighbours
 
-- A new or modified endpoint added by `restapi-endpoint` → this skill.
+- A new or modified endpoint added by `restapi` `endpoint.md` → this skill.
 - A new resource introduces several endpoints (create + list + get + update + delete) → invoke this skill once per endpoint file. Sibling files share a per-resource `conftest.py`.
 - The `tests/integration/conftest.py` itself (rollback, container fixtures) → `isolation.md` (one-shot).
 - The `authed_client` factory → `authed-client.md` (one-shot).
 - Cross-cutting "every route 401 unauth" / "every route's OpenAPI codes match `error_responses(...)`" → `discovery.md` (one-shot; discovers from `app.routes` and `app.openapi()`).
 - Repository contract (real DB, no HTTP) → `repository-contract.md`.
-- Pure domain unit test → `test-domain-entity` / `test-domain-value-object` / `test-domain-enum` / `test-domain-service`.
+- Pure domain unit test → `testing-unit` `entity.md` / `value-object.md` / `enum.md` / `domain-service.md`.
 
 ## Template(s)
 
@@ -22,7 +20,7 @@ tests/integration/api/<resource>/
 └── test_<verb>_<noun>.py                        # one file per endpoint
 ```
 
-**The templates below assume an authenticated, role-gated, multi-tenant app** — `authed_client`, `Role.<MEMBER>`, and the `org_id` / cross-org examples are that app's model, not universal. Auth is app-declared (`restapi-auth-dependency`). For a **public route, or an app that declares no auth**, there is no `authed_client`, no `Role`, no `domain.auth` import — drive the route with a plain ASGI client (template below). A tenancy claim is passed to `authed_client` as a keyword arg whose name matches the app's JWT claim (e.g. `organization_id=...`); there is no built-in `org_id` parameter.
+**The templates below assume an authenticated, role-gated, multi-tenant app** — `authed_client`, `Role.<MEMBER>`, and the `org_id` / cross-org examples are that app's model, not universal. Auth is app-declared (`restapi` `auth-dependency.md`). For a **public route, or an app that declares no auth**, there is no `authed_client`, no `Role`, no `domain.auth` import — drive the route with a plain ASGI client (template below). A tenancy claim is passed to `authed_client` as a keyword arg whose name matches the app's JWT claim (e.g. `organization_id=...`); there is no built-in `org_id` parameter.
 
 ### `test_<verb>_<noun>.py` — public route (app declares no auth)
 
@@ -198,7 +196,7 @@ async def test_download_attachment_streams_bytes(authed_client, foo_id, attachme
 8. **Per-resource fixtures live in the sibling `conftest.py`.** Factory fixtures (`make_foo`) return one fresh row per call. Single-row fixtures (`foo_id`) wrap a factory call. Both are function-scoped; no session-scoped row fixtures, ever.
 9. **Error responses are asserted by `code`, not by message.** `assert response.json()["code"] == ConflictError.code` — message text drifts, the `code` constant is the contract. The actual HTTP status is asserted separately.
 10. **No `@pytest.mark.integration` and no `@pytest.mark.asyncio`.** Path-scoped collection covers integration; `pytest-asyncio` is in auto mode. Markers are not needed and not added.
-11. **No mocking inside this file.** No `unittest.mock`, no `monkeypatch` on infrastructure. If a test needs to mock, it isn't an integration test; move it to a domain unit test or to `pattern-compensating-tx` coverage at the repository-contract level.
+11. **No mocking inside this file.** No `unittest.mock`, no `monkeypatch` on infrastructure. If a test needs to mock, it isn't an integration test; move it to a domain unit test or to `application` `compensating-tx.md` coverage at the repository-contract level.
 12. **The S3 prefix is per-test.** Tests that upload/download blobs pass `s3_prefix` through to the route under test (typically via a header, query param, or payload field) and assert only on contents under that prefix.
 
 ## Inlined typing / import rules
@@ -212,10 +210,10 @@ async def test_download_attachment_streams_bytes(authed_client, foo_id, attachme
 - `tests/integration/conftest.py` does not exist or does not provide `sf` / `real_app` → stop, install `isolation.md` first.
 - Spec asks to add a row to `RESOURCES.append(...)` / `_endpoints()` / `_EXPECTED` → stop, those registries are deleted; the equivalent check lives in `discovery.md` and derives from the running app.
 - Spec asks the test to use `unittest.mock` / `MagicMock` / `AsyncMock` / `monkeypatch` → stop, integration tests use the real app + real DB.
-- Spec asserts on a response field that is not in the Pydantic response schema → stop, extend the schema first via `restapi-schema`.
+- Spec asserts on a response field that is not in the Pydantic response schema → stop, extend the schema first via `restapi` `schema.md`.
 - Spec uses `[:4]` or `[:5]` natural-key suffixes "to avoid collisions" → stop, rollback isolation makes the DB empty; fixed names are fine.
 - Spec asserts `len(items) == N + 1` to account for "the test's own row plus seed rows" → stop, rollback isolation drops everything; assert the exact count.
 - Spec uses `AsyncClient(transport=ASGITransport(...))` directly for an authenticated request → stop, use `authed_client(...)`.
 - Spec adds `@pytest.mark.integration` or `@pytest.mark.asyncio` → stop, neither is used; remove.
 - Spec defines a fixture that returns the same row across multiple tests (session-scoped row) → stop, rows are per-test; factory + function-scoped wrapper only.
-- Endpoint touches multipart or streaming and the spec does not describe the encoding → stop, consult `restapi-file-transfer` for the route side first.
+- Endpoint touches multipart or streaming and the spec does not describe the encoding → stop, consult `restapi` `file-transfer.md` for the route side first.
