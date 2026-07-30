@@ -530,3 +530,70 @@ Checking for updates for plugin "adw@wntic-adw" at project scope…
 же делает `install` после `uninstall`. Значит накопление ревизий — поведение и обновления тоже, и
 устаревшая копия несёт **непочиненные** файлы: сразу после обновления в кэше лежала версия
 `test-review.md` с белым списком путей, снятым коммитом `8694762`.
+
+---
+
+## Вопрос 7. Срабатывает ли авто-вызов скилла **внутри сабагента**, без поля `skills:`
+
+Замер под решение о форме каталога скиллов. **Дата: 2026-07-30. Версия: `2.1.220 (Claude Code)`** —
+та же, что у вопросов 1–6, значит результаты сравнимы.
+
+**Стенд — отдельный, новый.** `<scratch>/probe7/probeplug/` — выбрасываемый плагин
+(`"name": "probeplug"`) с одним скиллом `pelican-invoice-parser`. Его `description` описывает разбор
+вымышленного формата: «Apply when parsing or describing a legacy fixed-width PELICAN invoice file —
+the .pel format with 80-column records… Use whenever a task mentions a .pel file, a PELICAN invoice,
+or fixed-width invoice records». В теле — токен `VT4-PELICAN-MERIDIAN-7742`, которого нет ни в одном
+промпте. Три агента различаются **только** frontmatter'ом:
+
+| Агент | `skills:` | `tools:` |
+|---|---|---|
+| `auto-skilltool` | нет | `Skill` |
+| `auto-noskilltool` | нет | `Glob` |
+| `preloaded` | `probeplug:pelican-invoice-parser` | `Glob` |
+
+Промпт тела у всех трёх дословно один: ответить на задачу и закончить строкой
+`TOKEN=<токен или UNKNOWN>`. Диспатч — дочерней сессией из пустого рабочего каталога:
+
+```bash
+claude -p "Dispatch the \`probeplug:<agent>\` subagent with exactly this task and nothing else:
+\"<task>\" Do not attempt the task yourself. Do not invoke any skill yourself. Then report the
+subagent's final line verbatim." --plugin-dir <probe7>/probeplug --permission-mode bypassPermissions
+--output-format stream-json --verbose --forward-subagent-text --debug-file <out>/<tag>.debug
+```
+
+Задача — `Explain the record layout of a legacy PELICAN .pel fixed-width invoice file.`, и отдельным
+прогоном не относящаяся к скиллу: `Explain in two sentences what a CSV file is.`
+
+| # | Агент | Задача | Что сделал сабагент | Токен |
+|---|---|---|---|---|
+| 1 | `preloaded` | про PELICAN | `Glob` ×2 | **есть** |
+| 2 | `auto-noskilltool` | про PELICAN | `Glob` ×6, нашёл файл, прочитать нечем | нет |
+| 3 | `auto-skilltool` | про PELICAN | **сам вызвал `Skill(probeplug:pelican-invoice-parser)`** | **есть** |
+| 4 | `auto-skilltool` | про CSV | ничего не вызвал | нет |
+
+Собственный текст сабагента в прогоне 3, до вызова инструмента: «I'll use the skill built for this
+format.» — затем `tool_use Skill skill=probeplug:pelican-invoice-parser`.
+
+В прогоне 4 сабагент **сам сообщил**, что скилл ему доступен, и что он его не вызвал, посчитав
+вопрос про CSV вне его области. То есть листинг скиллов в контексте сабагента **есть** и без поля
+`skills:`.
+
+**Контроль контаминации.** Родитель не вызывал `Skill` ни в одном из четырёх прогонов (0 вызовов,
+посчитано по `stream-json`). Промпт диспатча токена не содержит:
+`{"subagent_type": "probeplug:auto-skilltool", … "prompt": "Explain the record layout of a legacy
+PELICAN .pel fixed-width invoice file."}`. Строка `Preloaded skill 'probeplug:pelican-invoice-parser'`
+есть в дебаг-логе **только** прогона 1 — в прогоне 3 предзагрузки не было.
+
+**Вывод: ЗАМЕРЕНО.** Авто-вызов по `description` внутри сабагента работает и без поля `skills:` —
+сабагент видит листинг скиллов и вызывает нужный сам. Два условия:
+
+1. **`Skill` обязан быть в `tools:`.** Без него пути к скиллу нет вообще (прогон 2): агент
+   обнаружил файл `Glob`'ом и не смог его прочитать. Это же и есть точная форма F-04: мягкая
+   деградация `skills:` держится только при `Skill` в `tools:`.
+2. **Ложного срабатывания на неподходящей задаче нет** (прогон 4), то есть точность авто-вызова
+   определяется качеством `description`, а не наличием поля.
+
+**Следствие для дизайна.** Предзагрузка `skills:` — не единственный путь знания в роль, и её можно
+менять на узкий `description` плюс `Skill` в `tools:`. Цена предзагрузки известна (вопрос 1: 6810
+против 1996 токенов на `adw:testing-unit`) и платится на старте всегда; авто-вызов платит только за
+те скиллы, которые роль реально применила, но переносит решение на модель.
