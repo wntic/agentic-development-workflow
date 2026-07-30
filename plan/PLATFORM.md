@@ -489,3 +489,44 @@ Grep` создал файл пятью маршрутами через `Bash`. �
 критерий красной линии 7 в её собственной формулировке («сессия встала намертво… не деградация, а
 отказ»), молчаливая обрезка с правдоподобным «completed» — тоже не мягкая деградация. Что с этим
 делать — вопрос канона, не мой.
+
+---
+
+## §13. `claude plugin update` — замер главной сессии, 2026-07-30
+
+B07 помечал обновление плагина как **НЕ ПРОВЕРЕНО**. Замерено при обновлении установки в `adw-probe`
+с ревизии `6289827b402e` на `dfba3c4a8354`. Версия `2.1.220`.
+
+**Вопрос: работает ли `claude plugin update`, и какое имя он принимает?**
+
+Что сделал: три вызова подряд из каталога проекта, где плагин установлен со `scope: project`.
+
+Что наблюдал, дословно:
+
+```
+$ claude plugin update adw
+Checking for updates for plugin "adw" at user scope…
+✘ Failed to update plugin "adw": Plugin "adw" not found
+
+$ claude plugin update adw --scope project
+Checking for updates for plugin "adw" at project scope…
+✘ Failed to update plugin "adw": Plugin "adw" not found
+
+$ claude plugin update adw@wntic-adw --scope project
+Checking for updates for plugin "adw@wntic-adw" at project scope…
+✔ Plugin "adw" updated from 6289827b402e to dfba3c4a8354 for scope project. Restart to apply changes.
+```
+
+**Вывод: ЗАМЕРЕНО.** Два факта, и оба ловушки.
+
+1. **Без скоупа `update` идёт в user scope**, даже если cwd — проект с project-установкой. Ошибка при
+   этом говорит «Plugin not found», а не «не найден в этом скоупе».
+2. **`update` требует квалифицированное имя `<plugin>@<marketplace>`**, тогда как `uninstall` и
+   `list` принимают короткое `adw`. То есть три подкоманды принимают имя по-разному, и неверная форма
+   даёт то же «Plugin not found», что и настоящее отсутствие.
+
+**Третий факт, подтверждающий F-25: `update` не убирает старую ревизию из кэша.** После обновления
+`~/.claude/plugins/cache/wntic-adw/adw/` содержал оба каталога — `6289827b402e` и `dfba3c4a8354`. То
+же делает `install` после `uninstall`. Значит накопление ревизий — поведение и обновления тоже, и
+устаревшая копия несёт **непочиненные** файлы: сразу после обновления в кэше лежала версия
+`test-review.md` с белым списком путей, снятым коммитом `8694762`.
