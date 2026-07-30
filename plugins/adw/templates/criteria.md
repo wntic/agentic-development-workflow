@@ -15,8 +15,10 @@
 
      - A criterion is behaviour observable from outside, not a property of the code. "<request with
        a body over the limit> → 413" is a criterion; "the middleware is configured correctly" is
-       not. If the line contains "correctly", "properly" or "as expected", the criterion has not
-       been written yet — the observable part is still missing.
+       not. If the line contains "correctly", "properly", "works" or "as expected" — or the same
+       words in the language you are writing in — the criterion has not been written yet: the
+       observable part is still missing. These four words are where an unwritten criterion hides
+       most often.
 
      - Every criterion is pinned by at least one test carrying `@pytest.mark.ac("AC-n")` with its
        own number. One criterion may have several marked tests; a marked test that passes is what
