@@ -44,10 +44,31 @@ stack-substrate block; take the names from there, add nothing "just in case", an
 beyond what that block sanctions. Commit this on its own, with a message that says it declares
 dependencies, so that the diff a reviewer reads next is tests and nothing else.
 
+In that same commit, make sure the `ac` marker your tests carry is **registered** in the project's
+pytest configuration. An unregistered marker is not a cosmetic complaint: a marked test raises an
+unknown-marker warning, and in a project that treats warnings as errors it is not collected at all —
+so the criteria you pinned prove nothing, and the cause reads like a mistake of yours. Where that
+configuration lives, and the exact form of the line, are the `conventions` skill's business — take
+them from there rather than reconstructing them here. If the registration is already present, leave
+it as it is.
+
 **3. The tests.** For every criterion in `criteria.md`, at least one test carrying the marker
 `@pytest.mark.ac("AC-n")` with that criterion's own number. One criterion may have several marked
 tests. A criterion with no marked test is not done — say so in your report rather than leaving it
 unmentioned.
+
+**A name that does not exist yet is imported late.** Where the change introduces a module, a class or
+a function that is not in the tree yet, the import of that name does not stand at the module level of
+the test file. It goes inside the body of the test or of the fixture that needs it; where the name is
+needed only for a type annotation, it goes behind `TYPE_CHECKING`, with the annotation written as a
+string. The reason is the whole point of the red phase: every test has to fail **by name**, and every
+`ac` marker has to be registered against a test the run actually collected. A module-level import of
+a name nothing defines yet fails the **collection** of the entire file instead — not one test runs,
+not one marker is recorded, and the absence of an implementation becomes indistinguishable from a
+broken test file. This is not a rule about the project's first change: any change that introduces a
+new name does exactly the same thing, on the tenth change as on the first. Nor is it a rule about all
+imports — a test written against code that already exists imports it normally, at module level, where
+a genuine import error is supposed to be loud.
 
 At least one criterion of the change must be pinned by a test that goes through the **really running
 application** against real backing services, not only by a unit test with in-memory fakes. A suite
