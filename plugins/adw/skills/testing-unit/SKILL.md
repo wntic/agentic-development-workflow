@@ -20,7 +20,7 @@ router only routes. Read the constitution and the topic file for what you are wr
   **read `entity.md` now**.
 - Testing a domain value object → **read `value-object.md` now**.
 - Testing a domain enum's member values → **read `enum.md` now**.
-- Testing a domain service, orchestrator or pure-logic → **read `domain-service.md` now**.
+- Testing a domain service — one with injected protocols, or pure-logic → **read `domain-service.md` now**.
 - Adding a static "no X in layer Y" grep firewall to `tests/unit/test_architecture.py` →
   **read `architecture-rule.md` now**.
 - Anything under `tests/integration/` — a real store, the real app, testcontainers →
@@ -134,7 +134,7 @@ The single sanctioned exception is `monkeypatch.setenv` inside settings-parsing 
 
 ## The `@pytest.mark.ac` criteria marker
 
-Every acceptance criterion in a change's `criteria.md` is pinned by at least one test carrying its marker: `@pytest.mark.ac("AC-2")` on the test function. This is the convention the change cycle cross-checks — a criterion may be ticked only when a **passed** `ac`-marked test for it exists in the run's junit report. Put the marker on the test that most directly exercises the criterion's observable behaviour; one criterion may have several marked tests. A criterion no test can physically pin is a candidate for the manual `[m]` state, flagged explicitly rather than left silently unmarked.
+The marker ties an acceptance criterion to the test that proves it: every criterion in a change's `criteria.md` checklist is pinned by at least one test carrying `@pytest.mark.ac("AC-2")` on the test function. A criterion's box becomes `[x]` when it is **proven by a marked test that ran and passed** — read off the ordinary `pytest` output of the run, not from a report file. Put the marker on the test that most directly exercises the criterion's observable behaviour; one criterion may have several marked tests. A criterion no test can physically pin is a candidate for the manual `[m]` state, flagged explicitly rather than left silently unmarked.
 
 ## A missing fake is a stop, not an improvisation
 
