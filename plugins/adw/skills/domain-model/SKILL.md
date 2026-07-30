@@ -26,8 +26,8 @@ Inside this skill, pick by what the thing *is*:
 
 Outside it:
 
-- The interface a repository or a capability must satisfy, or a rule needing another aggregate's state →
-  `domain-ports`.
+- The interface a repository or a capability must satisfy → `domain-ports`.
+- A rule needing another aggregate's state, or a domain capability → `domain-service`.
 - The single error catalog → `domain-exception`.
 - A DTO crossing the application boundary → `application`. A filter record may be reused there; the
   query DTO wraps it plus authorization context.
@@ -230,7 +230,7 @@ class FooListFilter:
    `ValidationError(message, {"field": "<field>"})`, one raise per rule. Omit the method when there are
    no invariants.
 4. **Cross-aggregate rules do not go here.** Uniqueness, authorization, "does referenced X exist" → a
-   domain service (`domain-ports`). Tunable thresholds → the tunable variant above. An entity only
+   domain service (`domain-service`). Tunable thresholds → the tunable variant above. An entity only
    checks invariants it can see from its own fields.
 5. **No inheritance.** No base classes, no `ABC`. Compose by holding other domain objects.
 6. **Audit timestamps are never entity fields.** `created_at` / `updated_at` are a DB-managed table
@@ -301,7 +301,7 @@ line and append to its `__all__`.
 
 - Spec asks for a frozen object defined by its content, with no identity → stop, that is a value object,
   not an entity. And the reverse: `id: UUID` plus mutation over time is an entity, not a value object.
-- Spec asks for behaviour that needs another aggregate's state → stop, use `domain-ports`.
+- Spec asks for behaviour that needs another aggregate's state → stop, use `domain-service`.
 - Spec asks for repository methods or persistence on any of these → stop, the interface is
   `domain-ports` and the adapter is `infra-persistence`.
 - Spec asks for runtime-extensible "enum" values loaded from config or a database → stop, that is not an
