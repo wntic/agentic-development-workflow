@@ -37,42 +37,42 @@
 | # | Задача | Слой | Зависит от | Статус |
 |---|---|---|---|---|
 | R01 | вычистка: лексика, descriptions, `when_to_use`, `paths` — 48 файлов | ядро | — | ☑ |
-| R02 | слияния 48 → 30, зачистка ссылок, четыре правила F-57 | ядро | R01 | ◐ |
+| R02 | слияния 48 → 30, зачистка ссылок, четыре правила F-57 | ядро | R01 | ☑ |
 | R03 | `skills:` у ролей по признаку «всегда ли применяется», `Skill` в `tools:` | адаптер | R02 | ☐ |
 
 Порядок строгий: **R01 → R02 → R03.** Обоснование порядка — в R00 §Порядок.
 
-### R02 — где остановились
+### Итог R01 + R02, замеренный
 
-Слияния идут по одному на коммит: сначала `git mv` крупнейшего источника (чтобы `git log --follow`
-не порвался), затем слитое тело, затем `git rm` остальных.
+| | до (48 скиллов, `1d72f0c`) | после (30 скиллов) |
+|---|---|---|
+| скиллов | 48 | **30** |
+| байт каталога | 518 069 | **458 463** (−11%) |
+| строк | 7 957 | 8 394 (+5% — перенос по ~100 колонок, не содержание) |
+| сумма `description` | 30 508 | **9 342** (−69%) |
+| `description` + `when_to_use` | — | 13 111, ни одного за потолком 1536 |
+| лексика мёртвых поколений | 250+ | **0** |
+| висячих имён скиллов | 31 | **0** |
+| `paths` | 0 | 24 из 30 |
 
-Сделано 6 из 13: `domain-model` (4→1), `domain-ports` (2→1), `application` (2→1), `patterns` (2→1),
-`architecture` (3→1), `python-style` (2→1). Скиллов в каталоге: **39**, цель 30.
+Шесть скиллов без `paths` осознанно: `architecture`, `python-style`, `conventions`,
+`meta-skill-author`, `meta-uc-author`, `patterns` — кросс-слойные или кросс-layer, глоб там
+не исключил бы ничего. `conventions` — единственный без `When to use vs. neighbours` и
+`Hard stops`: это реестр производных, у него нет соседей и нет артефакта, на котором можно
+остановиться.
 
-Осталось 7 слияний, все по 2→1 кроме одного:
+**Одно отступление от R00:** `infra-persistence` — 540 строк против обещанного порога ~500.
+Причина в переносе строк, не в содержании: байт там стало меньше (26 986 → 25 867). Роутер
+с topic-файлами сознательно не делался — это форма, которую F-10 измеряет как сломанную.
 
-| Цель | Из чего |
-|---|---|
-| `infra-persistence` | `infra-sqlalchemy-repository` + `infra-sqlalchemy-table` |
-| `infra-wiring` | `infra-settings` + `infra-di-provider` |
-| `restapi-app` | `restapi-app-bootstrap` + `restapi-middleware` |
-| `restapi-route-contracts` | `restapi-auth-dependency` + `restapi-error-responses` |
-| `testing-unit-domain` (4→1) | `test-domain-{entity,value-object,enum,service}` |
-| `testing-contract` | `test-repository-contract` + `test-store-repository-contract` |
-| `testing-integration-setup` | `test-integration-isolation` + `test-integration-authed-client` |
+Проверки R02, воспроизводимые:
 
-**Затем два шага, и они обязательны — без них каталог несогласован:**
-
-1. **Сквозная зачистка ссылок.** Слияния оставляют висячие указатели. Замер на 42 скиллах:
-   17 имён в бэктиках не соответствуют ни одному существующему скиллу. Из них 10 — на уже
-   слитые (`application-command`, `domain-entity`, `pattern-unit-of-work`, …), 5 — вперёд на
-   ещё не созданные (`infra-persistence`, `python-style`, …), и **2 не существовали никогда**:
-   `domain-exceptions` (правильно `domain-exception`) и `domain-protocols` (правильно
-   `domain-ports`) — оба в `general-layered-architecture` и `general-typing-conventions`.
-   Это дефект, который R01 не поймал: его грепы искали лексику, а не имена скиллов.
-   Проверка — тот же скрипт, что дал 17: имена в бэктиках с префиксом слоя, которых нет в дереве.
-2. **`CONVENTIONS.md` — индекс переписать под 30 имён.** Сейчас он перечисляет 48.
+```bash
+# висячие имена скиллов — должно вернуть только python-multipart (это пакет PyPI)
+# имена в бэктиках с префиксом слоя, которых нет каталогом в дереве
+# дубли вида `X` … `X` в одной строке — только client/client в таблице профилей
+find plugins/adw -name '*.py' -o -name '*.sh' -o -name 'hooks.json' -o -name 'anchors.json'
+```
 
 ---
 
