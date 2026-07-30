@@ -13,6 +13,12 @@ matters more than expressiveness — a reader who has applied one skill should b
 This skill produces one new `SKILL.md`. It does **not** edit other skills (that is an audit task) or
 design the change format.
 
+**Read the sibling `CONVENTIONS.md` in this skill's own directory before writing anything.** It carries
+the catalog's shared placeholder vocabulary (`Foo`, `Bar`, `myapp` and the names derived from them), the
+index of what each existing skill covers, and the two standing catalog decisions — what is deliberately
+out of scope, and why repositories are not split read/write. Only this file is loaded automatically; the
+sibling is not, so open it rather than working from this summary of it.
+
 ## When to use vs. neighbours
 
 - Adding a brand-new skill → this skill.
@@ -27,9 +33,9 @@ design the change format.
 skills/<skill-name>/SKILL.md
 ```
 
-The directory name **is** the skill name. One `SKILL.md` per directory. A theme large enough that its
-body would exceed ~500 lines takes sibling topic files alongside `SKILL.md`, which then becomes
-navigation — but reach for that only when the body genuinely does not fit, because only `SKILL.md` is
+The directory name **is** the skill name. One `SKILL.md` per directory, plus sibling files when the skill
+needs them — this skill's own `CONVENTIONS.md` is one. A theme large enough that its body would exceed
+~500 lines takes sibling topic files alongside `SKILL.md`, which then becomes navigation — but reach for that only when the body genuinely does not fit, because only `SKILL.md` is
 loaded when a skill is preloaded, so a sibling file is reached by an explicit instruction to read it.
 
 ## Frontmatter
@@ -73,7 +79,8 @@ Description rules:
   in `When to use vs. neighbours`. It is the most expensive text to keep in a description and the first
   to be cut.
 - One paragraph, no bullets, no line breaks. It should read as a sentence.
-- No application-specific names (no `Material`, no `Order`). Use `Foo` / `Bar` per `CONVENTIONS.md`.
+- No application-specific names (no `Material`, no `Order`). Use the placeholder vocabulary from the
+  sibling `CONVENTIONS.md`.
 
 ## Body — the canonical sections
 
@@ -94,7 +101,7 @@ negative routing lives that the description deliberately leaves out.>
 
 ## Template(s)
 
-<One or more literal file templates with placeholder names. Use `Foo`/`Bar` from CONVENTIONS.md. Show
+<One or more literal file templates with placeholder names, from the sibling CONVENTIONS.md. Show
 the entire file content, not a fragment. When the skill covers several kinds (standalone vs UoW-managed
 repository, list vs cursor pagination), give one template per kind under `### <kind>` subheadings.>
 
@@ -127,8 +134,9 @@ are how a reader self-detects "I'm in the wrong skill".>
 2. **Keep the body concise.** Once a skill is loaded its body stays in context for the rest of the
    session, so every line is a recurring cost. State what to do rather than narrating how or why. A
    body past ~500 lines is the signal to split into sibling topic files.
-3. **Templates are literal, not prose.** Show the entire file to be written. Use placeholders — `Foo`,
-   `<root>`, `<subdomain>` — consistently with `CONVENTIONS.md`.
+3. **Templates are literal, not prose.** Show the entire file to be written. Use the placeholders the
+   sibling `CONVENTIONS.md` defines — `Foo`, `<root>`, `<subdomain>` — and read that file for the full
+   set rather than guessing at it.
 4. **One artifact kind per skill, or one set that always arrives together.** Two unrelated artifact
    types means two skills. Producing 2–3 tightly-coupled files (command + handler; protocol + adapter)
    is fine, and so is one skill covering several artifacts a single change always adds at once.
@@ -220,9 +228,9 @@ A skill that fits no shape cleanly probably mixes concerns; split it.
 
 ## After writing the file
 
-Add a one-line entry to `CONVENTIONS.md` under the matching layer heading, in the order the skills are
-conceptually used, in the form: `` - `<skill-name>` — <one sentence that complements, not duplicates,
-the description>. ``
+Add a one-line entry to the index in the sibling `CONVENTIONS.md`, under the matching layer heading and
+in the order the skills are conceptually used, in the form:
+`` - `<skill-name>` — <one sentence that complements, not duplicates, the description>. ``
 
 ## Hard stops
 

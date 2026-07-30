@@ -100,8 +100,7 @@ Thirty skills. A skill covering several artifact kinds says so.
 
 `Foo` is the primary aggregate, `Bar` the secondary. Derived names follow mechanically — the exhaustive
 derivation registry (path and class derivation, store profiles, the library substrate) lives in the
-[`conventions`](conventions/SKILL.md) reference skill; the examples here only anchor the shared
-vocabulary:
+`conventions` skill; the examples here only anchor the shared vocabulary:
 
 - Module: `foo.py`, `bar.py`
 - Subdomain package: `domain/foos/`, `application/foos/`,
