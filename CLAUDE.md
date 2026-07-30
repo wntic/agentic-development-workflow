@@ -11,32 +11,46 @@ development workflow for Python backends. It is not an application.
 history under tags; [`HISTORY.md`](HISTORY.md) is the pointer, and it is short. Read it before
 proposing any mechanism — most plausible-sounding ideas have already been built and measured once.
 
-The design is settled — [`WORKFLOW.md`](WORKFLOW.md) — and **step 1 of its §10 build order is
-closed**: the adapter is written and installed at least once. The plugin now ships
-`plugins/adw/skills/` (the house-style catalog), `agents/` (the four roles), `commands/`
-(`spec`, `build`, `accept`, `commit`) and `templates/` (the artifacts those commands fill) — and
-deliberately no script and no hooks, ever. The build record, task by task, is `plan/`; what the install
-actually did is [`plan/INSTALL-REHEARSAL.md`](plan/INSTALL-REHEARSAL.md), and the findings step 1 left
-undecided are [`plan/FINDINGS.md`](plan/FINDINGS.md).
+The design is settled — [`WORKFLOW.md`](WORKFLOW.md). **Steps 1–3 of its §10 build order are closed.**
+The adapter is written and installed (step 1); two real changes shipped in the probe project
+`adw-probe` — 001 a short-URL service, 002 a read-model exposing a creation timestamp — each accepted,
+tagged and defect-logged (steps 2 and 3). The plugin ships `plugins/adw/skills/` (30 house-style
+skills), `agents/` (the four roles), `commands/` (`spec`, `build`, `accept`, `commit`) and `templates/`
+— and deliberately no script and no hooks, ever.
 
-**Next is step 2: one real change in a real project** — no second iteration of the workflow before a
-feature ships (red line 3). Findings from step 1 are decided at step 4, not while step 2 runs.
+Since then the skill catalog was restructured: the compressed 13-theme catalog was reverted to the 48
+pre-merge skills and re-merged into 30, with the dead generations' vocabulary purged. Decision and
+rationale: [`plan/R00-skills-restructuring.md`](plan/R00-skills-restructuring.md). Status table and the
+measured before/after: [`plan/INDEX.md`](plan/INDEX.md).
+
+**Do not start a new iteration of the workflow.** Red line 3 is at parity — two shipped features
+against two completed passes of workflow edits — so the next action is change 003 in `adw-probe`, not
+another mechanism. Findings wait for step 4, and several of them are *measured by* 003: fixing them
+first destroys the measurement.
+
+Where the record lives: the build record task by task is `plan/`; what the install actually did is
+[`plan/INSTALL-REHEARSAL.md`](plan/INSTALL-REHEARSAL.md); open questions are
+[`plan/FINDINGS.md`](plan/FINDINGS.md), read by header (`grep '^## F-'`) and never whole.
 
 **Platform knowledge in this repo was two generations stale**, which is part of why the previous
-attempt is gone. Checked against `code.claude.com/docs` on 2026-07-29: subagent frontmatter now
-carries `tools`, `disallowedTools`, `model`, `permissionMode`, `maxTurns`, `skills` (preloads full
-skill content at startup), `mcpServers`, `hooks`, `memory`, `background`, `effort`,
-`isolation: worktree`, `color`, `initialPrompt`; plugin subagents ignore `hooks`, `mcpServers` and
-`permissionMode`; agent files hot-reload; and custom commands and skills are now one registry.
-Before designing any mechanism, **check the docs rather than recalling them** — four mechanisms of
-the previous attempt were made redundant by features that already existed.
+attempt is gone. [`plan/PLATFORM.md`](plan/PLATFORM.md) is now the authority: eight questions measured
+by experiment against `2.1.220`, each with the command and its output. A fact absent from it is **not
+measured**, and "I don't know" is the correct answer. What it covers: the accepted forms of a plugin
+skill name in `skills:` (and that a wrong form is silently ignored); that `tools:` without
+`Write`/`Edit` does not prevent writing when `Bash` is present; what `maxTurns` counts and that hitting
+it is silent; that plugin subagents ignore `permissionMode` / `hooks` / `mcpServers`; agent-file
+hot-reload and its new-directory caveat; that `skills:` accepts a block list and preloads every entry;
+**that a subagent auto-invokes a skill by description with no `skills:` field at all, provided `Skill`
+is in its `tools:`**; and that `paths` does not require the matching file to exist yet.
+
+Before designing any mechanism, **check the docs rather than recalling them** — four mechanisms of the
+previous attempt were made redundant by features that already existed.
 
 ## Language
 
-**English for everything the workflow ships or produces** — skills, commands, agents, scripts and
-their comments, code, commit messages. The dev record (`research/`) and dialogue follow
-the user's language, which is Russian. Commands the workflow ships defer to *the consuming
-project's* dialogue language.
+**English for everything the workflow ships or produces** — skills, commands, agents, code, commit
+messages. The dev record (`plan/`, `research/`) and dialogue follow the user's language, which is
+Russian. Commands the workflow ships defer to *the consuming project's* dialogue language.
 
 ## The design
 
@@ -104,13 +118,24 @@ Each names a measured failure, not a taste. Full form in `WORKFLOW.md` §9.
 ## How skills work
 
 A skill is **knowledge injected into context, not an executor**. Skills auto-invoke on their
-frontmatter `description` + `when_to_use` (≤1536 chars combined, works in subagents too).
+frontmatter `description` + `when_to_use` — capped at 1536 chars combined, and measured to work in a
+subagent with no `skills:` field when `Skill` is in its `tools:` (`plan/PLATFORM.md` question 7). All
+30 carry `description` + `when_to_use`; 24 also carry `paths`, the six without it being the
+cross-cutting ones where a glob would exclude nothing.
 
-Every skill body has the same four sections: *When to use vs. neighbours · Template(s) · Rules ·
-Hard stops*. A theme past ~500 lines becomes a thin router `SKILL.md` plus one `<topic>.md` per
-artifact — only `SKILL.md` is injected on auto-invocation, so the router's pointers are
-instructions the agent acts on, not cross-references. Format details:
-`plugins/adw/skills/CONVENTIONS.md`. Add a skill with `meta-skill-author`.
+The canonical body is four sections — *When to use vs. neighbours · Template(s) · Rules · Hard stops* —
+with two optional helpers (*Inlined typing / import rules*, *Package wiring*). A reference skill that
+produces no file omits `Template(s)`. **Five skills deviate**: they carry templates outside a
+`## Template(s)` section because a merged skill covering several artifacts organizes by topic instead.
+That is recorded, not endorsed — F-58.
+
+**There are no router skills and no topic files.** A theme past ~500 lines was the documented signal to
+split into a thin `SKILL.md` plus `<topic>.md` siblings; that shape is deliberately not used here,
+because only `SKILL.md` is preloaded, so a pointer to a sibling is a read the agent must perform and may
+not (F-10). The one non-`SKILL.md` file in the catalog is
+`plugins/adw/skills/meta-skill-author/CONVENTIONS.md` — the shared placeholder vocabulary, the catalog
+index and the format canon, a supporting file of the one skill that reads it. Add a skill with
+`meta-skill-author`.
 
 Two standing rules:
 
@@ -154,7 +179,8 @@ A *consuming* project's definition of "green" is its own `make check` — `ruff`
 and nothing of ours. Adding a script back is a decision governed by red lines 2, 6 and 7.
 
 The workflow's own cycle is `/adw:spec` → `/adw:build` → `/adw:accept`, specified in `WORKFLOW.md` §6
-and written in `plugins/adw/commands/`. It has not yet been run against a real change — that is step 2.
+and written in `plugins/adw/commands/`. It has been run against two real changes in `adw-probe`, both
+accepted; the defect logs are in `plan/FINDINGS.md` under the step-2 and step-3 headings.
 Inside a consuming project everything the plugin ships carries the `adw:` prefix — `/adw:build`,
 `adw:test-author`, `adw:conventions`. In this repository the commands and skills load instead from the
 `.claude/` symlinks and answer to short names (`/spec`), while the four cycle agents are not symlinked
