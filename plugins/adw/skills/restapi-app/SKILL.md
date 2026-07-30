@@ -1,13 +1,13 @@
 ---
-name: restapi-app-bootstrap
-description: The one-shot FastAPI entrypoint shell — `restapi/main.py`, `error_handler.py`, `schemas/errors.py`, `schemas/__init__.py`, plus `dependencies.py` when the app has auth. Registers the DI container, the lifespan teardown, CORS and the central `DomainError` handler. Every router and schema lands inside this shell, so it exists first.
-when_to_use: Laying the FastAPI entrypoint for a project for the first time, or changing the app shell, the central error handler or the lifespan teardown.
+name: restapi-app
+description: The FastAPI entrypoint shell and the middleware that wraps it — `main.py`, `error_handler.py`, `schemas/errors.py`, `schemas/__init__.py`, plus `dependencies.py` when the app has auth; the DI container, lifespan teardown, CORS and the central `DomainError` handler; and one raw ASGI middleware class per cross-cutting per-request concern.
+when_to_use: Laying the FastAPI entrypoint for a project, changing the app shell or the central error handler or the lifespan teardown, or adding cross-cutting per-request handling that wraps every route.
 paths: src/**/restapi/**
 ---
 
-# REST API App Bootstrap
+# REST App
 
-One-shot per project. Creates the FastAPI app skeleton so subsequent skills (`restapi-endpoint`, `restapi-schema`, `restapi-error-responses`, etc.) have somewhere to land their work. After bootstrap, the only file this skill ever touches again is `restapi/main.py` (when a router needs to be registered or a CORS-exposed header added), and that's normally folded into the consuming skill.
+The shell every route lands inside, and the middleware layers that wrap it. The shell is laid once per project so subsequent work (`restapi-endpoint`, `restapi-schema`, `restapi-route-contracts`) has somewhere to go; a middleware is added whenever a cross-cutting per-request concern appears. After bootstrap, the only file this skill ever touches again is `restapi/main.py` (when a router needs to be registered or a CORS-exposed header added), and that's normally folded into the consuming skill.
 
 **Auth is conditional, not presumed.** An app has auth when some endpoint is non-anonymous, or a token-verifier capability is wired — there is no separate flag for it. The auth machinery this skill can emit — the auth dependencies in `restapi/dependencies.py` (`get_current_user` / `require_role`) and the `UnauthorizedError` branch of `error_handler.py` — is produced **only** for an app that declares auth. `dependencies.py` is FastAPI's home for shared route dependencies, but the auth pair is its only current occupant, so an auth-less app (e.g. an all-anonymous API) has **no** `dependencies.py` today and a bare `DomainError` translator with no auth import or branch. (A non-auth shared route dependency, if one is ever introduced, lives in the same file independent of auth.) Each affected file below shows the authed form and, where they differ, the public (auth-less) variant.
 
@@ -16,9 +16,11 @@ One-shot per project. Creates the FastAPI app skeleton so subsequent skills (`re
 - Laying the FastAPI entrypoint for the first time → this skill.
 - A new router added afterwards → `restapi-endpoint` (which also `app.include_router(...)`s itself).
 - A new domain exception is plumbed → `domain-exception` (creates/extends `domain/exceptions.py`). The catalog used by `error_responses(...)` derives from `domain.exceptions.__all__` automatically.
-- A new middleware needs a new HTTP status registered → `restapi-error-responses` middleware-code path.
+- A middleware introducing a new HTTP status that needs registering → `restapi-route-contracts`, the middleware-code path.
+- Logic for **one** route → `restapi-endpoint`, a thin route over an application handler.
+- Authenticating or authorizing a route → `restapi-route-contracts`; that is a FastAPI dependency, **not** a middleware.
 
-**This is the app shell; per-resource work lands inside it.** Produced once per project. `restapi-endpoint` and `restapi-schema` add their routers and schema modules into the `main.py` / `schemas/` this skill creates, and `restapi-error-responses` / `restapi-file-transfer` extend routes the shell hosts — so the shell must already exist when they run. That is a structural precondition (the artifacts depend on the shell), not a fixed run-schedule this skill dictates. **Application middleware is not part of this bootstrap** — each one is its own artifact, produced by `restapi-middleware`. This skill presumes **none** (no request-size cap, no request-id); `main.py` leaves a placeholder where they are wired in, after CORS.
+**This is the app shell; per-resource work lands inside it.** Produced once per project. `restapi-endpoint` and `restapi-schema` add their routers and schema modules into the `main.py` / `schemas/` this skill creates, and `restapi-route-contracts` / `restapi-file-transfer` extend routes the shell hosts — so the shell must already exist when they run. That is a structural precondition (the artifacts depend on the shell), not a fixed run-schedule this skill dictates. **The shell presumes no middleware** — no request-size cap, no request id. `main.py` leaves a placeholder where they are wired in, after CORS, and the middleware section below is the form each one takes.
 
 ## Template(s)
 
@@ -300,6 +302,87 @@ Per-resource schema modules (e.g. `foos.py`) are added later by `restapi-schema`
 
 Empty file — `restapi/` is the entrypoint package and does not re-export anything.
 
+## Middleware
+
+One ASGI middleware per file under `restapi/middleware/<snake>.py`, named `<Name>Middleware`, handling a
+cross-cutting request/response concern that belongs to no single route — a correlation id, a body-size
+cap, rate limiting, timing. That list is open, not a fixed catalog.
+
+Two shapes, picked by whether the middleware ever stops a request. Both share the same skeleton — the
+non-`http` passthrough, `app` plus config on `self` — and differ only in whether `__call__` grows a reject
+branch.
+
+### Middleware — pass-through (observes or annotates, never short-circuits)
+
+```python
+import uuid
+
+from starlette.types import ASGIApp, Receive, Scope, Send
+from structlog.contextvars import bind_contextvars, clear_contextvars
+
+__all__ = ["RequestIdMiddleware"]
+
+
+class RequestIdMiddleware:
+    def __init__(self, app: ASGIApp, header: str) -> None:
+        self._app = app
+        self._header = header.lower().encode()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        incoming = dict(scope["headers"]).get(self._header, b"").decode()
+        request_id = incoming or str(uuid.uuid4())
+        bind_contextvars(request_id=request_id)
+        try:
+            await self._app(scope, receive, send)
+        finally:
+            clear_contextvars()
+```
+
+### Middleware — short-circuit with an error (rejects before the route runs)
+
+```python
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+from ..schemas.errors import ErrorResponse
+
+__all__ = ["MaxRequestSizeMiddleware"]
+
+_PAYLOAD_TOO_LARGE = 413
+
+
+class MaxRequestSizeMiddleware:
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self._app = app
+        self._max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        declared = dict(scope["headers"]).get(b"content-length")
+        if declared and int(declared) > self._max_bytes:
+            await _send_error(send, _PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "Request body too large")
+            return
+        await self._app(scope, receive, send)
+
+
+async def _send_error(send: Send, status: int, code: str, message: str) -> None:
+    body = ErrorResponse(code=code, message=message).model_dump_json().encode()
+    await send(
+        {"type": "http.response.start", "status": status,
+         "headers": [(b"content-type", b"application/json")]}
+    )
+    await send({"type": "http.response.body", "body": body})
+```
+
+The cap reads the **declared** `Content-Length` and rejects before the body is read, so nothing is
+buffered. It does not catch a chunked upload that omits the header, or a client that lies about its
+length; that absolute byte ceiling is an **edge** concern — a reverse proxy's `client_max_body_size` —
+and this middleware is the app-layer defence in depth on top of it.
+
 ## Rules
 
 1. **One-shot.** This skill runs once per project. After bootstrap, this file set is stable; updates to `main.py` go through whichever skill needs them (typically `restapi-endpoint` appending an `include_router(...)` line).
@@ -308,10 +391,60 @@ Empty file — `restapi/` is the entrypoint package and does not re-export anyth
 4. **Resource teardown lives in `lifespan`**, not in the container. The container builds the long-lived resources; `main.py`'s lifespan disposes whatever the app's datastores actually opened — the relational engine when one exists, store clients otherwise, nothing when none are disposable. Never a hardcoded `engine().dispose()` in an app that has no engine provider.
 5. **DI access is uniform:** `request.app.state.container.<name>()`. Never module-level resolution, never `@inject` decorators on routes.
 
+6. **One class per file**, named `<Name>Middleware`, under `restapi/middleware/`. It is a **raw ASGI
+   callable**, never a `starlette.middleware.base.BaseHTTPMiddleware` subclass — that buffers the whole
+   body and breaks streaming and the size cap.
+7. **Exact ASGI shape.** `__init__(self, app: ASGIApp, <config…>)` stores `app` plus the config on `self`;
+   `async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None`. Configuration arrives
+   as constructor keyword arguments, passed at `app.add_middleware(Cls, **config)`, and the constructor
+   validates them at wiring time so a bad value fails on startup rather than mid-request.
+8. **Pass non-`http` scopes straight through** —
+   `if scope["type"] != "http": await self._app(scope, receive, send); return`. Lifespan and websocket
+   scopes must not be intercepted.
+9. **A middleware that rejects a request emits an `ErrorResponse`-shaped JSON body** —
+   `{"code": "<STABLE_STRING>", "message": "…", "context": {}}` — with the status it owns, and `return`s
+   **before** `await self._app(...)`. A pass-through always reaches that call. Keep the code string
+   stable: the API contract and `MIDDLEWARE_ERRORS` in `schemas/errors.py` key on it
+   (`restapi-route-contracts`).
+10. **No business or domain logic.** A middleware is transport-level — bytes, headers, timing, the
+    structlog context. Anything needing a domain entity, a repository or an application handler is not a
+    middleware.
+11. **`self` holds only `app` plus config**, built once at wiring time. Any per-request value is a local
+    inside `__call__` — the request id, the declared content length — never an instance attribute.
+12. **Ordering is significant: Starlette wraps the last-added outermost.** Each `app.add_middleware(...)`
+    call wraps the app as a new **outermost** layer, so the **last** one added is the first to see a
+    request and the last to touch a response. A middleware that must see the raw request before anything
+    else — a size cap — is therefore added **last**. The relative order is the consuming app's decision.
+
+## Inlined typing / import rules
+
+- Middleware: ASGI types from `starlette.types` (`ASGIApp`, `Scope`, `Receive`, `Send`; add `Message` only
+  when `__call__` wraps `receive` / `send`). A middleware that rejects emits its body through the shared
+  `ErrorResponse` schema (`from ..schemas.errors import ErrorResponse`) — never hand-roll the
+  `{"code", "message", "context"}` dict, so the wire shape stays single-sourced. When it logs,
+  `import structlog` and the `structlog.contextvars` helpers at module top (`python-style`).
+- `X | None` over `Optional[X]`, full annotations on every signature, no
+  `from __future__ import annotations`.
+
+## Package wiring
+
+`restapi/__init__.py` stays empty — the entrypoint package re-exports nothing. `restapi/middleware/__init__.py`
+**does** re-export its classes (`from .max_request_size import *`, …), so `main.py` can import them
+through the collapsed package form. Mechanics and the reason for the asymmetry: `architecture`,
+carve-out 2.
+
 ## Hard stops
 
 - The spec asks to add `domain/error_catalog.py` → stop, the catalog is dynamic; reject as obsolete.
 - Asked to attach business logic to lifespan → stop, lifespan handles infrastructure teardown only: disposing the resources the app's datastores opened.
 - The spec asks the translator to branch on more than `UnauthorizedError` → stop, encode new behavior via subclass `code`/`http_status` instead.
 - `domain/exceptions.py` does not exist yet → stop, run `domain-exception` bootstrap first.
-- `<root>/containers.py` does not exist yet → stop, run `infra-di-provider` first.
+- `<root>/containers.py` does not exist yet → stop, `infra-wiring` first.
+- A concern is for one route rather than all → stop, use `restapi-endpoint` plus a handler.
+- A middleware needs a domain entity, a repository or an application handler → stop, that is application
+  logic.
+- A middleware authenticates or authorizes → stop, that is a route dependency (`restapi-route-contracts`).
+- Reaching for `BaseHTTPMiddleware` → stop, use the raw ASGI class; `BaseHTTPMiddleware` buffers the body
+  and breaks the size cap and streaming downloads.
+- A middleware introduces an HTTP status with no domain exception behind it → stop, register the code via
+  `restapi-route-contracts`, the middleware-code path.
