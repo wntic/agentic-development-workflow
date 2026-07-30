@@ -322,6 +322,9 @@ configuration those commands read, because it is house style and has no other ho
   (e.g. `argon2.*`). This is the **only** sanctioned way to silence a missing-stub error; never an
   inline `# type: ignore` on a content module.
 - Adding a package: `uv add <lib>`, or `uv add --dev <lib>` for a dev dep.
+- Starting a project: `uv init --package <name>`. The `--package` flag is what produces the
+  `src/<name>/` layout with a `__init__.py` and a build backend — plain `uv init` lays a flat
+  single-module project instead, which does not match anything in this house style.
 
 ## F. Multi-context apps
 

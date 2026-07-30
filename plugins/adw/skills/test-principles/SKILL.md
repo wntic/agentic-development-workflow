@@ -127,6 +127,31 @@ Two coupling points are deliberate and load-bearing:
 - **Builders**: `_make_<entity>(**overrides)` or `_<entity>(name="alpha")` for the short form. Underscore prefix marks them as file-private.
 - **Inline failure-injection subclasses**: `_Raise<X>Repo(FakeFooRepository)` at module scope, underscore-prefixed, overriding exactly the method that should fail.
 
+## The acceptance-criteria marker
+
+A test that pins an observable acceptance criterion carries `@pytest.mark.ac("AC-n")`, where `n` is the
+criterion's number:
+
+```python
+@pytest.mark.ac("AC-3")
+async def test_duplicate_name_raises_conflict(sf: async_sessionmaker[AsyncSession]) -> None:
+    ...
+```
+
+Rules for it:
+
+- **One marker per criterion, on the test that proves it.** A criterion proven by two tests carries the
+  marker on both; a test that pins no criterion carries none.
+- **The marker is not a category.** It does not replace the file's placement or its name — it records
+  *which stated criterion this test is the evidence for*, so a reader can go from a criterion to its proof
+  and back.
+- **Register it** in `pyproject.toml` under `[tool.pytest.ini_options] markers` — an unregistered marker
+  is a `PytestUnknownMarkWarning`, and under `-W error` a failure.
+- **`pytest -m ac` selects every criterion-pinning test**, which is what makes the marker worth carrying.
+  Be aware that the selection spans the whole suite: markers left behind by earlier, already-accepted
+  work are selected too, so "does this criterion have a test" is answered by looking for its own
+  `AC-n`, never by the count of selected tests.
+
 ## When to parametrize — and when not to
 
 **Use `@pytest.mark.parametrize`** when:

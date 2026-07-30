@@ -201,5 +201,10 @@ The `puts` and `deletes` lists are the test-side observation surface. **No `fail
 - Spec asks to add failure-injection flags to a repository fake → stop, use the inline-subclass pattern at the handler test module scope instead.
 - Spec asks to model `InUseError` in the default repository fake → stop, that's an inline subclass case at the test site (cross-aggregate references aren't modeled in-memory).
 - Real adapter's exception contract cannot be located → stop, the fake's contract is copied, not invented.
+- A handler test needs a fake that does not exist under `tests/unit/fakes/` → **stop and write it with
+  this skill.** Do not improvise a stand-in at the test site, do not reach for a mock, and do not
+  weaken the assertion to avoid needing it. A missing fake is a stop, not an invitation to improvise —
+  the whole point of the fake is that its exception contract matches the real adapter's, and an
+  improvised stub silently does not.
 - Spec uses `MagicMock` / `AsyncMock` to "implement" the fake → stop, hand-write the class.
 - Spec adds `__all__` or an `__init__.py` re-export → stop, the fakes directory is direct-import only by design.
