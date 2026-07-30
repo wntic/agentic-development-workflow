@@ -302,7 +302,7 @@ async def test_search_against_unreachable_store_raises_upstream_error() -> None:
 
 ### Relational
 
-1. **Every test takes `sf: async_sessionmaker[AsyncSession]`.** The rollback fixture from `test-integration-isolation` makes the DB empty at test start and discards everything at teardown. No marker, no other DB fixture.
+1. **Every test takes `sf: async_sessionmaker[AsyncSession]`.** The rollback fixture from `testing-integration-setup` makes the DB empty at test start and discards everything at teardown. No marker, no other DB fixture.
 2. **`_<aggregate>()` builder is a module-level `def`, not a `@pytest.fixture`.** Defaults must be valid; no-override construction succeeds.
 3. **No unique-suffix natural keys.** Rollback isolation guarantees an empty DB; `name="alpha"` is safe across tests. The old `uuid4().hex[:8]` floor is obsolete here.
 4. **`assert exc.value.context["constraint"] == "<constraint_name>"` on every `ConflictError`.** This is the only place the `IntegrityError`-to-domain-exception translator's name map is exercised end-to-end — the fake-based unit-test path can't verify it.
@@ -341,7 +341,7 @@ replace the SQLAlchemy and Postgres imports; the `store` fixture is annotated wi
 
 ## Hard stops
 
-- `tests/integration/conftest.py` missing or `sf` not provided → stop, install `test-integration-isolation` first.
+- `tests/integration/conftest.py` missing or `sf` not provided → stop, install `testing-integration-setup` first.
 - Spec asks for `@pytest.mark.integration` or `@pytest.mark.asyncio` → stop, neither is used.
 - Spec asks the test to `dispose_engine` / start its own connection / instantiate `async_sessionmaker(bind=engine)` directly → stop, that bypasses rollback; use `sf`.
 - Spec asks to assert on `len(items) == N + 1` or use `any(...)` defensively → stop, rollback isolation makes exact equality correct.

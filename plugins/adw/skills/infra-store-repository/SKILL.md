@@ -11,13 +11,13 @@ Produces one repository class that adapts a domain repository protocol to a clie
 
 ## When to use vs. neighbours
 
-- The aggregate's store is the relational bootstrap store (SQLAlchemy/Postgres) → `infra-sqlalchemy-repository`.
-- The protocol file (`i_foo_repository.py`) → `domain-repository-protocol`.
+- The aggregate's store is the relational bootstrap store (SQLAlchemy/Postgres) → `infra-persistence`.
+- The protocol file (`i_foo_repository.py`) → `domain-ports`.
 - A single-action `ICan<Verb>` port (not an aggregate's collection) → `infra-capability-adapter`.
-- The settings class the store's connection factory consumes → `infra-settings`.
-- The DI provider that constructs this repository → `infra-di-provider`.
+- The settings class the store's connection factory consumes → `infra-wiring`.
+- The DI provider that constructs this repository → `infra-wiring`.
 - An in-memory test stand-in for handler unit tests → `test-fake-repository`.
-- The integration contract test that drives this adapter against the real store → `test-store-repository-contract`.
+- The integration contract test that drives this adapter against the real store → `testing-contract`.
 
 ## File layout
 
@@ -209,7 +209,7 @@ class FooRepository:
 ### Records ↔ entities
 
 6. **Private, pure mapping helpers** (`_record_to_entity` / `_point_to_entity` / `_entity_to_record`): no IO, no logging. IDs serialize as strings unless the SDK is UUID-native.
-7. **The record shape is a design decision, not a transcription.** What becomes the key, what goes into the payload, what the store indexes — the client-store analogue of "column types are judgment" in `infra-sqlalchemy-table`. The spec's notes guide it.
+7. **The record shape is a design decision, not a transcription.** What becomes the key, what goes into the payload, what the store indexes — the client-store analogue of "column types are judgment" in `infra-persistence`. The spec's notes guide it.
 8. **An entity is reconstructed from its own stored data.** Never substitute query-side values for stored ones (e.g. a search result's vector is the point's own, not the query's); when the read path doesn't consume a stored field, omit it explicitly rather than faking it.
 
 ### Exception translation
@@ -234,13 +234,13 @@ class FooRepository:
 
 ## Package wiring
 
-The `repositories/__init__.py` must re-export the new module via `from .foo_repository import *`. Follow `general-python-package`.
+The `repositories/__init__.py` must re-export the new module via `from .foo_repository import *`. Follow `architecture`.
 
 ## Hard stops
 
-- The aggregate's store is relational (the `postgres` profile) → stop, use `infra-sqlalchemy-repository`.
-- Spec asks for SQL, SQLAlchemy, or a `Table` for this aggregate → stop, that is the relational path (`infra-sqlalchemy-repository` + `infra-sqlalchemy-table`).
+- The aggregate's store is relational (the `postgres` profile) → stop, use `infra-persistence`.
+- Spec asks for SQL, SQLAlchemy, or a `Table` for this aggregate → stop, that is the relational path (`infra-persistence`).
 - Spec asks the repository to create or migrate the collection/index/bucket → stop, provisioning is not the repository's concern.
-- Spec asks for atomicity across this store and another (two stores in one transaction) → stop, there is no cross-store transaction; compensation lives in the handler (`pattern-compensating-tx`).
+- Spec asks for atomicity across this store and another (two stores in one transaction) → stop, there is no cross-store transaction; compensation lives in the handler (`patterns`).
 - Spec asks the repository to log → stop, repositories never log.
 - The port is a single-action capability (`ICan<Verb>`), not an aggregate's collection → stop, use `infra-capability-adapter`.

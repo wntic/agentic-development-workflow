@@ -7,7 +7,7 @@ paths: tests/**
 
 # Test — Principles (reference)
 
-Every other `test-*` skill consults this one. The rules here are the **catalog-level testing constitution**; the producer skills (`test-domain-entity`, `test-application-handler`, `test-repository-contract`, `test-restapi-endpoint`, …) restate only the slices that apply to writing their specific artifact.
+Every other `test-*` skill consults this one. The rules here are the **catalog-level testing constitution**; the producer skills (`testing-unit-domain`, `test-application-handler`, `testing-contract`, `test-restapi-endpoint`, …) restate only the slices that apply to writing their specific artifact.
 
 This skill also carries the **catalog's own guard**: a machine inventory of every hard-won lesson, so no reorganisation of the knowledge base can quietly lose one (see the next section).
 
@@ -45,10 +45,10 @@ The guard is deliberately rewritten **before** any large catalog reorganisation,
 
 | Layer | Skill | Touches IO? | Target speed (per test) | What it catches |
 |-------|-------|-------------|-------------------------|-----------------|
-| Domain unit | `test-domain-entity`, `test-domain-value-object`, `test-domain-enum`, `test-domain-service` | No | < 10 ms | Identity equality, `__post_init__` invariants, enum values, pure-logic services, single-rule policies |
+| Domain unit | `testing-unit-domain` | No | < 10 ms | Identity equality, `__post_init__` invariants, enum values, pure-logic services, single-rule policies |
 | Application handler unit | `test-application-handler` (+ `test-fake-repository`) | No (in-memory fakes) | < 50 ms | Handler orchestration, PATCH semantics, normalization, domain-exception propagation, compensating-tx undo |
 | App construct smoke | `test-discovery-invariants` | No (constructs the app, no DB) | < 100 ms | Construct-time wiring + framework deps the type/lint/unit layers miss (e.g. `python-multipart`), OpenAPI schema build |
-| Repository contract | `test-repository-contract` | Real Postgres via testcontainers, transaction-rollback isolation | < 500 ms | `IntegrityError` translation, constraint-name map, cascades, `onupdate=`, `get_by_*` semantics |
+| Repository contract | `testing-contract` | Real Postgres via testcontainers, transaction-rollback isolation | < 500 ms | `IntegrityError` translation, constraint-name map, cascades, `onupdate=`, `get_by_*` semantics |
 | REST endpoint | `test-restapi-endpoint` | Real app + real Postgres via ASGI | < 1 s | Routing, DI wiring, auth (when declared), request/response validation, tenancy/authorization scoping (when the app declares multi-tenancy) |
 | Discovery invariants | `test-discovery-invariants` | Real app, no DB calls | < 500 ms | Global properties (every protected route 401s; every code in OpenAPI matches `error_responses(...)`; CORS; 413) |
 | Architecture | `test-architecture-rule` | None (greps the source tree) | < 100 ms | Static "no X in layer Y" invariants |
@@ -99,7 +99,7 @@ tests/
 
 Two coupling points are deliberate and load-bearing:
 
-1. **A fixture may consume a setting defined down-tree** — the canonical case being `real_app` (in `tests/integration/conftest.py`) consuming `jwt_settings` from down-tree `tests/integration/api/conftest.py`, **when the app declares auth**. Pytest's fixture resolution walks the conftest hierarchy from the *consuming test* outward, so a test under `tests/integration/api/` resolves the down-tree `jwt_settings` before pytest binds it into `real_app`. The down-tree-resolution mechanism is the universal, load-bearing point; the `jwt_settings` instance is **conditional** — an auth-less app has no such fixture and `real_app` does not consume or override it (see `test-integration-isolation`). Either way **`real_app` is only usable from tests under `tests/integration/api/`** — repository contract tests don't need it.
+1. **A fixture may consume a setting defined down-tree** — the canonical case being `real_app` (in `tests/integration/conftest.py`) consuming `jwt_settings` from down-tree `tests/integration/api/conftest.py`, **when the app declares auth**. Pytest's fixture resolution walks the conftest hierarchy from the *consuming test* outward, so a test under `tests/integration/api/` resolves the down-tree `jwt_settings` before pytest binds it into `real_app`. The down-tree-resolution mechanism is the universal, load-bearing point; the `jwt_settings` instance is **conditional** — an auth-less app has no such fixture and `real_app` does not consume or override it (see `testing-integration-setup`). Either way **`real_app` is only usable from tests under `tests/integration/api/`** — repository contract tests don't need it.
 2. **No `tests/unit/fakes/__init__.py` and no `__all__`** — handler tests import fakes via the full path (`from tests.unit.fakes.fake_foo_repository import FakeFooRepository`). This is deliberate: fakes never leak into the production import graph.
 
 ## Fixture vs. builder
@@ -111,7 +111,7 @@ Two coupling points are deliberate and load-bearing:
 | Examples | `_make_foo(**overrides) -> Foo`, `_foo(name="alpha") -> Foo`, `_policy(existing_keys=...)` | `sf`, `real_app`, `authed_client`, `make_foo` (per-resource factory that hits the real DB) |
 | Why | Builders are pure-Python; calling them in a fixture adds ceremony without value. Fixtures live in conftests; importing a builder across files duplicates plumbing. | Fixtures handle setup/teardown lifecycle (sessions, transactions, ASGI transports) — that's what they're for. |
 
-**Rule:** if the thing you're constructing has no setup or teardown beyond its `__init__`, write a module-level `def`, not a fixture. The producer skills (`test-domain-entity`, `test-application-handler`) require this — see their rule lists.
+**Rule:** if the thing you're constructing has no setup or teardown beyond its `__init__`, write a module-level `def`, not a fixture. The producer skills (`testing-unit-domain`, `test-application-handler`) require this — see their rule lists.
 
 ## Fixture scope rules
 

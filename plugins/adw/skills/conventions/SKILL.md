@@ -55,11 +55,11 @@ repository dependency, fall back to the subdomain of the first domain entity it 
 
 **A value object used as a dependency is a tunable VO, and its wiring follows.** A value object is
 normally built inline at its use site. When it is instead *injected* into a handler or a domain
-service, it is the **tunable variant** (`domain-value-object`, the config-knob view of an env
+service, it is the **tunable variant** (`domain-model`, the config-knob view of an env
 threshold): DI-wired as a `providers.Singleton` constructed field-by-field from a settings class, not
 from an inline literal. The stem pairing `<Stem>Tunable` ← `<Stem>Settings` (e.g. `LockoutTunable` ←
 `LockoutSettings`) is an **advisory default, not load-bearing** — the real binding is the DI wiring
-(`infra-di-provider`), which sources the tunable from whichever settings fields match. A stem mismatch
+(`infra-wiring`), which sources the tunable from whichever settings fields match. A stem mismatch
 is fine: `LockoutTunable(max_attempts=auth_settings.provided.max_attempts, …)` from a single
 `AuthSettings` is correct. Name them to match when a dedicated settings class exists; reuse a broader
 one (and let the stems differ) when the knobs naturally live there. The field-by-field construction
@@ -101,7 +101,7 @@ two distinct files — `postgres/repositories/meeting_repository.py` and
 `qdrant/repositories/meeting_search_index.py`. An aggregate-only stem would collide.
 
 **Which repository skill applies is decided by the store profile, not the vendor.** A relational store
-→ `infra-sqlalchemy-repository` (SQLAlchemy Core). **Any** client-style store →
+→ `infra-persistence` (SQLAlchemy Core). **Any** client-style store →
 `infra-store-repository`, one vendor-agnostic skill covering every vector / cache / document backend
 (qdrant, redis, chroma, pinecone, mongo, …). A new client-style backend is a **profile row in block C
 plus its package**, never a new skill — the same way one `infra-capability-adapter` serves boto3,
@@ -110,8 +110,8 @@ httpx, PyJWT and openai.
 **Imports and package mechanics are not restated here.** A referenced type resolves to its owning
 module: same-subdomain domain types use a relative `.module` import, cross-subdomain a relative
 `..subdomain`, cross-layer an absolute `<package>.domain.<subdomain>` import, stdlib its canonical
-import, builtins none. `general-imports-conventions` owns the rules; `general-python-package` owns
-`__all__` and the `from .module import *` re-export contract the collapsed import form depends on.
+import, builtins none. `architecture` owns the rules, `__all__`, and the `from .module import *` re-export contract the
+collapsed import form depends on.
 
 ## C. Store profiles
 
@@ -126,7 +126,7 @@ backend's SQL/SDK internals:
 | `redis` | `client` / `client` | `Redis` | `from redis.asyncio import Redis` | `generic` | no |
 | *(unknown)* | `client` / `client` | `object` | — | `generic` | no |
 
-- **Relational** also selects the repository skill (block A): yes → `infra-sqlalchemy-repository`;
+- **Relational** also selects the repository skill (block A): yes → `infra-persistence`;
   no → `infra-store-repository`. Adding a client-style backend is one row here.
 - **Relational yes** → the repository reuses the shared SQLAlchemy engine + `session_factory` bootstrap
   under `infrastructure/postgres/` (postgres is the only relational profile today), and gets a
@@ -269,7 +269,7 @@ suite.
   must not carry it.
 - **Dev** (always present): `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `testcontainers`, `httpx`.
 - **Auth test bootstrap** (only when the app has auth **and** its token scheme is asymmetric — an
-  RSA/EC keypair, e.g. RS256, which is the scheme `test-integration-authed-client` uses today):
+  RSA/EC keypair, e.g. RS256, which is the scheme `testing-integration-setup` uses today):
   `cryptography`. That conftest mints RS256 tokens from a generated RSA keypair, and building the
   keypair needs it. An app that has auth yet verifies symmetric (HS256) or opaque tokens generates no
   keypair and must **not** carry it — a `cryptography` dev dep nothing imports is a stray package.
@@ -359,7 +359,7 @@ Dedup is by identifier: the same name and shape across contexts → one artifact
 
 ## G. See also
 
-- `general-imports-conventions` — relative vs absolute reach, the same-package collapse, the
+- `architecture` — relative vs absolute reach, the same-package collapse, the
   `from .module import *` re-export contract.
-- `general-python-package` — one class per module, `__all__` placement, subpackage `__init__.py`
+- `architecture` — one class per module, `__all__` placement, subpackage `__init__.py`
   mechanics.

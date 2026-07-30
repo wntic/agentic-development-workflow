@@ -270,7 +270,7 @@ class ListFoosResult:
    a later read or retry sees it — the handler may
    `try: <pipeline> except <Err>: <load-or-mutate>; entity.status = FAILED; await repo.update(entity); raise`.
    The `except` writes the caller-visible state and **re-raises**: never swallows, never
-   logs-and-re-raises (`general-logging`), and chains with `raise ... from exc` (`B904`). Anything beyond
+   logs-and-re-raises (`python-style`), and chains with `raise ... from exc` (`B904`). Anything beyond
    these two — translating a `DomainError`, catching to swallow, control flow via exceptions — stays
    forbidden.
 6. **Log on success only, after the mutation completes.** The event name is snake_case past tense
@@ -312,7 +312,7 @@ class ListFoosResult:
 
 ## Package wiring
 
-Follow `general-python-package` to register every produced module in the subpackage `__init__.py`. The DI
+Follow `architecture` to register every produced module in the subpackage `__init__.py`. The DI
 provider that constructs a handler is `infra-wiring`.
 
 ## Hard stops

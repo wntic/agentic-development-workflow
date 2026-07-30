@@ -15,7 +15,7 @@ Produces one unit-test file per handler module. Runs in milliseconds against in-
 - A fake the test needs that doesn't exist yet → `test-fake-repository` (write the fake first).
 - A test that drives the handler through the HTTP surface → `test-restapi-endpoint` (integration, not unit).
 - A test for a domain entity / value object / enum / service → the matching `test-domain-*` skill.
-- A real-DB test of the repository the handler calls → `test-repository-contract`.
+- A real-DB test of the repository the handler calls → `testing-contract`.
 
 ## File location
 
@@ -171,7 +171,7 @@ The simulated exception type is incidental — `RuntimeError` here, or any uncau
 ## Rules
 
 1. **Top-level `async def test_*` functions.** No class wrappers. `pytest-asyncio` runs in auto mode — never add `@pytest.mark.asyncio` or `@pytest.mark.integration`.
-2. **`_CALLER = uuid.uuid4()` at module scope** so command construction stays terse. The templates show the **authenticated** form: `caller_id=_CALLER` is passed because the command carries `caller_id`. For a command in an app that declares no auth (or dispatched only by anonymous routes), the command has no `caller_id` field — drop the `caller_id=_CALLER` argument and the `_CALLER` constant (mirrors `application-command` DTO rule 2). `_CALLER` is the authenticated-form convention, not a blanket one.
+2. **`_CALLER = uuid.uuid4()` at module scope** so command construction stays terse. The templates show the **authenticated** form: `caller_id=_CALLER` is passed because the command carries `caller_id`. For a command in an app that declares no auth (or dispatched only by anonymous routes), the command has no `caller_id` field — drop the `caller_id=_CALLER` argument and the `_CALLER` constant (mirrors `application` DTO rule 2). `_CALLER` is the authenticated-form convention, not a blanket one.
 3. **AAA blocks separated by blank lines.** Arrange — construct fake(s) and handler. Act — call `handler.execute(...)`. Assert — read state back through the fake or assert raised exception. The visual separation makes the structure scannable.
 4. **The handler is constructed inside each test, not in a fixture.** Handlers are cheap to build; per-test instantiation keeps each test self-contained.
 5. **Read state back via fake's domain methods** (`await repo.get_by_id(...)`), not via attribute peeking on `repo._store`.
@@ -179,7 +179,7 @@ The simulated exception type is incidental — `RuntimeError` here, or any uncau
 7. **For exception cases, use `pytest.raises(<DomainExceptionType>) as exc`** and assert on `exc.value.context["..."]` when context shape is the contract being pinned (especially `context["constraint"]` for `ConflictError` — that's the test that proves the integrity-error map is wired right at the repo level even though we're using a fake; the fake's exception copies the real repo's constraint name).
 8. **Compensation tests assert call-record state**, not implementation details. For a storage capability, `storage.puts` and `storage.deletes` are the observation surface. Assert the right key was undone, in the right order, for the right reason — but never assert that a specific Python call site invoked them.
 9. **One-off failure injection uses an inline `_RaiseXxxRepo(FakeFooRepository)` subclass at module scope.** Subclass name starts with `_` (file-private). Override exactly the method under test — never re-stub the whole protocol.
-10. **A handler dependency typed as a CONCRETE domain service (not a Protocol) cannot be faked structurally — subclass it.** Repositories/capabilities are injected as `Protocol`s, so a structural fake satisfies them. A domain *service* is often injected as its concrete class (`def __init__(self, quota_policy: QuotaPolicy)`), and mypy rejects a structural `FakeQuotaPolicy` there — a stand-in must be a true subtype. Two sanctioned shapes: (a) **subclass the service** — `class _StubQuotaPolicy(QuotaPolicy)` overriding the method under test and bypassing the real `__init__` (`def __init__(self) -> None: pass`, since the test doesn't need its injected deps); or (b) **inject via a Protocol** — give the service a `domain-capability-protocol`-style interface and type the handler ctor to it, so a structural fake works like any other. Prefer (b) when the service is itself injected widely; (a) is the lighter test-only path. Do NOT reach for `# type: ignore` on the ctor or a `MagicMock` — that is the concrete-stub smell from notes/13. (Same guidance in `test-fake-repository`.)
+10. **A handler dependency typed as a CONCRETE domain service (not a Protocol) cannot be faked structurally — subclass it.** Repositories/capabilities are injected as `Protocol`s, so a structural fake satisfies them. A domain *service* is often injected as its concrete class (`def __init__(self, quota_policy: QuotaPolicy)`), and mypy rejects a structural `FakeQuotaPolicy` there — a stand-in must be a true subtype. Two sanctioned shapes: (a) **subclass the service** — `class _StubQuotaPolicy(QuotaPolicy)` overriding the method under test and bypassing the real `__init__` (`def __init__(self) -> None: pass`, since the test doesn't need its injected deps); or (b) **inject via a Protocol** — give the service a `domain-ports`-style interface and type the handler ctor to it, so a structural fake works like any other. Prefer (b) when the service is itself injected widely; (a) is the lighter test-only path. Do NOT reach for `# type: ignore` on the ctor or a `MagicMock` — that is the concrete-stub smell from notes/13. (Same guidance in `test-fake-repository`.)
 
 ## Assert strength — pin the contract, not a coincidence (§9)
 
@@ -247,7 +247,7 @@ An assert is **strong** only if a plausibly-wrong body would FAIL it; an assert 
 ## Hard stops
 
 - Spec asks for `MagicMock` to stub the repo or storage → stop, use a fake or an inline `_RaiseXxxRepo` subclass.
-- Spec needs the test to hit a real database or HTTP endpoint → stop, that's `test-repository-contract` or `test-restapi-endpoint`.
+- Spec needs the test to hit a real database or HTTP endpoint → stop, that's `testing-contract` or `test-restapi-endpoint`.
 - Spec asks for log assertions on the handler's success event → stop, those are side effects; tests assert on returned state.
 - Required fake does not exist in `tests/unit/fakes/` → stop, produce it first via `test-fake-repository`.
 - Spec asks to add `fail_next_create=True`-style flags to the fake → stop, use the inline subclass at the test module scope instead.

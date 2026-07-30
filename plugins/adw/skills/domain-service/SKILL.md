@@ -11,10 +11,10 @@ Produces one domain service: a stateless class that orchestrates a domain rule u
 
 ## When to use vs. neighbours
 
-- Rule enforceable from one entity's own fields → not a service; use `__post_init__` on the entity (see `domain-entity`).
+- Rule enforceable from one entity's own fields → not a service; use `__post_init__` on the entity (see `domain-model`).
 - Rule needs to query other aggregates or a domain capability → this skill.
-- Rule is a numeric/boolean threshold (max rows, retention days) → not a service; model as a tunable value object via `domain-value-object`.
-- Orchestrating a use case across multiple aggregates → that's a command/query handler, not a service (see `application-command`).
+- Rule is a numeric/boolean threshold (max rows, retention days) → not a service; model as a tunable value object via `domain-model`.
+- Orchestrating a use case across multiple aggregates → that's a command/query handler, not a service (see `application`).
 
 ## File location and naming
 
@@ -84,10 +84,10 @@ service has collaborators to inject.
 
 ## Package wiring
 
-Follow `general-python-package` to register the module in the subpackage `__init__.py` and append to its `__all__`. The DI provider that constructs this service is the responsibility of `infra-di-provider`, not this skill.
+Follow `architecture` to register the module in the subpackage `__init__.py` and append to its `__all__`. The DI provider that constructs this service is the responsibility of `infra-wiring`, not this skill.
 
 ## Hard stops
 
 - Method count grows past ~4–5 distinct rules → split into multiple services grouped by concern.
 - The class needs to call a SQLAlchemy session directly → stop, model the access as a protocol method on the existing repository and depend on the protocol.
-- The class needs to read settings → stop, wrap the relevant settings in a tunable value object (see `domain-value-object`) and inject that.
+- The class needs to read settings → stop, wrap the relevant settings in a tunable value object (see `domain-model`) and inject that.

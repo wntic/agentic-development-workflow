@@ -132,7 +132,7 @@ class ICanVerifyFooToken(Protocol):
 
 ## Package wiring
 
-Follow `general-python-package` to add `from .i_<name> import *` to the subdomain's `__init__.py` and
+Follow `architecture` to add `from .i_<name> import *` to the subdomain's `__init__.py` and
 extend its `__all__`.
 
 ## Hard stops

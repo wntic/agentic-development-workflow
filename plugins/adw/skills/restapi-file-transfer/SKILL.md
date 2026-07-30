@@ -9,14 +9,14 @@ paths: src/**/restapi/**
 
 File transfer breaks the otherwise-uniform CRUD shape: routes accept multipart bodies or return raw bytes. The conventions below must be repeated verbatim in any new file-transfer route — they encode several non-obvious rules and the single route-body `try/except` exemption.
 
-The non-file-specific rules — parameter order, handler resolution via `request.app.state.container`, route ordering vs `/{id}`, the "no `try/except`, no logging, no business logic in routes" prohibitions — are owned by `restapi-endpoint`. Read that skill first; this one only adds the upload/download specializations on top. **Auth follows `restapi-endpoint`'s authed/public idiom:** the templates below show the authenticated form; a public route (`auth: anonymous`) — or any route in an app that declares no auth — drops the auth dependency, its `domain.auth`/`..dependencies` imports, the `401`/`403`, and the `caller_id`. The auth dependency is never a frozen role; it is the slot `restapi-auth-dependency` fills.
+The non-file-specific rules — parameter order, handler resolution via `request.app.state.container`, route ordering vs `/{id}`, the "no `try/except`, no logging, no business logic in routes" prohibitions — are owned by `restapi-endpoint`. Read that skill first; this one only adds the upload/download specializations on top. **Auth follows `restapi-endpoint`'s authed/public idiom:** the templates below show the authenticated form; a public route (`auth: anonymous`) — or any route in an app that declares no auth — drops the auth dependency, its `domain.auth`/`..dependencies` imports, the `401`/`403`, and the `caller_id`. The auth dependency is never a frozen role; it is the slot `restapi-route-contracts` fills.
 
 ## When to use vs. neighbours
 
 - Multipart upload route or streaming-binary download route → this skill.
 - A regular JSON CRUD route → `restapi-endpoint` (this skill does not apply).
-- The handler that consumes the bytes (upload) or produces them (download) → `application-command` / `application-query`. The handler's capability protocol for storage lives in `domain-capability-protocol`.
-- The route's auth dependency (or none) → `restapi-auth-dependency`; it is not pre-wired here. Wiring `MaxRequestSizeMiddleware` and CORS `expose_headers` lives in `restapi/main.py`; this skill only extends `expose_headers` if a new response header is added.
+- The handler that consumes the bytes (upload) or produces them (download) → `application`. The handler's capability protocol for storage lives in `domain-ports`.
+- The route's auth dependency (or none) → `restapi-route-contracts`; it is not pre-wired here. Wiring `MaxRequestSizeMiddleware` and CORS `expose_headers` lives in `restapi/main.py`; this skill only extends `expose_headers` if a new response header is added.
 
 ## Upload templates
 
@@ -47,7 +47,7 @@ async def import_xlsx(
 Rules:
 
 - `file: UploadFile` for the file slot. Companion scalar/UUID fields use `= Form(...)` — they share the same multipart envelope.
-- `await file.read()` loads the body into memory. This is bounded **only** when the app declares a request-size cap middleware (`restapi-middleware`'s `MaxRequestSizeMiddleware`), which rejects oversize requests before the route runs. A request-size cap is a per-app `restapi.middlewares` choice, not a given: if the app declares none, the body is unbounded and `file.read()` is **not** safe — the app must add a size cap (or the route must stream-and-bound the read) before relying on it. The templates here assume the app declares such a cap.
+- `await file.read()` loads the body into memory. This is bounded **only** when the app declares a request-size cap middleware (`restapi-app`'s `MaxRequestSizeMiddleware`), which rejects oversize requests before the route runs. A request-size cap is a per-app `restapi.middlewares` choice, not a given: if the app declares none, the body is unbounded and `file.read()` is **not** safe — the app must add a size cap (or the route must stream-and-bound the read) before relying on it. The templates here assume the app declares such a cap.
 - **Advertise `413`** in `responses=error_responses(...)` **only when the app declares a request-size cap middleware** — 413 is produced by that middleware (its code registered in `MIDDLEWARE_ERRORS`), not by a domain exception, so an app without one has no 413 to advertise, and the OpenAPI discovery check (`test-discovery-invariants`) would reject the orphan code. The `413` shown in the decorator templates is present because those templates assume a size-capped app; drop it for an app that declares no size middleware.
 - The route does not parse the file — pass bytes to the handler via the command DTO (`file_data: bytes`).
 
@@ -138,7 +138,7 @@ def _export_filename(ext: str) -> str:
 
 ### CORS `expose_headers`
 
-`Content-Disposition` is not a default CORS-exposed header, so a browser strips it from the response visible to JS. **If the app has CORS configured** (`restapi-app-bootstrap`), a download route must ensure its response header is in the CORS middleware's `expose_headers` list — the bootstrap leaves that list **empty** by default, so a download route adds `"Content-Disposition"` (and any other non-default header it sets, e.g. `X-Total-Count`) there:
+`Content-Disposition` is not a default CORS-exposed header, so a browser strips it from the response visible to JS. **If the app has CORS configured** (`restapi-app`), a download route must ensure its response header is in the CORS middleware's `expose_headers` list — the bootstrap leaves that list **empty** by default, so a download route adds `"Content-Disposition"` (and any other non-default header it sets, e.g. `X-Total-Count`) there:
 
 ```python
 expose_headers=["Content-Disposition"],
@@ -154,7 +154,7 @@ An app with no CORS configured has no such list to extend. **Verify `expose_head
 
 ## What never goes in a file-transfer route
 
-- **Writing the upload to disk inside the route.** Pass bytes (or an `UploadFile`) to the handler; storage is an infrastructure concern (`infra-sqlalchemy-repository`-style capability adapters).
+- **Writing the upload to disk inside the route.** Pass bytes (or an `UploadFile`) to the handler; storage is an infrastructure concern (`infra-persistence`-style capability adapters).
 - **Computing or enforcing a per-route size limit.** `MaxRequestSizeMiddleware` is the single chokepoint. If a specific route needs a tighter cap, add it as an application-layer rule that raises `ValidationError` after parsing.
 - **Streaming without `media_type`.** Browsers and clients rely on it.
 - **Catching exceptions other than the one sanctioned `PydanticValidationError → ValidationError` translation in mixed-multipart-json mode.** Do not extend the `try/except`.

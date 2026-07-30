@@ -13,10 +13,10 @@ Produces one in-memory stand-in class for a domain protocol. Handler unit tests 
 
 - A handler unit test (`test-application-handler`) needs a fake that does not yet exist → this skill.
 - The handler test that consumes the fake → `test-application-handler`.
-- The real adapter the fake stands in for → `infra-sqlalchemy-repository`.
-- The domain protocol the fake matches → `domain-repository-protocol` or `domain-capability-protocol`.
+- The real adapter the fake stands in for → `infra-persistence`.
+- The domain protocol the fake matches → `domain-ports`.
 - A one-off failure injection for a single handler test → don't extend the fake; declare a `_RaiseXxxRepo(FakeFooRepository)` subclass at the handler test module scope (the pattern is owned by `test-application-handler`).
-- Integration tests that drive the real adapter → `test-repository-contract` (no fake).
+- Integration tests that drive the real adapter → `testing-contract` (no fake).
 
 ## File location and naming
 

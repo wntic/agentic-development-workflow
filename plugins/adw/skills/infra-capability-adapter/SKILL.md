@@ -11,10 +11,10 @@ Produces one adapter class that adapts a domain `ICan<Verb>` capability protocol
 
 ## When to use vs. neighbours
 
-- Aggregate-root CRUD over Postgres → `infra-sqlalchemy-repository`, not this skill.
-- The `ICan<Verb>` protocol file → `domain-capability-protocol`.
-- The settings class (`<Tech>Settings`) the adapter consumes → `infra-settings`.
-- The DI provider that constructs this adapter → `infra-di-provider` (almost always `Singleton`).
+- Aggregate-root CRUD over Postgres → `infra-persistence`, not this skill.
+- The `ICan<Verb>` protocol file → `domain-ports`.
+- The settings class (`<Tech>Settings`) the adapter consumes → `infra-wiring`.
+- The DI provider that constructs this adapter → `infra-wiring` (almost always `Singleton`).
 - An in-memory test stand-in for this capability → `test-fake-repository` (the `Fake<Capability>` flavor).
 
 ## File layout
@@ -199,7 +199,7 @@ class PyJwtBarTokenVerifier:
 
 ### Exception translation
 
-8. **Catch the SDK's exception family at the boundary and raise a domain exception.** This is the capability-adapter analogue of `infra-sqlalchemy-repository`'s `IntegrityError` rule. Use `raise <DomainException>(...) from exc` so the original cause is preserved for logging.
+8. **Catch the SDK's exception family at the boundary and raise a domain exception.** This is the capability-adapter analogue of `infra-persistence`'s `IntegrityError` rule. Use `raise <DomainException>(...) from exc` so the original cause is preserved for logging.
 9. **The SDK's exception type never escapes the adapter.** No `ClientError`, `HTTPStatusError`, `jwt.InvalidTokenError`, etc., crosses into application or entrypoints. The application layer catches only `DomainError`.
 10. **Mandatory fallback.** When no specific case matches, raise a sensible default: `UpstreamError` for third-party / network failures, `AuthError` for auth-verifier failures, `ValidationError` only when the input was demonstrably malformed. Never return the raw exception; never `pass`.
 11. **Populate `context` with the stable identifying inputs** (`key`, `subject`, `tenant_id`) plus the upstream code/status (`code`, `status`). Tests assert on these, and the central error handler logs them.
@@ -208,12 +208,12 @@ class PyJwtBarTokenVerifier:
 ### No business logic, no logging
 
 13. **Adapters are thin.** No retries (use the SDK's built-in retry policy via settings), no caching, no batching, no domain reasoning. If the spec asks for retry or backoff, it goes in the SDK config or a dedicated wrapper — not in this class body.
-14. **No logging in the adapter.** The central error handler logs the resulting `DomainError`. The calling handler logs success. Adapters never log, never `print`. See `general-logging`.
+14. **No logging in the adapter.** The central error handler logs the resulting `DomainError`. The calling handler logs success. Adapters never log, never `print`. See `python-style`.
 15. **No instance state across calls** beyond constructor-injected handles. An adapter is safe to share as a `Singleton`.
 
 ### Compensating-transaction contract
 
-16. **Mutating capabilities expose both the forward operation and the undo.** A storage adapter has `upload` *and* `delete`; a publisher that supports retraction has `publish` *and* `retract`. The catch-and-undo logic lives in the application handler (see `pattern-compensating-tx`), not in the adapter. The adapter's job is to make the undo callable.
+16. **Mutating capabilities expose both the forward operation and the undo.** A storage adapter has `upload` *and* `delete`; a publisher that supports retraction has `publish` *and* `retract`. The catch-and-undo logic lives in the application handler (see `patterns`), not in the adapter. The adapter's job is to make the undo callable.
 
 ## Inlined typing / import rules
 
@@ -226,11 +226,11 @@ class PyJwtBarTokenVerifier:
 
 ## Package wiring
 
-The `infrastructure/<adapter>/__init__.py` re-exports the new module via `from .s3_foo_storage import *`. Follow `general-python-package`.
+The `infrastructure/<adapter>/__init__.py` re-exports the new module via `from .s3_foo_storage import *`. Follow `architecture`.
 
 ## Hard stops
 
-- Spec asks the adapter to talk to Postgres / SQLAlchemy / Alembic → stop, use `infra-sqlalchemy-repository` and `infra-sqlalchemy-table`.
+- Spec asks the adapter to talk to Postgres / SQLAlchemy / Alembic → stop, that is `infra-persistence`.
 - Spec asks the adapter to inherit from `ICanX` explicitly → stop, structural subtyping is the contract.
 - Spec asks the adapter to log → stop, adapters do not log; the central error handler owns failure logs.
 - Spec asks the adapter to retry, cache, or batch internally → stop, configure that on the SDK client (in `containers.py`) or extract a separate wrapper class.

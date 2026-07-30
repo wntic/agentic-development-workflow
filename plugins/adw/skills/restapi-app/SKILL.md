@@ -174,7 +174,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
 ### `restapi/dependencies.py` (the auth dependencies — when the app declares auth)
 
-`dependencies.py` is FastAPI's home for shared route dependencies; in this catalog its only current content is the auth pair, so today the file is emitted **only** for an app that declares auth. An auth-less app (every endpoint `anonymous`, no token-verifier capability) has no `get_current_user`/`require_role`, no `CurrentUser`/`Role` import, and routes attach no auth dependency (see `restapi-auth-dependency`) — hence no `dependencies.py`. Emit the file below when the graph carries auth (a non-auth shared route dependency, if ever added, would belong here too, independent of auth):
+`dependencies.py` is FastAPI's home for shared route dependencies; in this catalog its only current content is the auth pair, so today the file is emitted **only** for an app that declares auth. An auth-less app (every endpoint `anonymous`, no token-verifier capability) has no `get_current_user`/`require_role`, no `CurrentUser`/`Role` import, and routes attach no auth dependency (see `restapi-route-contracts`) — hence no `dependencies.py`. Emit the file below when the graph carries auth (a non-auth shared route dependency, if ever added, would belong here too, independent of auth):
 
 ```python
 from typing import cast
@@ -221,7 +221,7 @@ def require_role(required: Role) -> _RoleDependency:
     return _RoleDependency(required)
 ```
 
-The bearer scheme is declared **once** at module level. `get_current_user` resolves the verifier via the DI container — never instantiate verifiers in routes or dependencies. `require_role` returns a `_RoleDependency` instance — a callable class so the gated role rides as a typed attribute (no inline `# type: ignore`, `conventions` block E). See `restapi-auth-dependency` for how routes consume these.
+The bearer scheme is declared **once** at module level. `get_current_user` resolves the verifier via the DI container — never instantiate verifiers in routes or dependencies. `require_role` returns a `_RoleDependency` instance — a callable class so the gated role rides as a typed attribute (no inline `# type: ignore`, `conventions` block E). See `restapi-route-contracts` for how routes consume these.
 
 ### `restapi/schemas/errors.py`
 
@@ -282,7 +282,7 @@ def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
 
 The domain-side registry is **derived dynamically** from `domain.exceptions.__all__`. Adding a new `DomainError` subclass automatically widens the allowed `error_responses(...)` codes — no manual append, no `domain/error_catalog.py` to maintain.
 
-This file is the **single source of truth** for the error wire-shape, the `error_responses(...)` helper, the `_DESCR` map, and `MIDDLEWARE_ERRORS`. `restapi-error-responses` only *references* it and appends to `MIDDLEWARE_ERRORS` on the rare middleware-code path — it never restates this template (the two copies once drifted; do not reintroduce a second copy).
+This file is the **single source of truth** for the error wire-shape, the `error_responses(...)` helper, the `_DESCR` map, and `MIDDLEWARE_ERRORS`. `restapi-route-contracts` only *references* it and appends to `MIDDLEWARE_ERRORS` on the rare middleware-code path — it never restates this template (the two copies once drifted; do not reintroduce a second copy).
 
 ### `restapi/schemas/__init__.py`
 

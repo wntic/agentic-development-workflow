@@ -12,7 +12,7 @@ Produces one resource's schema module — the Pydantic models that define the HT
 ## When to use vs. neighbours
 
 - Per-resource Pydantic schemas (request/response) → this skill.
-- Cross-cutting `ErrorResponse` / `error_responses()` → `restapi-error-responses`.
+- Cross-cutting `ErrorResponse` / `error_responses()` → `restapi-route-contracts`.
 - A cross-cutting request schema that **already exists** elsewhere (e.g. an auth login schema in `restapi/schemas/auth.py` when the app has auth, or a shared collection-reorder body when some resource has a reorder endpoint) → reuse it, don't re-declare it per resource. These are **feature-conditional**, not always present: an app with no auth has no `auth.py`, and an app with no reorderable resource has no `ReorderRequest` — don't assume either exists.
 - The route that consumes these schemas → `restapi-endpoint`.
 
@@ -70,7 +70,7 @@ class FooUpdateRequest(BaseModel):
 | Schema | Purpose |
 |--------|---------|
 | `<Resource>Response` | Single-entity GET / POST / PATCH response |
-| `<Resource>ListResponse` | List GET response — `items` + the resource's pagination fields (offset: `total`/`limit`/`offset`; cursor: `next_cursor`/`limit`), matching `domain-filter` |
+| `<Resource>ListResponse` | List GET response — `items` + the resource's pagination fields (offset: `total`/`limit`/`offset`; cursor: `next_cursor`/`limit`), matching `domain-model` |
 | `<Resource>CreateRequest` | POST body |
 | `<Resource>UpdateRequest` | PATCH body — every field `T \| None = None` |
 | `<Resource>WithXResponse` | Single-entity response that embeds a sub-resource collection |
@@ -96,7 +96,7 @@ Do **not** introduce alternates (`Dto`, `Schema`, `In`, `Out`). The five names a
 
 ### `*ListResponse`
 
-7. **`*ListResponse` carries the resource's pagination shape — whichever one its `domain-filter` declared** (`domain-filter` Rule 5 picks exactly one), never a third:
+7. **`*ListResponse` carries the resource's pagination shape — whichever one its filter record uses** (`domain-model`, filter-record rule 5 picks exactly one), never a third:
    - **offset paging** → `items: Sequence[<Resource>Response]`, `total: int`, `limit: int`, `offset: int`.
    - **cursor paging** → `items: Sequence[<Resource>Response]`, `next_cursor: str | None`, `limit: int`.
    The route `restapi-endpoint` builds constructs whichever shape the filter uses, so the schema must match it (see `restapi-endpoint`'s cursor-list note). Don't mix the two.

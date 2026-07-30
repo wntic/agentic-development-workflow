@@ -13,10 +13,10 @@ Produces one HTTP endpoint for one resource. Routers grow incrementally — this
 
 - One new endpoint or modification of an existing one → this skill.
 - Pydantic request/response schemas → `restapi-schema` (this skill consumes them).
-- The auth dependency choice (`get_current_user` vs `require_role`) → `restapi-auth-dependency`.
-- The `responses=error_responses(...)` declaration → `restapi-error-responses`.
+- The auth dependency choice (`get_current_user` vs `require_role`) → `restapi-route-contracts`.
+- The `responses=error_responses(...)` declaration → `restapi-route-contracts`.
 - Multipart upload or streaming download → `restapi-file-transfer`.
-- The `Container.<handler>()` provider this route resolves → `infra-di-provider`.
+- The `Container.<handler>()` provider this route resolves → `infra-wiring`.
 
 ## File location
 
@@ -65,11 +65,11 @@ Rules:
 - `__all__ = ["router"]` — only `router` is public.
 - `prefix` is kebab-case and matches the file name's resource.
 - `tags=[...]` echoes the resource word.
-- **The auth imports are conditional.** `from myapp.domain.auth import CurrentUser, Role` and `from ..dependencies import get_current_user, require_role` appear **only** when the app declares auth (`restapi-auth-dependency`) and this resource has ≥1 authenticated route. An auth-less app — or a router whose every route is public — omits both imports entirely; importing them would reference a `domain/auth` module and a `dependencies.py` that an auth-less app does not have. See Auth variants below.
+- **The auth imports are conditional.** `from myapp.domain.auth import CurrentUser, Role` and `from ..dependencies import get_current_user, require_role` appear **only** when the app declares auth (`restapi-route-contracts`) and this resource has ≥1 authenticated route. An auth-less app — or a router whose every route is public — omits both imports entirely; importing them would reference a `domain/auth` module and a `dependencies.py` that an auth-less app does not have. See Auth variants below.
 
 ## Templates — one per `kind`
 
-**The per-`kind` templates below show the AUTHENTICATED form** (an authed app, a gated route). Whether an app has auth at all follows from its routes (see `restapi-auth-dependency`). When the route is **public** (anonymous), or the whole app has no auth, derive the public form by dropping four things and nothing else: the auth-dependency parameter, the `domain.auth` + `..dependencies` imports, the `401`/`403` codes in `error_responses(...)`, and the `caller_id=user.id` argument to the command/query. The two shapes side by side:
+**The per-`kind` templates below show the AUTHENTICATED form** (an authed app, a gated route). Whether an app has auth at all follows from its routes (see `restapi-route-contracts`). When the route is **public** (anonymous), or the whole app has no auth, derive the public form by dropping four things and nothing else: the auth-dependency parameter, the `domain.auth` + `..dependencies` imports, the `401`/`403` codes in `error_responses(...)`, and the `caller_id=user.id` argument to the command/query. The two shapes side by side:
 
 ### Authenticated vs public — the two shapes
 
@@ -108,9 +108,9 @@ async def create_foo(
 
 (A read — `list`/`get` — drops the same: the `_: CurrentUser = Depends(get_current_user)` line, the imports, and the `401`. The `caller_id` drop applies only where the command/query carried it.)
 
-### `list` (paginated read) — pagination shape mirrors `domain-filter`
+### `list` (paginated read) — pagination shape mirrors `domain-model`
 
-Use the **`limit`/`offset`** template when the matching `domain-filter` uses limit/offset paging. Use the **`cursor`** template when it uses a cursor. The two forms are mutually exclusive — never both.
+Use the **`limit`/`offset`** template when the matching `domain-model` uses limit/offset paging. Use the **`cursor`** template when it uses a cursor. The two forms are mutually exclusive — never both.
 
 `limit`/`offset`:
 
@@ -280,7 +280,7 @@ For 204 endpoints, the function return annotation is `-> Response` and the body 
 handler: ListFoosHandler = request.app.state.container.list_foos_handler()
 ```
 
-- The container method name is `<handler_class_snake>()`: `ListFoosHandler` → `list_foos_handler()`. The provider name is mechanical — see `infra-di-provider`.
+- The container method name is `<handler_class_snake>()`: `ListFoosHandler` → `list_foos_handler()`. The provider name is mechanical — see `infra-wiring`.
 - Always annotate the local `handler:` with the concrete handler class so the type checker sees `execute`.
 - Resolve inside the route function. **Never at module level** — that captures container state too early and breaks per-request container overrides in tests.
 - For create/update with read-back, resolve `handler` and `get_handler` as two separate locals with distinct names.
@@ -326,4 +326,4 @@ app.include_router(foos_router)
 - Spec asks for a `try/except` in the route body → stop, the only sanctioned case is `restapi-file-transfer`.
 - Spec asks the route to construct a domain entity → stop, that's the handler's job; the route maps body fields to a command.
 - Static collection path would be declared after `/{id}` in the file → stop, reorder.
-- Response schema requires fields the command/query result doesn't provide → stop, add a read-back via `GetFooHandler` (or extend the result DTO via `application-query`).
+- Response schema requires fields the command/query result doesn't provide → stop, add a read-back via `GetFooHandler` (or extend the result DTO via `application`).

@@ -7,14 +7,14 @@ paths: tests/**
 
 # Test — Infrastructure Capability Adapter
 
-Produces one test file per capability adapter. Catches what unit-level coverage cannot: real SDK exception shapes, real upstream wire format, real crypto/parsing behavior, and the SDK-exception-to-domain-exception translator's mapping. This is the capability-adapter analogue of `test-repository-contract` for SQLAlchemy repositories.
+Produces one test file per capability adapter. Catches what unit-level coverage cannot: real SDK exception shapes, real upstream wire format, real crypto/parsing behavior, and the SDK-exception-to-domain-exception translator's mapping. This is the capability-adapter analogue of `testing-contract` for SQLAlchemy repositories.
 
 ## When to use vs. neighbours
 
 - A new or modified adapter under `infrastructure/<adapter>/` (not `infrastructure/postgres/repositories/`) → this skill.
-- A SQLAlchemy repository → `test-repository-contract`, not this skill.
+- A SQLAlchemy repository → `testing-contract`, not this skill.
 - A fake the unit-test layer consumes → `test-fake-repository`. The fake's exception contract must match what the integration test pins here.
-- The rollback / container `conftest.py` itself → `test-integration-isolation` (one-shot).
+- The rollback / container `conftest.py` itself → `testing-integration-setup` (one-shot).
 - A handler test that consumes a fake of this capability → `test-application-handler`.
 - HTTP-layer (route + auth + OpenAPI) → `test-restapi-endpoint`.
 
@@ -281,7 +281,7 @@ def test_verify_tampered_signature_raises_auth_error() -> None:
 
 4. **Every public method gets a happy-path test.** Drive the adapter; assert the observable side effect (object exists in S3, response matches schema, return value equals literal).
 5. **Every row of the adapter's `exception_map` gets a dedicated test.** The bug class "translator handles error code X but not Y" only surfaces when each row is exercised. Skipping translator rows is the most common gap.
-6. **`assert exc.value.context["<key>"] == <value>` on every translated exception.** This is the capability-adapter analogue of the `context["constraint"]` rule in `test-repository-contract`. The fake-based handler test cannot verify this — only this test can.
+6. **`assert exc.value.context["<key>"] == <value>` on every translated exception.** This is the capability-adapter analogue of the `context["constraint"]` rule in `testing-contract`. The fake-based handler test cannot verify this — only this test can.
 7. **For HTTP gateways, also assert the request shape** at least once: URL, method, headers (especially `Authorization`), and body. This pins the wire contract against the upstream, not just the error translation.
 8. **Network-layer failures are tested as upstream errors.** For respx flavor, include a `ConnectError` / `ReadTimeout` test that asserts `UpstreamError`. For containerized flavor, a bad-bucket / bad-credentials test that asserts the fallback translation.
 
@@ -294,7 +294,7 @@ def test_verify_tampered_signature_raises_auth_error() -> None:
 ### Containerized flavor specifics
 
 12. **Take the resource fixture, not raw settings.** Containerized adapters need a live client (`s3_session`, `redis`). The fixture comes from the integration conftest, scoped session for the container and function for per-test isolation.
-13. **No rollback assumption.** Unlike Postgres + `sf`, S3 / Redis / Kafka may not roll back. Either the fixture cleans up (preferred — extend `test-integration-isolation`) or each test uses a unique key prefix scoped to the test. Specify which in the spec.
+13. **No rollback assumption.** Unlike Postgres + `sf`, S3 / Redis / Kafka may not roll back. Either the fixture cleans up (preferred — extend `testing-integration-setup`) or each test uses a unique key prefix scoped to the test. Specify which in the spec.
 14. **Don't bypass the adapter to drive setup.** For success assertions, you may inspect the backend directly (`s3.head_object`) — that is the observation. But for setup that exists to drive the test, go through the adapter (`adapter.upload(...)` then `adapter.delete(...)`).
 
 ### respx flavor specifics
@@ -318,7 +318,7 @@ def test_verify_tampered_signature_raises_auth_error() -> None:
 
 ## Hard stops
 
-- `tests/integration/conftest.py` does not provide the required resource fixture (`s3_session`, `redis`, …) for a containerized flavor → stop, extend `test-integration-isolation` first.
+- `tests/integration/conftest.py` does not provide the required resource fixture (`s3_session`, `redis`, …) for a containerized flavor → stop, extend `testing-integration-setup` first.
 - Spec asks for `unittest.mock` / `MagicMock` of the SDK client → stop, the SDK boundary is exactly what this test exists to verify; use containers or `respx` instead.
 - Spec asks to mock the adapter itself → stop, that's a handler unit test (`test-application-handler` + `test-fake-repository`).
 - Spec asks for `@pytest.mark.integration` or `@pytest.mark.asyncio` → stop, neither marker is used in this project.

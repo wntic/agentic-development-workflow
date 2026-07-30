@@ -11,7 +11,7 @@ The four data shapes of the domain layer. They share one substrate — stdlib on
 imports, full annotations — and a change that adds a capability usually adds several of them together,
 which is why they live in one place.
 
-Package mechanics (file placement, `__init__.py` re-exports) defer to `general-python-package`.
+Package mechanics (file placement, `__init__.py` re-exports) defer to `architecture`.
 
 ## When to use vs. neighbours
 
@@ -294,7 +294,7 @@ These hold for all four shapes; the full rules are `python-style`.
 
 ## Package wiring
 
-After writing the module, follow `general-python-package` to add the subpackage `__init__.py` re-export
+After writing the module, follow `architecture` to add the subpackage `__init__.py` re-export
 line and append to its `__all__`.
 
 ## Hard stops

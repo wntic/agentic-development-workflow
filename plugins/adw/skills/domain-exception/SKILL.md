@@ -16,8 +16,8 @@ subclass that overrides only `code` and `http_status`.
 
 - A new named error is needed to express a domain rule violation → this skill gives its shape. **First
   confirm no existing class already serves the rule** (scan `__all__` for a semantic match, read the candidate's body); if one fits, reuse it rather than minting a near-duplicate.
-- A spec needs to map a low-level library exception to a domain exception inside a repository → `infra-sqlalchemy-repository` (which references this skill for the target class name).
-- A spec needs to advertise an error on a REST route → `restapi-error-responses` (which references the new `code`).
+- A spec needs to map a low-level library exception to a domain exception inside a repository → `infra-persistence` (which references this skill for the target class name).
+- A spec needs to advertise an error on a REST route → `restapi-route-contracts` (which references the new `code`).
 
 ## File shape (the contract every entry obeys)
 
@@ -126,6 +126,6 @@ The skill does not enforce the keys — the raise site and its test agree on the
 ## Hard stops
 
 - The spec asks to raise a new exception type from outside `domain/exceptions.py` → stop, define it here first.
-- The spec asks to log the error at the raise site → stop, logging happens centrally (`general-logging` for the rule; `restapi-error-responses` for HTTP).
+- The spec asks to log the error at the raise site → stop, logging happens centrally (`python-style` for the rule; `restapi-route-contracts` for HTTP).
 - The new class would duplicate an existing one's semantics → stop and recommend reuse.
 - The spec asks the subclass to override `__init__` or carry extra fields → stop, structured detail goes through the inherited `context` dict at the raise site.

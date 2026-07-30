@@ -112,7 +112,7 @@ artifact, so the reader need not pull the full cross-cutting skill when only a f
 ## Package wiring
 
 <Optional. When the artifact requires updating an `__init__.py` re-export, point to
-`general-python-package` in one line. Do not restate the rules.>
+`architecture` in one line. Do not restate the rules.>
 
 ## Hard stops
 
@@ -156,8 +156,8 @@ before writing, so the content matches skills already in the same shape.
 Creates one or more new files. Emphasis: `Template(s)` carries full literal file content with
 placeholders; `Package wiring` appears when a new module needs registering in an `__init__.py`.
 
-Examples: `domain-entity`, `application-command`, `infra-sqlalchemy-repository`, `restapi-endpoint`,
-`test-domain-entity`.
+Examples: `domain-model`, `application`, `infra-persistence`, `restapi-endpoint`,
+`testing-unit-domain`.
 
 ### Modifier
 
@@ -165,8 +165,8 @@ Extends an existing file rather than creating one. Emphasis: `Template(s)` shows
 class body, a function, a decorator argument — not a whole file; `Package wiring` is usually absent
 because the file already lives in a package.
 
-Examples: `infra-di-provider` (modifies `containers.py`), `restapi-error-responses` (adds a decorator
-argument), `pattern-compensating-tx` (shapes a handler body), `test-architecture-rule` (appends a test
+Examples: `infra-wiring` (modifies `containers.py`), `restapi-route-contracts` (adds a decorator
+argument), `patterns` (shapes a handler body), `test-architecture-rule` (appends a test
 function).
 
 ### Bootstrap
@@ -175,16 +175,14 @@ Produces a fixed set of files, once per project. Emphasis: `Template(s)` carries
 templates under `###` subheadings, one per file; `When to use vs. neighbours` says plainly that it is
 one-shot and names what other skills depend on it having run.
 
-Examples: `restapi-app-bootstrap`, `test-integration-isolation`, `test-integration-authed-client`,
-`test-discovery-invariants`.
+Examples: `restapi-app`, `testing-integration-setup`, `test-discovery-invariants`.
 
 ### Reference
 
 Produces no file — documents conventions other skills consult. Keeps `When to use vs. neighbours`,
 `Rules` and `Hard stops`; omits `Template(s)` and `Package wiring`.
 
-Examples: `conventions`, `general-typing-conventions`, `general-imports-conventions`,
-`general-python-package`, `general-layered-architecture`, `general-logging`, `test-principles`.
+Examples: `conventions`, `architecture`, `python-style`, `test-principles`.
 
 ### Picking a shape
 
