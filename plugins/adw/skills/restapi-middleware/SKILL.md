@@ -1,6 +1,8 @@
 ---
 name: restapi-middleware
-description: Apply when a request needs cross-cutting handling that wraps every route rather than living in one — a correlation/request id bound into logs, a request-body size cap, rate limiting, timing. Produces one raw ASGI middleware class under `restapi/middleware/<snake>.py` (`__init__(self, app, …)` + `async def __call__(self, scope, receive, send)`), wired once via `app.add_middleware(...)`. A middleware that rejects a request emits an `ErrorResponse`-shaped JSON body with a stable code string. Does not produce the app shell (use `restapi-app-bootstrap`), a per-route concern (use `restapi-endpoint`), or auth (use `restapi-auth-dependency`).
+description: The house form for one custom ASGI middleware wrapping every route — a correlation id, a request-body size cap, rate limiting, timing. A raw `__init__(self, app, …)` + `async def __call__(self, scope, receive, send)` class under `restapi/middleware/`, wired once via `app.add_middleware(...)`.
+when_to_use: Adding cross-cutting per-request handling that wraps every route rather than living in one.
+paths: src/**/restapi/**
 ---
 
 # REST API Middleware

@@ -1,6 +1,8 @@
 ---
 name: restapi-error-responses
-description: Apply when a route must advertise the HTTP error codes it can produce. Touches the route decorator (adding `responses=error_responses(...)`). In the rare case a middleware introduces a brand-new HTTP status code with no `DomainError` class behind it, also touches `restapi/schemas/errors.py` to register the middleware code. Does not produce the domain error class (use `domain-exception`) or the central translator at `restapi/error_handler.py` (created once by `restapi-app-bootstrap` and not modified afterwards).
+description: How a route advertises the HTTP error codes it can produce — `responses=error_responses(...)` on the decorator, and the rare registration in `schemas/errors.py` when a middleware introduces a status code with no `DomainError` behind it.
+when_to_use: Declaring the error codes a route can return, or registering a middleware-only status code.
+paths: src/**/restapi/**
 ---
 
 # REST API Error Responses

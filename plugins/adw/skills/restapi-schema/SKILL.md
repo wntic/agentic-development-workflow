@@ -1,6 +1,8 @@
 ---
 name: restapi-schema
-description: Apply when a spec adds or modifies a per-resource Pydantic schema set under `restapi/schemas/`. Produces one schema module — `<Resource>Response`, `<Resource>ListResponse`, `<Resource>CreateRequest`, `<Resource>UpdateRequest` — with the PATCH `T | None = None` semantics, alphabetized `__all__`, and the wildcard re-export added to `schemas/__init__.py`. Does not produce error schemas (`errors.py`, `ErrorResponse`, `error_responses`) — those live in `restapi-error-responses`. Defers package mechanics to `general-python-package`.
+description: The house form for one resource's Pydantic models — `<Resource>Response`, `<Resource>ListResponse`, `<Resource>CreateRequest`, `<Resource>UpdateRequest` — with PATCH `T | None = None` semantics, an alphabetized `__all__`, and the wildcard re-export into `schemas/__init__.py`.
+when_to_use: Adding or changing the request/response schemas for a REST resource.
+paths: src/**/restapi/**
 ---
 
 # REST API Schema

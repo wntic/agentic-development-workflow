@@ -1,6 +1,8 @@
 ---
 name: restapi-endpoint
-description: Apply when a spec adds or modifies a single REST endpoint. Produces or extends one router file at `restapi/routers/<resource>.py` with one endpoint function plus any required updates to `__all__`, the router declaration, and `restapi/main.py` (when the file is brand new). Routes are thin: parse input, resolve a handler from `request.app.state.container`, dispatch, serialize through a Pydantic schema. No business logic, no `try/except`, no logging. Defers schemas to `restapi-schema`, auth dependencies to `restapi-auth-dependency`, error advertisement to `restapi-error-responses`, file transfer to `restapi-file-transfer`.
+description: The house form for one HTTP endpoint in `restapi/routers/<resource>.py` — thin: parse input, resolve a handler from `request.app.state.container`, dispatch, serialize through a Pydantic schema. No business logic, no `try/except`, no logging.
+when_to_use: Adding or changing a single REST endpoint, or creating the router file for a new resource.
+paths: src/**/restapi/**
 ---
 
 # REST API Endpoint
@@ -67,7 +69,7 @@ Rules:
 
 ## Templates — one per `kind`
 
-**The per-`kind` templates below show the AUTHENTICATED form** (an authed app, a gated route). Auth is manifest-declared (see `restapi-auth-dependency` — derived from the graph, no manifest flag). When the route is **public** (`auth: anonymous`), or the whole app declares no auth, derive the public form by dropping four things and nothing else: the auth-dependency parameter, the `domain.auth` + `..dependencies` imports, the `401`/`403` codes in `error_responses(...)`, and the `caller_id=user.id` argument to the command/query. The two shapes side by side:
+**The per-`kind` templates below show the AUTHENTICATED form** (an authed app, a gated route). Whether an app has auth at all follows from its routes (see `restapi-auth-dependency`). When the route is **public** (anonymous), or the whole app has no auth, derive the public form by dropping four things and nothing else: the auth-dependency parameter, the `domain.auth` + `..dependencies` imports, the `401`/`403` codes in `error_responses(...)`, and the `caller_id=user.id` argument to the command/query. The two shapes side by side:
 
 ### Authenticated vs public — the two shapes
 
@@ -108,7 +110,7 @@ async def create_foo(
 
 ### `list` (paginated read) — pagination shape mirrors `domain-filter`
 
-Use the **`limit`/`offset`** template when the matching `domain-filter` declared `pagination: limit/offset`. Use the **`cursor`** template when it declared `pagination: cursor`. The two forms are mutually exclusive — never both.
+Use the **`limit`/`offset`** template when the matching `domain-filter` uses limit/offset paging. Use the **`cursor`** template when it uses a cursor. The two forms are mutually exclusive — never both.
 
 `limit`/`offset`:
 

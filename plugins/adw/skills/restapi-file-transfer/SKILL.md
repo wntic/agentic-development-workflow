@@ -1,6 +1,8 @@
 ---
 name: restapi-file-transfer
-description: Apply when a route accepts a multipart upload (`UploadFile`) or returns a streaming/binary download (`StreamingResponse`). Defines the upload pattern (UploadFile + Form companions, bounded by `MaxRequestSizeMiddleware`, advertise 413), the **only sanctioned `try/except` in a route body** for the mixed multipart+JSON case (`data: Annotated[str, Form()]` + `model_validate_json` with `PydanticValidationError → ValidationError`), and the streaming download pattern (`StreamingResponse(iter([bytes]), media_type=..., Content-Disposition`). Used together with `restapi-endpoint` for the non-file parts of the route.
+description: The house forms for multipart upload (`UploadFile` plus `Form` companions, bounded by a request-size cap) and streaming download (`StreamingResponse` with `Content-Disposition`), including the only sanctioned `try/except` in a route body — the mixed multipart-plus-JSON case.
+when_to_use: A route that accepts a file upload or returns a streaming or binary download.
+paths: src/**/restapi/**
 ---
 
 # REST API File Transfer
