@@ -1,6 +1,8 @@
 ---
 name: infra-sqlalchemy-repository
-description: Apply when a spec needs the infrastructure adapter that satisfies a `domain/.../i_*_repository.py` protocol. Produces one repository class in `infrastructure/postgres/repositories/` using SQLAlchemy Core (never the ORM), with `async_sessionmaker` (standalone) or `AsyncSession` (UoW-managed) injection, a row-to-entity mapper, and an `IntegrityError`-to-domain-exception translator. Does not produce the protocol (use `domain-repository-protocol`), the table (use `infra-sqlalchemy-table`), or the DI wiring (use `infra-di-provider`).
+description: The house form for a repository adapter on a relational store — one class in `infrastructure/postgres/repositories/` on SQLAlchemy **Core**, never the ORM, with a row-to-entity mapper and an `IntegrityError`-to-domain-exception translator.
+when_to_use: Producing or editing a relational repository adapter that satisfies a domain repository protocol.
+paths: src/**/infrastructure/**
 ---
 
 # Infrastructure SQLAlchemy Repository

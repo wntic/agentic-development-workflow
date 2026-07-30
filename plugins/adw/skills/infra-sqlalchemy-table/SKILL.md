@@ -1,6 +1,8 @@
 ---
 name: infra-sqlalchemy-table
-description: Apply when a spec adds a new persistent table, modifies columns/constraints/indexes, or removes one. Produces the SQLAlchemy Core `Table` under `infrastructure/postgres/tables/` — column types are a design decision (jsonb/pgvector/check/FK), not a mechanical transcription of entity fields. The matching Alembic migration is authored separately (Alembic owns the revision chain natively — `alembic revision` assigns the id + `down_revision` from head); this skill also documents how that hand-edited revision is written. Enforces the constraint-naming convention that `infra-sqlalchemy-repository` depends on for `IntegrityError` translation. Defers package mechanics to `general-python-package`.
+description: The house form for a SQLAlchemy Core `Table` under `infrastructure/postgres/tables/` — written once, then evolved. Column types are a design decision, not a transcription of entity fields, and the constraint-naming convention here is what the repository's `IntegrityError` translation depends on.
+when_to_use: Adding or changing a persistent table, its columns, constraints or indexes, and authoring the Alembic revision that pairs with it.
+paths: src/**/infrastructure/**
 ---
 
 # Infrastructure SQLAlchemy Table
@@ -87,7 +89,7 @@ foos_table: Table = Table(
 
 ## Template — Alembic migration (authored via `alembic revision`, not generated here)
 
-This is the **reference** for the revision authored with `alembic revision` — Alembic assigns the real `revision` / `down_revision` (from the current head), then the draft is hand-edited to match the rules below. It is not this skill's output and is never emitted from the manifest (the manifest is a desired-schema snapshot, not a revision journal).
+This is the **reference** for the revision authored with `alembic revision` — Alembic assigns the real `revision` / `down_revision` (from the current head), then the draft is hand-edited to match the rules below. It is not this skill's output.
 
 ```python
 # alembic/versions/0042_create_foos.py  (id + down_revision assigned by `alembic revision`)
@@ -173,9 +175,9 @@ Pick once; document the consequence in the repository's `delete` method.
 - Application-managed `updated_at` on update: the repository sets it explicitly via `sqlfunc.now()` in the `UPDATE` statement — server default fires only on `INSERT`.
 - Domain-meaningful defaults use `server_default="..."`. **Keep the value identical** between table definition and migration.
 
-## Coordinated change (the Table scaffold + an Alembic revision)
+## Coordinated change (the `Table` + an Alembic revision)
 
-A schema change is two coordinated edits: the `Table` here (this skill's output) and an Alembic revision authored separately via `alembic revision` (Alembic owns the chain — the manifest never carries migrations). The two land in the same commit. `alembic revision --autogenerate` is only a draft — it misses naming-convention nuance, partial indexes, and seed data — so hand-edit it against the rules above after generating.
+A schema change is two coordinated edits: the `Table` here (this skill's output) and an Alembic revision authored separately via `alembic revision` (Alembic owns the chain; migrations are never generated). The two land in the same commit. `alembic revision --autogenerate` is only a draft — it misses naming-convention nuance, partial indexes, and seed data — so hand-edit it against the rules above after generating.
 
 ## Inlined typing / import rules
 

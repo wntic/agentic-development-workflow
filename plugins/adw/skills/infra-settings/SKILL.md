@@ -1,6 +1,8 @@
 ---
 name: infra-settings
-description: Apply when a spec adds a new external integration (database, blob store, third-party API, observability backend) or new configuration for an existing one. Produces one `pydantic-settings` `BaseSettings` class per integration, scoped to its infrastructure subpackage, with a stable env prefix, `SecretStr` for secrets, and `@computed_field` for derived values. The DI wiring (always `providers.Singleton`) is the responsibility of `infra-di-provider`. Defers package mechanics to `general-python-package`.
+description: The house form for a `pydantic-settings` class — one per integration, scoped to its infrastructure subpackage, with a stable env prefix stemmed on the product, `SecretStr` for secrets and `@computed_field` for derived values.
+when_to_use: Adding configuration for an external integration, or changing an existing settings class.
+paths: src/**/infrastructure/**
 ---
 
 # Infrastructure Settings
@@ -17,7 +19,7 @@ Produces one settings class per external integration. The class is the **only** 
 
 - Path: `src/<root>/infrastructure/<subpackage>/settings.py` — always named `settings.py`.
 - Class: `<Concept>Settings`. Not `Config`, not `Options`.
-- Env prefix: `MYAPP_<DOMAIN>_` (uppercase, short noun 3–8 chars, terminal underscore). Never reuse a prefix across two classes. **The stem (`MYAPP_`) is the application / product, NEVER a bounded context / epic name.** Env vars are an app-level deployment concern: a `DbSettings` declared in the `accounts` epic still serves the whole process, so its prefix is `MM_DB_` (the MeetingMind app), not `ACCOUNTS_DB_`. This matters doubly for shared-substrate settings — under app-mode a `DbSettings` backing the shared `datastore` collapses to one across contexts (`conventions` block F), so a context-named prefix on it is incoherent the moment a second context joins (operators would set `ACCOUNTS_DB_HOST` for a DB both contexts share). When you author a single epic's manifest in isolation, the salient name is the epic — resist it; stem on the app.
+- Env prefix: `MYAPP_<DOMAIN>_` (uppercase, short noun 3–8 chars, terminal underscore). Never reuse a prefix across two classes. **The stem (`MYAPP_`) is the application / product, NEVER a bounded-context name.** Env vars are an app-level deployment concern: a `DbSettings` introduced while working on the `accounts` context still serves the whole process, so its prefix is `MM_DB_` (the MeetingMind app), not `ACCOUNTS_DB_`. This matters doubly for shared settings — a `DbSettings` backing a datastore shared across contexts collapses to one (`conventions` block F), so a context-named prefix on it is incoherent the moment a second context joins: operators would be setting `ACCOUNTS_DB_HOST` for a database both contexts share. Working inside one context in isolation, the salient name is that context — resist it; stem on the app.
 
 ## Template — relational database (one integration kind among many)
 

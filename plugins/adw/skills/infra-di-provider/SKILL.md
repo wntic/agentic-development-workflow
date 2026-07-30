@@ -1,6 +1,8 @@
 ---
 name: infra-di-provider
-description: Apply when a new handler, repository, domain service, tunable value object, settings class, or external adapter must be wired into `containers.py`. Modifies the single `Container(DeclarativeContainer)` to add one or more providers in the correct declaration order, picking `Singleton` (settings, engines, verifiers, tunable value objects) vs `Factory` (handlers, repositories, domain services, stateful adapters) per the decision rule. Does not produce any of the classes it wires — those are owned by their respective skills.
+description: The house form for wiring a class into the single `Container` in `containers.py` — the `Singleton` versus `Factory` decision rule and the declaration order the container depends on.
+when_to_use: Wiring a new handler, repository, domain service, tunable value object, settings class or adapter into the DI container.
+paths: src/**
 ---
 
 # DI Provider Wiring
@@ -37,11 +39,11 @@ class Container(containers.DeclarativeContainer):
 
     # 2. Long-lived infrastructure clients (Singleton).
     #    The engine + session_factory pair exists ONLY when a relational
-    #    (uses_bootstrap) store backs a repository. A client-style store
+    #    store backs a repository. A client-style store
     #    (qdrant / redis / …) has no engine — it wires a connection-factory
     #    Singleton instead, e.g.:
     #        vectors_client = providers.Singleton(create_vectors_client, settings=qdrant_settings)
-    #    Wire the long-lived clients the graph's datastores actually need, not a fixed Postgres pair.
+    #    Wire the long-lived clients the app's datastores actually need, not a fixed Postgres pair.
     engine: providers.Provider[AsyncEngine] = providers.Singleton(create_engine, settings=db_settings)
     session_factory: providers.Provider[async_sessionmaker[AsyncSession]] = providers.Singleton(
         create_session_factory, engine=engine

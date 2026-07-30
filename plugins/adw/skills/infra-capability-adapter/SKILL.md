@@ -1,7 +1,8 @@
 ---
 name: infra-capability-adapter
-description: Apply when a spec needs the infrastructure adapter that satisfies a `domain/.../i_can_<verb>.py` capability protocol — object storage, token verifier, file renderer, third-party HTTP gateway, message publisher. Produces one adapter class under `infrastructure/<adapter>/` — grouped by the external tech (`s3/`, `jwt/`, `openai/`), never by domain concern — that wraps an SDK client (boto3, httpx, PyJWT, python-docx, …) and translates SDK exceptions into domain exceptions at the boundary. Does not produce the protocol (use `domain-capability-protocol`), the settings class (use `infra-settings`), the DI wiring (use `infra-di-provider`), or the SQLAlchemy repository for an aggregate (use `infra-sqlalchemy-repository`).
-
+description: The house form for a capability adapter — the `ICan<Verb>` implementation wrapping an SDK (boto3, httpx, PyJWT, openai, python-docx), grouped under `infrastructure/<tech>/` and translating SDK exceptions into domain exceptions at the boundary.
+when_to_use: Producing or editing the infrastructure adapter that satisfies a domain capability protocol: object storage, a token verifier, a renderer, a third-party gateway.
+paths: src/**/infrastructure/**
 ---
 
 # Infrastructure Capability Adapter
@@ -24,7 +25,7 @@ src/<root>/infrastructure/<adapter>/    # <adapter> = the external tech: s3, jwt
 └── s3_foo_storage.py      # this skill writes this file
 ```
 
-`<adapter>` is the external tech the adapter wraps (the manifest `adapter:` token): `s3/`, `jwt/`, `openai/`, `docx/`, `<vendor>/`. Infra groups by tech, not by domain concern. The filename names the tech too (`s3_*`, `pyjwt_*`, `docx_*`, `<vendor>_*`); the class follows (`<AdapterPascal><Role>`).
+`<adapter>` is the external tech the adapter wraps: `s3/`, `jwt/`, `openai/`, `docx/`, `<vendor>/`. Infra groups by tech, not by domain concern. The filename names the tech too (`s3_*`, `pyjwt_*`, `docx_*`, `<vendor>_*`); the class follows (`<AdapterPascal><Role>`).
 
 ## Template — async, SDK-client form
 
@@ -235,4 +236,4 @@ The `infrastructure/<adapter>/__init__.py` re-exports the new module via `from .
 - Spec asks the adapter to retry, cache, or batch internally → stop, configure that on the SDK client (in `containers.py`) or extract a separate wrapper class.
 - Spec asks the adapter to construct its own SDK client (`boto3.client(...)`, `httpx.AsyncClient()`) → stop, both the client and the settings are injected from DI.
 - Spec asks the adapter to raise an SDK exception type or `Exception` → stop, every SDK exception must be translated into a `DomainError` subclass at the boundary.
-- Spec / `behaviour` doesn't say which SDK errors a fallible method raises → derive the SDK→domain mapping from the SDK's documented exception family plus the node's `notes`, and apply the mandatory fallback (Rule 10: `UpstreamError` for network/third-party, `AuthError` for verifiers). The specific cases are judgment; only the broad-catch-and-translate fallback is non-negotiable — never leave a method that can `raise` an untranslated SDK exception.
+- The change does not say which SDK errors a fallible method raises → derive the SDK→domain mapping from the SDK's documented exception family, and apply the mandatory fallback (Rule 10: `UpstreamError` for network/third-party, `AuthError` for verifiers). The specific cases are judgment; only the broad-catch-and-translate fallback is non-negotiable — never leave a method that can `raise` an untranslated SDK exception.

@@ -1,6 +1,8 @@
 ---
 name: infra-store-repository
-description: Apply when a spec needs the infrastructure adapter that satisfies a `domain/.../i_*_repository.py` protocol for an aggregate whose datastore is a client-style (non-relational) store — a vector store, cache, or document store (qdrant, redis, chroma, pinecone, mongo, …). Produces one repository class in `infrastructure/<store-kind>/repositories/` that wraps the store's injected SDK client, maps entities to the store's record shape, and translates SDK errors into domain exceptions at the boundary. One skill serves every such store — a new vendor is a store-profile row plus the node's `requires_packages`, never a new skill. Does not produce the protocol (use `domain-repository-protocol`), the relational-store repository (use `infra-sqlalchemy-repository`), the settings class (use `infra-settings`), or the DI wiring (use `infra-di-provider`).
+description: The house form for a repository adapter on a client-style store — a vector, cache or document backend (qdrant, redis, chroma, pinecone, mongo). One class wrapping the store's injected SDK client, mapping entities to its record shape and translating SDK errors into domain exceptions at the boundary. One skill serves every such vendor.
+when_to_use: Producing or editing a repository adapter for an aggregate whose store is not relational.
+paths: src/**/infrastructure/**
 ---
 
 # Infrastructure Store Repository
@@ -218,7 +220,7 @@ class FooRepository:
 
 ### Vendor & semantics
 
-12. **Vendor semantics come from the SDK + the spec's notes, not from this skill.** Query API, filter DSL, batching, consistency options — read them from the SDK and the node's notes. A **new vendor is a store-profile row plus `requires_packages` on the node — never a fork of this skill** (the same way `infra-capability-adapter` serves boto3, httpx, PyJWT, and openai with one skill).
+12. **Vendor semantics come from the SDK, not from this skill.** Query API, filter DSL, batching, consistency options — read them from the SDK's own documentation. A **new vendor is a store-profile row plus its package — never a fork of this skill** (the same way `infra-capability-adapter` serves boto3, httpx, PyJWT, and openai with one skill).
 13. **No provisioning.** The repository never creates collections, indexes, buckets, or schemas — provisioning is a deployment/bootstrap concern.
 14. **Ordering is explicit.** A `list`/`search` that promises an order must produce it deliberately (the store's score order, an explicit sort key) — never rely on insertion accident.
 15. **No logging, no retries, no caching, no domain reasoning.** Same thinness contract as every adapter (see `infra-capability-adapter` rules 13–15).
@@ -236,7 +238,7 @@ The `repositories/__init__.py` must re-export the new module via `from .foo_repo
 
 ## Hard stops
 
-- The aggregate's store is the relational bootstrap store (profile `uses_bootstrap`) → stop, use `infra-sqlalchemy-repository`.
+- The aggregate's store is relational (the `postgres` profile) → stop, use `infra-sqlalchemy-repository`.
 - Spec asks for SQL, SQLAlchemy, or a `Table` for this aggregate → stop, that is the relational path (`infra-sqlalchemy-repository` + `infra-sqlalchemy-table`).
 - Spec asks the repository to create or migrate the collection/index/bucket → stop, provisioning is not the repository's concern.
 - Spec asks for atomicity across this store and another (two stores in one transaction) → stop, there is no cross-store transaction; compensation lives in the handler (`pattern-compensating-tx`).
