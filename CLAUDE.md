@@ -12,9 +12,9 @@ history under tags; [`HISTORY.md`](HISTORY.md) is the pointer, and it is short. 
 proposing any mechanism — most plausible-sounding ideas have already been built and measured once.
 
 The design is settled — [`WORKFLOW.md`](WORKFLOW.md). **Steps 1–3 of its §10 build order are closed.**
-The adapter is written and installed (step 1); two real changes shipped in the probe project
-`adw-probe` — 001 a short-URL service, 002 a read-model exposing a creation timestamp — each accepted,
-tagged and defect-logged (steps 2 and 3). The plugin ships `plugins/adw/skills/` (30 house-style
+The adapter is written and installed (step 1); three real changes shipped in the probe project
+`adw-probe` — 001 a short-URL service, 002 a read-model exposing a creation timestamp, 003 custom short
+codes — each accepted, tagged and defect-logged. The plugin ships `plugins/adw/skills/` (30 house-style
 skills), `agents/` (the four roles), `commands/` (`spec`, `build`, `accept`, `commit`) and `templates/`
 — and deliberately no script and no hooks, ever.
 
@@ -23,10 +23,16 @@ pre-merge skills and re-merged into 30, with the dead generations' vocabulary pu
 rationale: [`plan/R00-skills-restructuring.md`](plan/R00-skills-restructuring.md). Status table and the
 measured before/after: [`plan/INDEX.md`](plan/INDEX.md).
 
-**Do not start a new iteration of the workflow.** Red line 3 is at parity — two shipped features
-against two completed passes of workflow edits — so the next action is change 003 in `adw-probe`, not
-another mechanism. Findings wait for step 4, and several of them are *measured by* 003: fixing them
-first destroys the measurement.
+**Red line 3 is satisfied for the first time: three shipped features against two completed passes of
+workflow edits.** Change 003 (custom short codes, 8 criteria) shipped on 2026-07-30, and its defect log
+is the step-3+ section of `plan/FINDINGS.md`. That run is also the first where the curve bent down —
+a bigger change cost 63m00s of compute against 002's 84m21s, and the orchestrator's share of output
+tokens fell from 77% to 59%.
+
+So **step 4 — deciding the findings — is now legitimate**, where it was forbidden before. Two things to
+carry into it: a finding's disposition is the human's call and arrives as its own commit, and three
+findings closed themselves without a mechanism (F-10 by the restructuring, F-57 by paying it back,
+F-36 by holding three runs in a row), which is the outcome to prefer over building a guard.
 
 Where the record lives: the build record task by task is `plan/`; what the install actually did is
 [`plan/INSTALL-REHEARSAL.md`](plan/INSTALL-REHEARSAL.md); open questions are
@@ -34,14 +40,17 @@ Where the record lives: the build record task by task is `plan/`; what the insta
 
 **Platform knowledge in this repo was two generations stale**, which is part of why the previous
 attempt is gone. [`plan/PLATFORM.md`](plan/PLATFORM.md) is now the authority: eight questions measured
-by experiment against `2.1.220`, each with the command and its output. A fact absent from it is **not
+by experiment against `2.1.220`, each with the command and its output, plus one open question marked
+НЕ ПРОВЕРЕНО with the experiment that would settle it. A fact absent from it is **not
 measured**, and "I don't know" is the correct answer. What it covers: the accepted forms of a plugin
 skill name in `skills:` (and that a wrong form is silently ignored); that `tools:` without
 `Write`/`Edit` does not prevent writing when `Bash` is present; what `maxTurns` counts and that hitting
 it is silent; that plugin subagents ignore `permissionMode` / `hooks` / `mcpServers`; agent-file
 hot-reload and its new-directory caveat; that `skills:` accepts a block list and preloads every entry;
 **that a subagent auto-invokes a skill by description with no `skills:` field at all, provided `Skill`
-is in its `tools:`**; and that `paths` does not require the matching file to exist yet.
+is in its `tools:`**; and that `paths` does not require the matching file to exist yet. The open one
+(question 9) is whether a running dispatch's `tools:` is re-resolved mid-flight — raised by an
+observation that contradicts a restart claim this repo previously asserted as fact (F-60).
 
 Before designing any mechanism, **check the docs rather than recalling them** — four mechanisms of the
 previous attempt were made redundant by features that already existed.
@@ -179,8 +188,8 @@ A *consuming* project's definition of "green" is its own `make check` — `ruff`
 and nothing of ours. Adding a script back is a decision governed by red lines 2, 6 and 7.
 
 The workflow's own cycle is `/adw:spec` → `/adw:build` → `/adw:accept`, specified in `WORKFLOW.md` §6
-and written in `plugins/adw/commands/`. It has been run against two real changes in `adw-probe`, both
-accepted; the defect logs are in `plan/FINDINGS.md` under the step-2 and step-3 headings.
+and written in `plugins/adw/commands/`. It has been run against three real changes in `adw-probe`, all
+accepted; the defect logs are in `plan/FINDINGS.md` under the step-2, step-3 and step-3+ headings.
 Inside a consuming project everything the plugin ships carries the `adw:` prefix — `/adw:build`,
 `adw:test-author`, `adw:conventions`. In this repository the commands and skills load instead from the
 `.claude/` symlinks and answer to short names (`/spec`), while the four cycle agents are not symlinked
