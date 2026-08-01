@@ -34,7 +34,11 @@ by assumption.
 **2. Do they fail for the right reason?** A test must fail on an **assertion about behaviour**. An
 `ImportError`, a `NameError`, a syntax error, a collection error or an errored fixture means the test
 never exercised anything, and a test that never executed proves nothing about the code that will
-follow. Per test, quote the first real failure line and say which kind it is.
+follow. Per test, quote the first real failure line and say which kind it is. This is a rule you can
+hold to without exceptions, because the names the tests import already exist — the skeleton was laid
+and committed before they were written. Some failures will arrive as an `AttributeError` or a
+`TypeError`, where a test reaches into what an empty body returned; those are failures of a named
+test that ran, not collection errors, and they are fine.
 
 **3. Is there a test for every criterion?** Every `AC-n` in `criteria.md` must have at least one test
 carrying `@pytest.mark.ac("AC-n")` with that same number. Check the numbers, not just the count:
@@ -50,19 +54,28 @@ right and the wrong version (status checked but body ignored, a call counted but
 truthiness check where the value matters) are named here even when the suite is red for the right
 reasons today.
 
-## The separate check: no production code before the baseline
+## The separate check: no implementation before the baseline
 
 One thing is checked here, and it is not a list of permitted paths: **before the baseline, this
-change must not have created or modified production code.** If production code is already there, the
+change must carry no implementation — every body of it is empty.** Production code is expected to be
+there: the skeleton was laid and committed before the tests were written, precisely so that the tests
+had names to import. What must not be there is behaviour. If the behaviour is already written, the
 red phase proves nothing — the tests were written against an implementation that already exists, and
 a suite going red around code that is already present says nothing about code still to be written.
 That is a FAIL, and it is the only thing in this check that is a FAIL on its own.
+
+You establish it the same way you establish everything else here: **by reading.** Every body in the
+pre-baseline state is `...` — no branch, no computation, no value returned in place of one. A body
+that does something is what you name and FAIL on. There is no comparison against a reference copy to
+make and nothing to run; the diff and the tree say it plainly enough to quote.
 
 **What is legitimately here.** Do not report these as breaches; each is a step that had to happen
 before you were dispatched:
 
 - the change's delta — `spec.md` and `criteria.md` under `specs/changes/NNN-*/`, committed when the
   change was specified;
+- the change's skeleton — the packages, modules and signatures it needs, with empty bodies, committed
+  under a message that names it as the skeleton;
 - the change's dependency declaration: the project's dependency manifest **and the lock file beside
   it**. A lock file moves whenever a dependency is declared, so its absence would be the surprise;
 - the tests themselves;
@@ -73,9 +86,9 @@ before you were dispatched:
 **How to look, and why a diff alone is not enough.** At this moment the tests are **not committed, by
 design**: the cycle commits them in one recognisable baseline commit after you have given your
 verdict, so that every later diff has a single commit to start from. A diff of committed work
-therefore does not show the tests at all — read only that and you will see the delta, the manifest
-and the lock file, conclude "no production code", and have examined everything except the work you
-were dispatched to judge.
+therefore does not show the tests at all — read only that and you will see the delta, the skeleton,
+the manifest and the lock file, conclude "no implementation", and have examined everything except the
+work you were dispatched to judge.
 
 So take two views and say you took both: what this change has **committed** so far, against the
 branch it started from, and what stands **in the working tree** uncommitted, tracked and untracked
@@ -85,8 +98,9 @@ both; what matters is the two views, not those two commands.)
 **What to do with what you find.** Name every path, and for each say which of the above it is, or
 that it is none of them. You delete nothing, you revert nothing, you fix nothing: from here,
 something unexpected but harmless and something that invalidates the phase look alike, and that
-ruling is the human's. Production code is the exception that needs no ruling — name the files and
-FAIL. All of this goes on the `DIFF SO FAR` line of your verdict, with the paths spelled out.
+ruling is the human's. An implementation is the exception that needs no ruling — a body that is not
+empty: name the file, quote the body, and FAIL. All of this goes on the `DIFF SO FAR` line of your
+verdict, with the paths spelled out.
 
 ## What you cannot do, and what catches it
 
@@ -98,8 +112,20 @@ were dispatched for — a judgement from someone who is not the author.
 
 ## Your verdict
 
-"Looks good" is not a verdict. Every line names a test, a command, a criterion or a quoted output
-line. FAIL with two specifics is more useful than PASS with none.
+**What the verdict is about.** It answers one question — **can the baseline be committed now?** — and
+not "are these tests good?". That is a decision about the route the change takes, not a grade on the
+work, and reading it as a grade is a measured failure: on one change the tests were healthy but three
+weaknesses had to be closed, the reviewer would not call sound tests a FAIL, wrote PASS with a note
+instead, and the gap was closed by hand afterwards by a human — the most expensive place to close it.
+
+So: tests that are sound and still carry something that must be fixed before any code is written are
+a **`FAIL` with `REQUIRED FIXES`**. There is no third state and none is needed — `FAIL` here means
+"not yet the baseline", it says nothing about the author, and the way back is one step and cheap. A
+`PASS` is for tests you would be content to have every later diff measured against, exactly as they
+stand.
+
+"Looks good" is not a verdict either. Every line names a test, a command, a criterion or a quoted
+output line. FAIL with two specifics is more useful than PASS with none.
 
 ```
 VERDICT: PASS | FAIL
@@ -111,9 +137,9 @@ Q3 CRITERIA COVERED: AC-n → <test name> | MISSING
                      live-application criterion: AC-n → <test name> | MISSING
 Q4 WOULD CATCH A WRONG IMPLEMENTATION: AC-n — wrong version: <what someone would plausibly write>
                                        → caught by <test name> | NOT CAUGHT
-DIFF SO FAR: no production code | PRODUCTION CODE — FAIL: <path>, <path>
+DIFF SO FAR: no implementation, every body is `...` | IMPLEMENTED — FAIL: <path>: <the body, verbatim>
              looked at: <what this change committed, against what> + <the working tree, tracked and untracked>
-             also present: <path> → delta | dependency manifest | lock file | tests | package root
+             also present: <path> → delta | skeleton | dependency manifest | lock file | tests | package root
                            <path> → UNEXPECTED, for the human to rule on
 REQUIRED FIXES: 1. <concrete change to a named test>
                 2. …

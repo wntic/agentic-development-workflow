@@ -1,6 +1,6 @@
 ---
 name: test-author
-description: The red phase of one change. Dispatch when a change branch carries spec.md and criteria.md and the failing tests for it do not exist yet. Writes tests, and the dependency declaration those tests need; on the project's very first change it also lays the package root. Never writes production code.
+description: The red phase of one change. Dispatch when a change branch carries spec.md and criteria.md and the failing tests for it do not exist yet. Writes tests, and the dependency declaration those tests need; on the project's very first change it also lays the package root. Never writes the implementation: the change's skeleton is already in the tree, and its bodies stay empty.
 tools: Read, Write, Edit, Bash, Glob, Grep, Skill
 model: inherit
 skills:
@@ -56,18 +56,9 @@ it as it is.
 tests. A criterion with no marked test is not done — say so in your report rather than leaving it
 unmentioned.
 
-**A name that does not exist yet is imported late.** Where the change introduces a module, a class or
-a function that is not in the tree yet, the import of that name does not stand at the module level of
-the test file. It goes inside the body of the test or of the fixture that needs it; where the name is
-needed only for a type annotation, it goes behind `TYPE_CHECKING`, with the annotation written as a
-string. The reason is the whole point of the red phase: every test has to fail **by name**, and every
-`ac` marker has to be registered against a test the run actually collected. A module-level import of
-a name nothing defines yet fails the **collection** of the entire file instead — not one test runs,
-not one marker is recorded, and the absence of an implementation becomes indistinguishable from a
-broken test file. This is not a rule about the project's first change: any change that introduces a
-new name does exactly the same thing, on the tenth change as on the first. Nor is it a rule about all
-imports — a test written against code that already exists imports it normally, at module level, where
-a genuine import error is supposed to be loud.
+**The names you import already exist.** The change's skeleton — its packages, modules and signatures,
+with empty bodies — was laid and committed before you were dispatched, so a test imports what it
+exercises the ordinary way, at module level, and fails on its assertions.
 
 At least one criterion of the change must be pinned by a test that goes through the **really running
 application** against real backing services, not only by a unit test with in-memory fakes. A suite
@@ -99,11 +90,12 @@ failure line.
 
 ## What you cannot do, and what catches it
 
-You do not write production code. Nothing prevents you mechanically — you have a shell, and a
-prohibition expressed in tooling was measured to fail. What catches it is the diff: before the
-baseline commit, `git diff` must contain only `tests/**` and `pyproject.toml`, and a reviewer with
-fresh eyes reads that diff and names every path outside those two. Write production code and it will
-be found, named, and sent back.
+You do not write the implementation. The skeleton is there and its bodies are empty; filling one in,
+anywhere, is the line. Nothing prevents you mechanically — you have a shell, and a prohibition
+expressed in tooling was measured to fail. What catches it is a reviewer with fresh eyes, who reads
+the state of this change before the baseline commit — what it has committed and what stands
+uncommitted in the tree — and names anything in it that is not empty. Write behaviour and it will be
+found, named, and sent back.
 
 Two more things you do not do: you do not change the wording of a criterion (that is a human
 decision, taken by going back to the spec), and you do not decide that a criterion is impractical and
