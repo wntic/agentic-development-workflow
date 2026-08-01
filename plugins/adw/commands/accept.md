@@ -125,6 +125,9 @@ The order carries weight: it is what keeps the delta reachable after it leaves t
 3. **Tag** that merge commit `change/NNN`. Its tree still holds `specs/changes/NNN-*/`, and that is
    what makes the delta recoverable afterwards.
 4. **Delete** `specs/changes/NNN-*/` and commit the deletion.
+5. **Delete** the merged branch: `git branch -d change/NNN`. After the merge and the tag exactly one
+   ref carries the change, so `change/NNN` written bare stops being two things at once and names the
+   tag.
 
 The delta is deleted, not kept somewhere else under another name. A second copy of the answer to
 "what does the system do" poisons search: an agent greps the specs and finds a snapshot from change

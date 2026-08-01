@@ -5,6 +5,11 @@
      deleted with the delta on acceptance.
      Fill the placeholders, delete these comments. -->
 
+<!-- `Baseline` is the full SHA, never abbreviated: acceptance reads `git diff <baseline>..HEAD --
+     tests/` from it — the one defence against tests bent until the code passed — and a diff taken
+     from the wrong commit is empty and looks reassuring. -->
+
+Baseline: <full git SHA of the commit holding the tests, before any implementation>
 Commit: <git SHA the run was made against>
 `make check`: <green | red — and which of the four commands failed, with the first real error>
 

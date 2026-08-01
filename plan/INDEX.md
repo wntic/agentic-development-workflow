@@ -93,7 +93,7 @@ find plugins/adw -name '*.py' -o -name '*.sh' -o -name 'hooks.json' -o -name 'an
 | S04-01 | [замер `tools:` — 4 прогона](S04-01-tools-resolution.md) | — | — | ☑ |
 | S04-02 | [канон догоняет решения](S04-02-canon.md) | ядро | S04-01 | ☑ |
 | S04-03 | [скаффолдинг в адаптере](S04-03-scaffold-adapter.md) | адаптер | S04-02 | ☑ |
-| S04-04 | [ветка и baseline SHA](S04-04-cycle-artifacts.md) | адаптер + ядро | S04-02 | ☐ |
+| S04-04 | [ветка и baseline SHA](S04-04-cycle-artifacts.md) | адаптер + ядро | S04-02 | ☑ |
 | S04-05 | [смысловой маркер](S04-05-marker-slug.md) | ядро + адаптер | S04-02 | ☐ |
 | S04-06 | [форма шаблонов + платформа](S04-06-skill-format-and-platform.md) | ядро | S04-01 | ☐ |
 | S04-07 | [шаг возврата по CONTRACT-CHANGE](S04-07-contract-change-route.md) | ядро | S04-03 | ☑ |
