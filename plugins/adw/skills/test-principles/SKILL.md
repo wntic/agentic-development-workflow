@@ -129,11 +129,12 @@ Two coupling points are deliberate and load-bearing:
 
 ## The acceptance-criteria marker
 
-A test that pins an observable acceptance criterion carries `@pytest.mark.ac("AC-n")`, where `n` is the
-criterion's number:
+A test that pins an observable acceptance criterion carries `@pytest.mark.ac("<criterion-slug>")`,
+where the slug is the criterion's own identifier — lowercase, hyphen-separated, naming the behaviour
+the criterion states rather than the code that implements it:
 
 ```python
-@pytest.mark.ac("AC-3")
+@pytest.mark.ac("duplicate-name-rejected")
 async def test_duplicate_name_raises_conflict(sf: async_sessionmaker[AsyncSession]) -> None:
     ...
 ```
@@ -148,9 +149,9 @@ Rules for it:
 - **Register it** in `pyproject.toml` under `[tool.pytest.ini_options] markers` — an unregistered marker
   is a `PytestUnknownMarkWarning`, and under `-W error` a failure.
 - **`pytest -m ac` selects every criterion-pinning test**, which is what makes the marker worth carrying.
-  Be aware that the selection spans the whole suite: markers left behind by earlier, already-accepted
-  work are selected too, so "does this criterion have a test" is answered by looking for its own
-  `AC-n`, never by the count of selected tests.
+  The selection spans the whole suite, tests written long ago included, and that is the intended reach:
+  every value is a phrase that says what it stands for, so a particular criterion is looked up by its
+  own slug and the answer does not depend on which tests happen to be selected alongside it.
 
 ## When to parametrize — and when not to
 

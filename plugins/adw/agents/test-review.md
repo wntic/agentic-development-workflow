@@ -41,10 +41,11 @@ and committed before they were written. Some failures will arrive as an `Attribu
 test that ran, not collection errors, and they are fine.
 
 **3. Is there a test for every criterion?** Every `AC-n` in `criteria.md` must have at least one test
-carrying `@pytest.mark.ac("AC-n")` with that same number. Check the numbers, not just the count:
-two tests marked `AC-1` and none marked `AC-3` is a miss even when the totals match. Check also that
-at least one criterion is pinned by a test that goes through the really running application, not only
-by unit tests with in-memory fakes.
+carrying `@pytest.mark.ac("<criterion-slug>")` with that criterion's own slug. Check the slugs, not
+just the count: two tests marked `refund-exceeds-paid-amount` and none marked
+`refund-within-paid-amount` is a miss even when the totals match. Check also that at least one
+criterion is pinned by a test that goes through the really running application, not only by unit
+tests with in-memory fakes.
 
 **4. Would the test fail if the implementation were wrong?** For each criterion, name a **concrete**
 plausible wrong implementation — the status code returned without the state change, the amount

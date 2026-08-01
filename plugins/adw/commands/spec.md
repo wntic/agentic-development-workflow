@@ -126,7 +126,11 @@ Once they pass:
 3. Fill `spec.md` and `criteria.md` from the workflow's own skeletons — `templates/spec.md` and
    `templates/criteria.md`, shipped next to this command. Their comments say what each section is
    for and which depth carries it; a section this change does not carry is **deleted**, not kept as
-   an empty heading, and the comments themselves are deleted once the section is filled.
+   an empty heading, and the comments themselves are deleted once the section is filled. A criterion
+   line carries a number **and** a slug — `- [ ] AC-1 · refund-exceeds-paid-amount: a refund above
+   the paid amount → 422` — and the slug is written here, together with the criterion's text:
+   lowercase, hyphen-separated, naming the observable behaviour, unique within this change. The
+   number is for the human reading the checklist; the slug is what the test's marker will carry.
 4. Commit the two files on their own, with a message naming the change. The delta belongs to git
    before any test exists, so that the diff a reviewer reads later is tests and nothing else.
 
@@ -135,7 +139,7 @@ cycle that follows.
 
 ## 6. Output control — by a human, not by a machine
 
-Six checks, read by you and confirmed by the human. There is no pattern-match and no tool behind
+Seven checks, read by you and confirmed by the human. There is no pattern-match and no tool behind
 them; reading is the mechanism, deliberately.
 
 - **The delta's header is filled in** — `Affects:` names the capability file this delta merges into,
@@ -158,6 +162,10 @@ them; reading is the mechanism, deliberately.
 - **Vagueness markers.** If a criterion contains `correctly`, `properly`, `works`, `as expected` —
   or the same words in the language you are writing in — the observable part is still missing.
   Rewrite it. These four words are where an unwritten criterion hides most often.
+- **Every criterion carries a slug, and the slug says what the criterion says** — the behaviour, not
+  the implementation — and no two criteria of this change share one. That slug is the value the
+  test's marker will carry, so a vague or a duplicated one loses the link between a criterion and
+  its evidence.
 - **`Verification` answers "how would this be proven"** — the commands, the environment they need,
   the seed data. A criterion whose environment is not covered there cannot be proven against a
   running system; saying so now is a decision, discovering it at the verdict is a surprise.

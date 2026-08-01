@@ -8,8 +8,8 @@
      to [ ].
      Fill the placeholders below, delete these comments. -->
 
-- [ ] AC-1: <observable behaviour of the running system>
-- [ ] AC-2: <observable behaviour of the running system>
+- [ ] AC-1 · <criterion-slug>: <observable behaviour of the running system>
+- [ ] AC-2 · <criterion-slug>: <observable behaviour of the running system>
 
 <!-- What the form cannot check, and a reader must:
 
@@ -20,9 +20,17 @@
        observable part is still missing. These four words are where an unwritten criterion hides
        most often.
 
-     - Every criterion is pinned by at least one test carrying `@pytest.mark.ac("AC-n")` with its
-       own number. One criterion may have several marked tests; a marked test that passes is what
-       lets the box become [x].
+     - Every criterion is pinned by at least one test carrying `@pytest.mark.ac("<criterion-slug>")`
+       with its own slug — the slug, never the number. One criterion may have several marked tests;
+       a marked test that passes is what lets the box become [x].
+
+     - The slug is lowercase and hyphen-separated, and it names the observable behaviour rather than
+       the implementation: `refund-exceeds-paid-amount`, not `amount-check-in-service`. It is unique
+       within this change, and it carries no change number — which change a criterion came from is
+       process state, and it lives in the branch and the tag. The number stays on the checklist line
+       because a human referring to a criterion in conversation or in the verdict needs something
+       short to point at; the marker takes the slug, because marker values are shared by the whole
+       tree and a bare number there is answered by whichever change numbered it that way.
 
      - AT LEAST ONE criterion of the change is proven through a really running application — the
        real process against real backing services — and not only by a unit test with in-memory

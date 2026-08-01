@@ -52,9 +52,9 @@ them from there rather than reconstructing them here. If the registration is alr
 it as it is.
 
 **3. The tests.** For every criterion in `criteria.md`, at least one test carrying the marker
-`@pytest.mark.ac("AC-n")` with that criterion's own number. One criterion may have several marked
-tests. A criterion with no marked test is not done — say so in your report rather than leaving it
-unmentioned.
+`@pytest.mark.ac("<criterion-slug>")` with that criterion's own slug — the slug, never the number.
+One criterion may have several marked tests. A criterion with no marked test is not done — say so in
+your report rather than leaving it unmentioned.
 
 **The names you import already exist.** The change's skeleton — its packages, modules and signatures,
 with empty bodies — was laid and committed before you were dispatched, so a test imports what it
