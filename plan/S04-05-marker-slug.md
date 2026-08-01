@@ -82,7 +82,7 @@ git status --short    # ожидается ровно три файла
 rtk proxy grep -n 'ac("AC-' plugins/adw/    # порядковых маркеров в примерах остаться не должно
 rtk proxy grep -n "slug\|slug'" plugins/adw/templates/criteria.md plugins/adw/commands/spec.md
 rtk proxy grep -n -i "criteria.md\|\[x\]" plugins/adw/skills/test-principles/SKILL.md   # должно быть пусто
-find plugins/adw -name '*.py' -o -name '*.sh' -o -name 'hooks.json'   # пусто
+rtk proxy find plugins/adw -name '*.py' -o -name '*.sh' -o -name 'hooks.json'   # пусто
 ```
 
 Плюс чтением: форма в трёх файлах **одна и та же** и совпадает с §3 канона.

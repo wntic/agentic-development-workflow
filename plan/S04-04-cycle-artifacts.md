@@ -75,7 +75,7 @@ Diff от неверного коммита **пуст и выглядит ус�
 git status --short    # ожидается ровно два файла
 rtk proxy grep -n -i "branch" plugins/adw/commands/accept.md | tail -20
 rtk proxy grep -n "Baseline" plugins/adw/templates/verdict.md
-find plugins/adw -name '*.py' -o -name '*.sh' -o -name 'hooks.json'   # пусто
+rtk proxy find plugins/adw -name '*.py' -o -name '*.sh' -o -name 'hooks.json'   # пусто
 ```
 
 Плюс чтением: порядок шагов «merge → тег → удаление дельты → удаление ветки» и никакой иной;

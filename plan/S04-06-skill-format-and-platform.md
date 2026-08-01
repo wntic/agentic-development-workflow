@@ -86,7 +86,7 @@ git status --short    # ожидается ровно два файла
 rtk proxy grep -n -i "template(s)" plugins/adw/skills/meta-skill-author/SKILL.md
 rtk proxy grep -c "ЗАМЕРЕНО\|ИЗ ДОКОВ\|НЕ ПРОВЕРЕНО" plan/PLATFORM.md
 rtk proxy grep -rn "test_skill_format" plugins/adw/    # должно быть пусто
-find plugins/adw -name '*.py' -o -name '*.sh' -o -name 'hooks.json'   # пусто
+rtk proxy find plugins/adw -name '*.py' -o -name '*.sh' -o -name 'hooks.json'   # пусто
 ```
 
 Плюс чтением: ни один из пяти скиллов (`infra-persistence`, `infra-wiring`, `restapi-route-contracts`,
