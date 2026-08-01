@@ -11,7 +11,7 @@ development workflow for Python backends. It is not an application.
 history under tags; [`HISTORY.md`](HISTORY.md) is the pointer, and it is short. Read it before
 proposing any mechanism — most plausible-sounding ideas have already been built and measured once.
 
-The design is settled — [`WORKFLOW.md`](WORKFLOW.md). **Steps 1–3 of its §10 build order are closed.**
+The design is settled — [`WORKFLOW.md`](WORKFLOW.md). **Steps 1–4 of its §10 build order are closed.**
 The adapter is written and installed (step 1); three real changes shipped in the probe project
 `adw-probe` — 001 a short-URL service, 002 a read-model exposing a creation timestamp, 003 custom short
 codes — each accepted, tagged and defect-logged. The plugin ships `plugins/adw/skills/` (30 house-style
@@ -23,34 +23,60 @@ pre-merge skills and re-merged into 30, with the dead generations' vocabulary pu
 rationale: [`plan/R00-skills-restructuring.md`](plan/R00-skills-restructuring.md). Status table and the
 measured before/after: [`plan/INDEX.md`](plan/INDEX.md).
 
-**Red line 3 is satisfied for the first time: three shipped features against two completed passes of
-workflow edits.** Change 003 (custom short codes, 8 criteria) shipped on 2026-07-30, and its defect log
-is the step-3+ section of `plan/FINDINGS.md`. That run is also the first where the curve bent down —
-a bigger change cost 63m00s of compute against 002's 84m21s, and the orchestrator's share of output
-tokens fell from 77% to 59%.
+Change 003 (custom short codes, 8 criteria) shipped on 2026-07-30, and its defect log is the step-3+
+section of `plan/FINDINGS.md`. That run is the first where the curve bent down — a bigger change cost
+63m00s of compute against 002's 84m21s, and the orchestrator's share of output tokens fell from 77% to
+59%.
 
-So **step 4 — deciding the findings — is now legitimate**, where it was forbidden before. Two things to
-carry into it: a finding's disposition is the human's call and arrives as its own commit, and three
-findings closed themselves without a mechanism (F-10 by the restructuring, F-57 by paying it back,
-F-36 by holding three runs in a row), which is the outcome to prefer over building a guard.
+**Step 4 — deciding the findings — was decided on 2026-07-31 and executed on 2026-08-01.** Its rulings
+live in `plan/FINDINGS.md`, section «Шаг 4, проход первый»; where that section disagrees with the older
+`Решение отложено до` lines above it, **it wins**. It went through 31 entries — the 23 still open, plus
+eight that turned out to have closed themselves sidelong. **15 closed with no edit at all**: those
+eight, plus seven ruled "did not happen", each with the signal that would reopen it. The other 16 were
+decided. The pass produced **exactly one new mechanism**: the implementer lays a skeleton before the
+tests, which removes the cause of five entries instead of guarding against them. Everything else was
+prose.
+
+**So red line 3 now reads 3 features : 3 passes, and the next action is change 004, not another edit.**
+It doubles as the scaffolding's first measurement — one run with a skeleton against three with the
+deferred-import workaround.
+
+Two habits worth carrying, both measured rather than asserted: a finding's disposition is the human's
+call and arrives as its own commit; and the outcome to prefer is a finding that closes **without a
+guard of its own** — F-10 by the restructuring, F-57 by paying it back, F-36 by holding three runs,
+each with no mechanism at all; and F-29, F-38, F-40, F-51 and F-55 in this pass, which cost the one
+mechanism named above and then closed five entries by removing their cause rather than watching for
+it. Five entries for one mechanism is the trade this line is looking for; five mechanisms for five
+entries is what killed attempt 3.
 
 Where the record lives: the build record task by task is `plan/`; what the install actually did is
 [`plan/INSTALL-REHEARSAL.md`](plan/INSTALL-REHEARSAL.md); open questions are
-[`plan/FINDINGS.md`](plan/FINDINGS.md), read by header (`grep '^## F-'`) and never whole.
+[`plan/FINDINGS.md`](plan/FINDINGS.md), read by header (`rtk proxy grep '^## F-'`) and never whole.
 
 **Platform knowledge in this repo was two generations stale**, which is part of why the previous
-attempt is gone. [`plan/PLATFORM.md`](plan/PLATFORM.md) is now the authority: eight questions measured
-by experiment against `2.1.220`, each with the command and its output, plus one open question marked
-НЕ ПРОВЕРЕНО with the experiment that would settle it. A fact absent from it is **not
+attempt is gone. [`plan/PLATFORM.md`](plan/PLATFORM.md) is now the authority: nine questions measured
+by experiment against `2.1.220`, each with the command and its output. A fact absent from it is **not
 measured**, and "I don't know" is the correct answer. What it covers: the accepted forms of a plugin
 skill name in `skills:` (and that a wrong form is silently ignored); that `tools:` without
 `Write`/`Edit` does not prevent writing when `Bash` is present; what `maxTurns` counts and that hitting
 it is silent; that plugin subagents ignore `permissionMode` / `hooks` / `mcpServers`; agent-file
-hot-reload and its new-directory caveat; that `skills:` accepts a block list and preloads every entry;
+hot-reload between turns **and its new-directory caveat** — the first file in a freshly created
+`agents/` directory is *not* picked up without a restart; that `skills:` accepts a block list and
+preloads every entry;
 **that a subagent auto-invokes a skill by description with no `skills:` field at all, provided `Skill`
-is in its `tools:`**; and that `paths` does not require the matching file to exist yet. The open one
-(question 9) is whether a running dispatch's `tools:` is re-resolved mid-flight — raised by an
-observation that contradicts a restart claim this repo previously asserted as fact (F-60).
+is in its `tools:`**; that `paths` does not require the matching file to exist yet; and **that a
+subagent's tool set resolves once, when the dispatch launches, and does not change while it runs —
+`Skill` is reachable only when named in `tools:` or when `tools:` is omitted entirely, and neither the
+width of the list nor a `skills:` field opens it** (question 9).
+
+Question 9 also carries a correction worth reading before trusting any timeline in this repo. It was
+raised by an observation that looked like mid-flight re-resolution; the observation was **a timezone
+error in its own table** — session times taken as UTC from a transcript, the commit time as local
+`+05:00` from `git log`. In one zone the edit landed 4h45m *before* the session started, so nothing
+was re-resolved and there was no mystery. The restart claim it was said to contradict is therefore
+**unverified, not refuted** — and what happens to a `skills/` directory created *after* a session
+starts is one of the file's several items marked НЕ ПРОВЕРЕНО, each carrying the experiment that would
+settle it (F-60).
 
 Before designing any mechanism, **check the docs rather than recalling them** — four mechanisms of the
 previous attempt were made redundant by features that already existed.
@@ -71,10 +97,14 @@ the spec store, the artifact formats, the four roles, the three commands, the gr
 
 In one breath: a living spec per capability that compounds; each change arrives as a delta in
 OpenSpec's `ADDED`/`MODIFIED`/`REMOVED` + `WHEN … THEN` form and is deleted on acceptance; criteria
-are observable behaviour pinned by `@pytest.mark.ac("AC-n")` tests; the red phase and the green
-phase each get a verdict from an agent that did not author it (four roles: test-author →
-test-review → implementer → evaluator); "green" is `make check` — **zero scripts of our own**;
-bypass is caught by reading `git diff`, not by a machine; one branch per change.
+are observable behaviour pinned by `@pytest.mark.ac("<criterion-slug>")` tests — the checklist line
+carries an ordinal for humans to point at, the marker carries only the slug, because the marker
+namespace spans the whole tree and an ordinal answers "is this criterion covered" with a false yes
+(measured three times, F-54); the red phase and the green phase each get a verdict from an agent that
+did not author it (four roles, the implementer dispatched twice: **implementer lays the skeleton** →
+test-author → test-review → implementer writes the code → evaluator); "green" is `make check` —
+**zero scripts of our own**; bypass is caught by reading `git diff`, not by a machine; one branch
+per change.
 
 ## The two layers — core and adapter
 
@@ -134,9 +164,26 @@ cross-cutting ones where a glob would exclude nothing.
 
 The canonical body is four sections — *When to use vs. neighbours · Template(s) · Rules · Hard stops* —
 with two optional helpers (*Inlined typing / import rules*, *Package wiring*). A reference skill that
-produces no file omits `Template(s)`. **Five skills deviate**: they carry templates outside a
-`## Template(s)` section because a merged skill covering several artifacts organizes by topic instead.
-That is recorded, not endorsed — F-58.
+produces no file omits `Template(s)`. **A skill covering several artifacts may group its templates
+under topical `##` headings instead**, with the templates as `###` inside — legal since the step-4
+ruling on F-58, on one condition stated in `meta-skill-author` rule 1: the heading must **name an
+artifact** (`## The Table`), not a subject of discussion (`## Notes`). Five skills use that form. The
+allowance rests on a single observation of success rather than a test of failure, so it carries its own
+withdrawal condition: if a template is ever missed under a topical heading, it goes.
+
+Counted in the tree rather than from the register, and the count ages — recheck it with the command
+rather than trusting this line:
+
+```bash
+ls -d plugins/adw/skills/*/ | wc -l                                # skills in total
+grep -l '^## Template(s)' plugins/adw/skills/*/SKILL.md | wc -l    # carrying the canonical heading
+```
+
+At the time of writing exactly half carry `## Template(s)`. The other half splits three ways: reference
+skills that omit it by rule; skills grouping topically under the allowance above; and — the group the
+register missed — skills carrying a **singular `## Template` or a named variant** (`## Template — async,
+SDK-client form`, `## Skeleton — router file`). That last kind is a different deviation, is *not*
+covered by the allowance, and has not been ruled on — F-79.
 
 **There are no router skills and no topic files.** A theme past ~500 lines was the documented signal to
 split into a thin `SKILL.md` plus `<topic>.md` siblings; that shape is deliberately not used here,
@@ -188,8 +235,11 @@ A *consuming* project's definition of "green" is its own `make check` — `ruff`
 and nothing of ours. Adding a script back is a decision governed by red lines 2, 6 and 7.
 
 The workflow's own cycle is `/adw:spec` → `/adw:build` → `/adw:accept`, specified in `WORKFLOW.md` §6
-and written in `plugins/adw/commands/`. It has been run against three real changes in `adw-probe`, all
-accepted; the defect logs are in `plan/FINDINGS.md` under the step-2, step-3 and step-3+ headings.
+and written in `plugins/adw/commands/`. `/adw:build` runs eight numbered steps, 0–7; step 1 is the
+skeleton and is new since step 4, so **no run has exercised it yet** — change 004 will be the first.
+It has been run against three real changes in `adw-probe`, all accepted; the defect logs are in
+`plan/FINDINGS.md` under the step-2, step-3 and step-3+ headings, and the rulings that followed them
+under «Шаг 4, проход первый».
 Inside a consuming project everything the plugin ships carries the `adw:` prefix — `/adw:build`,
 `adw:test-author`, `adw:conventions`. In this repository the commands and skills load instead from the
 `.claude/` symlinks and answer to short names (`/spec`), while the four cycle agents are not symlinked
