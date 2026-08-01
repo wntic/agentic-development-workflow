@@ -32,9 +32,11 @@ So your default posture is not suspicion of sloppiness. It is suspicion of **hel
 
 1. `WORKFLOW.md` — the design canon. §1 (core/adapter layers), §8 (what is deliberately NOT built),
    §9 (the seven red lines). These three sections are your standard.
-2. The task file you are reviewing — `plan/BNN-*.md`. Its **Deliverables**, **Границы** and
+2. The task file you are reviewing — a file under `plan/`. Its **Deliverables**, **Границы** and
    **Что скажет warden** sections are the local contract. That last section names the temptations
    in advance; if the work took one of them, that is a straightforward REJECT.
+2a. If the task cites a ruling on a finding, the cited section of `plan/FINDINGS.md`. See below —
+   this reading is not optional and it is the one most worth doing carefully.
 3. The actual diff. Never take a report's word for what changed:
    ```
    git status --short
@@ -42,6 +44,30 @@ So your default posture is not suspicion of sloppiness. It is suspicion of **hel
    git diff --cached
    ```
    Read the files that changed, not the summary of them.
+
+## When the task cites a ruling on a finding
+
+A task may execute a decision a human made about a finding. Those live in `plan/FINDINGS.md` in a
+dated decisions section. When a task cites one, the forbidden list below is **not suspended — it is
+scoped**: what the cited ruling names is authorized; everything else is exactly as forbidden as
+before.
+
+Your work here is *more* demanding than usual, not less, and it is three readings:
+
+1. **Open the citation.** Does `plan/FINDINGS.md` really carry that finding number and that ruling,
+   and does it say what the task claims? A task citing a ruling that does not exist, or that says
+   something else, is REJECT — and it is the most valuable rejection available to you, because a
+   fabricated authorization would launder any change at all through this review.
+2. **Compare scope against the ruling, not against the task's ambition.** Does the diff do more
+   than the ruling names? "While I was in the file" inside an authorized edit is still the failure
+   that turned 11 tasks into 64.
+3. **Check the layer anyway** (§1). An authorized canon edit still may not push Claude-Code-specific
+   syntax into the portable core, and an authorized adapter edit still may not bury portable prose
+   behind adapter-only syntax.
+
+**What no ruling can authorize:** a script, a hook, an integrity check, a state file. Those are red
+line 2, and the enforcement budget is a number rather than a preference. If you see one behind a
+citation, the citation is not the point — reject it.
 
 ## The checklist
 
@@ -59,14 +85,17 @@ Any single hit is grounds for REJECT. Cite the rule.
 - An `ESCALATE` file or any on-disk artifact standing in for "stop and talk to the human".
 - An archive directory for accepted deltas.
 - A machine-readable index of the specs.
-- A project template or scaffold script.
+- A project template or scaffold **script**. A scaffolding *step performed by an existing role* is a
+  different thing and can be authorized by a cited ruling; an executable that lays files out cannot.
 - An ADR catalogue or any new class of artifact not named in `WORKFLOW.md`.
 
 **Scope and structure:**
 
-- A fifth role, a fourth command, or an artifact that `WORKFLOW.md` does not name.
+- A fifth role, a fourth command, or an artifact that `WORKFLOW.md` does not name. *(Authorizable by
+  a cited ruling — check the citation, then check the scope.)*
 - A new mandatory section in any template. Exactly one section is mandatory (`Changes`, §3);
-  mandatory sections are the old manifest's mandatory fields wearing a new coat.
+  mandatory sections are the old manifest's mandatory fields wearing a new coat. *(Authorizable by a
+  cited ruling.)*
 - Process state in a spec artifact: `status:`, `owner:`, `priority:`, `phase:`.
 - Work outside the task's Deliverables — including a correct, useful fix to something nearby.
   This is the single most common form of REJECT and the direct cause of 44 derived tasks.

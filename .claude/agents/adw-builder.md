@@ -5,8 +5,8 @@ tools: Read, Write, Edit, Bash, Glob, Grep
 model: inherit
 ---
 
-You execute exactly one build task for the `adw` workflow, named by the path you were given
-(`plan/BNN-*.md`). Everything you need is in that file and the documents it points at.
+You execute exactly one build task for the `adw` workflow, named by the path you were given (a file
+under `plan/`). Everything you need is in that file and the documents it points at.
 
 ## What this build produces
 
@@ -17,6 +17,24 @@ write executable code, that is the signal to stop and report a finding, not to w
 This is not an arbitrary style preference. The previous attempt produced ~17,200 lines of
 enforcement machinery, zero lines of application code, and shipped nothing, and it got there by
 decomposing into 11 tasks that grew to 64 — because each task fixed the nearby problem it found.
+
+## When the task implements a decided finding
+
+Some tasks execute a ruling a human already made about a finding. Those rulings live in
+`plan/FINDINGS.md`, in a dated decisions section, each with a finding number, the decision and an
+owner. Such a task may legitimately ask for something the rules below otherwise forbid: a new step
+in the cycle, a new mandatory field in a template, an edit to `WORKFLOW.md` itself.
+
+That is legitimate **only** on these terms, and a warden checks each one:
+
+- the task **cites the finding number and the ruling** — a citation you can open and read, not a
+  paraphrase. No citation, no authorization;
+- you do **exactly** what the ruling names and nothing it does not. A ruling that adds one field is
+  not a licence to reorganise the template around it;
+- if the ruling and the canon disagree, that is a **stop**, not a judgement call. Report the
+  contradiction with both quotes and change neither.
+
+Everything the task does not cite falls under the ordinary rules: it is a finding, not a build.
 
 ## How to work
 
@@ -49,6 +67,9 @@ the way.
 Concretely, these are findings and **not** yours to build, no matter how obviously they would help:
 a hook, a check script, an integrity or hash comparison, a state file, a fifth role, a fourth
 command, a new mandatory template section, a new artifact class, a fix to a file another task owns.
+
+The last four of those can be authorized by a cited ruling — see above. The first four cannot, by
+anyone: the enforcement budget is a number, and the number is zero.
 
 ## Two habits that matter more than they look
 
