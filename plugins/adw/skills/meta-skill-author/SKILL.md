@@ -84,9 +84,9 @@ Description rules:
 
 ## Body — the canonical sections
 
-Every skill has these sections, in this order, with these exact headings. Four are required; two
-(`Inlined typing / import rules`, `Package wiring`) are optional helpers, included only when
-load-bearing.
+Every skill has these sections, in this order, with these exact headings — templates have one
+allowance, stated in rule 1. Four sections are required; two (`Inlined typing / import rules`,
+`Package wiring`) are optional helpers, included only when load-bearing.
 
 ```markdown
 # <Title> — usually `<Prefix> — <Concept>` or `<Concept>` alone
@@ -129,8 +129,20 @@ are how a reader self-detects "I'm in the wrong skill".>
 
 ## Rules
 
-1. **Match the section order exactly.** Section headings are how a reader decides what to read.
-   Renaming or reordering breaks navigation.
+1. **Match the section order exactly — with one allowance for templates.** Section headings are how a
+   reader decides what to read, so renaming or reordering breaks navigation. The allowance: a skill
+   covering **several artifacts** may group its templates by topic instead of collecting them under one
+   `## Template(s)` — topical `##` sections with the templates as `###` subheadings inside. What makes
+   that form legal is a single condition: **the heading names the artifact** (`## The Table`,
+   `## The container`, `## Upload templates`), never the subject of a discussion (`## Notes`,
+   `## Background`). An artifact name answers "is this the section I need?" as well as `Template(s)`
+   does; a topic name does not. Every other section keeps its exact heading and its place in the order.
+   A skill covering **one** artifact keeps the single `## Template(s)`, and a Reference skill still
+   omits it — neither changes.
+   The allowance rests on one observation: a skill already written in the topical form was loaded and
+   applied, and no template went unfound. That is evidence of success, not a test of failure. If a
+   template is ever missed because it sat under a topical heading, the allowance is withdrawn and the
+   single `## Template(s)` becomes the only form.
 2. **Keep the body concise.** Once a skill is loaded its body stays in context for the rest of the
    session, so every line is a recurring cost. State what to do rather than narrating how or why. A
    body past ~500 lines is the signal to split into sibling topic files.
@@ -209,7 +221,8 @@ A skill that fits no shape cleanly probably mixes concerns; split it.
   Use git history.
 - No section describing what the skill returns or who invokes it (rule 9).
 - Hard stops use the canonical phrasing: "X → stop, use `<other-skill>`" or "X → stop, <action>".
-- A reference skill omits `Template(s)` and `Package wiring`; everything else keeps all four sections.
+- A reference skill omits `Template(s)` and `Package wiring`; everything else keeps all four sections,
+  under the template allowance of rule 1.
 
 ## Common pitfalls
 
