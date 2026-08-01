@@ -9,37 +9,16 @@ paths: tests/**
 
 Every other `test-*` skill consults this one. The rules here are the **catalog-level testing constitution**; the producer skills (`testing-unit-domain`, `test-application-handler`, `testing-contract`, `test-restapi-endpoint`, …) restate only the slices that apply to writing their specific artifact.
 
-This skill also carries the **catalog's own guard**: a machine inventory of every hard-won lesson, so no reorganisation of the knowledge base can quietly lose one (see the next section).
-
 ## When to use vs. neighbours
 
 - Adding or modifying a test → consult this skill **and** the matching producer skill.
 - Producing one test file from a spec → the matching producer skill (this one is reference-only, no file output).
 - The grep-firewall architectural rule that enforces a principle → `test-architecture-rule`.
 - A producer skill's rule contradicts something here → fix the producer skill; this is the source of truth.
-- A hard-won lesson (a phrase distilled from a real defect) is being moved, merged, or reworded across the catalog → the paid-fixes guard below must still find it afterwards.
 
-## The catalog's paid-fixes guard
+## Moving a rule that a defect paid for
 
-The knowledge base is a living document: skills get reworded, split, and merged. Every such move risks silently dropping a lesson that was expensive to learn — a defect surfaced once, its fix distilled into a distinctive sentence, and that sentence must never evaporate in an edit. Prose review ("I copied it all over, trust me") is not enough; the transfer is checked by a machine.
-
-**The guard is `.claude/tools/test_skill_catalog.py`** — a pytest suite that, for each closed lesson, greps the *whole* catalog for the lesson's **content signature** (a distinctive phrase or code pattern), never its file path. Because the check is path-agnostic, a lesson may live in any skill and move to any other; the guard stays green as long as the phrase is carried over verbatim. If a phrase disappears, the matching test reds and names the lesson that was lost.
-
-The families of lesson it inventories today (one test each, the test name citing the lesson's id) — described here as categories only, deliberately **without** quoting the grep phrases, so the exact signatures live in exactly one place, the producer skills, and this summary can never satisfy the guard by accident:
-
-- **Persistence & handler correctness** — the conftest-import discipline, the sanctioned failure-state exception path, the compensating-undo shapes, the copy-and-log fake behaviour, the concrete-service substitution rule, and auth-derived field stamping.
-- **Type & import fragility** — the re-export-hop import rule, the version-robust route-internals access, the future-annotations ban, and the settings-prefix altitude.
-- **Assert strength** — the seven recipes that keep a handler/manual-stub assert strong at authoring time.
-- **Feature-conditional templates** — the auth-optional and relational-optional two-sub-template idioms (a contingent feature is never frozen as universal).
-- **Standing bans & disciplined exceptions** — the Core-only rule, the single-pagination-shape rule, the substrate version-pin discipline, the inline type-suppression ban, and the two enabled bugbear lint rules.
-
-**How to extend it when a new paid lesson lands.** Every time a defect is closed and its fix distilled into the catalog, add **one** test to `test_skill_catalog.py`:
-
-1. Pick the most distinctive phrase or code pattern the fix introduced — one a plausibly-wrong rewrite would not accidentally reproduce.
-2. Write `test_<id>_<slug>` that asserts that phrase (and any co-load-bearing phrase) is present somewhere in the catalog, via the suite's `_present(...)` helper. Cite the lesson's id in the test name.
-3. Never assert on a file path, and never weaken an existing signature to make room — one entry per closed lesson, append-only.
-
-The guard is deliberately rewritten **before** any large catalog reorganisation, not during it: the watcher must not be re-authored by the same hand, in the same pass, that moves what it watches.
+A rule distilled from a real defect travels **verbatim** when it is moved, merged or reworded across these skills — copy the sentence rather than restate it. What carries such a rule is one distinctive phrase or code pattern, the part a plausibly-wrong rewrite would never reproduce by accident; a paraphrase keeps the topic and drops exactly that, so the rule survives as a heading and stops changing anyone's behaviour. If the wording around it has to change, keep that phrase intact inside the new wording.
 
 ## The testing pyramid
 

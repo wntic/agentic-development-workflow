@@ -105,9 +105,13 @@ decision down. (Neither available? Read the code yourself — the decision was n
 
 What the decision looks like in the `Design` section:
 
-- **binding** where it names shared names — modules, classes, constructor dependencies that the
-  tests and the code must read identically. That is a published contract. A binding name that turns
-  out wrong is changed by coming back here, never by a silent workaround;
+- **binding** — the structural decision itself, the one the trigger fired for: where the boundary
+  runs, which side of it a fact lives on, that this is a context of its own. A binding decision that
+  turns out wrong is changed by coming back here, never by a silent workaround;
+- **no identifiers at all** — not a module, not a class, not a constructor dependency. Naming is not
+  a decision this interview takes: the first code of the change is its skeleton, written before any
+  test, so whoever writes it chooses the names and everyone after reads them from the code. A name
+  written here would be a contract published ahead of the code that has to carry it, and read twice;
 - **non-binding** everywhere else — the approach taken, the options rejected, the reasoning. If that
   part and the code disagree later, the code is right.
 
@@ -147,14 +151,13 @@ them; reading is the mechanism, deliberately.
   trust that the skeleton carried them through. Without `Affects:` acceptance does not know which
   living spec to merge into, and the build cycle cannot check the invariant of at most one change in
   flight per capability — both read that field, and both read its absence as "no target".
-- **If the change has a `Design` section: every name a test will reach for is published in its
-  binding part** — the module, the class, the attribute, the constructor dependency. Walk the
-  criteria one by one and ask which names a test proving that criterion has to import or touch; each
-  of them belongs in the binding part before anyone writes the test. A name that is not published
-  there gets invented by whoever writes the tests first, and then the contract that the tests and
-  the code are supposed to read identically is read two ways. This does not make `Design` mandatory,
-  and it does not add anything to the format: the section is present only when a trigger fired
-  (step 4), and the requirement is that the part already there be complete.
+- **If the change has a `Design` section: its binding part carries the decision and no identifiers.**
+  Read it and strike every module, class, attribute and constructor dependency it names; what has to
+  remain is the structural decision the trigger fired for. The names are not this document's to
+  publish — the change's skeleton is written before any test, so they are chosen there and read from
+  the code by everyone afterwards, and a name written here stands as a second account of the same
+  thing, ahead of the code that has to carry it. This does not make `Design` mandatory: the section
+  is present only when a trigger fired (step 4).
 - **Every criterion names an observable artifact** — a status code, a field in a response, the state
   the system is in after the call, a message that left it. Not a property of the code: "a request
   over the size limit returns 413" is a criterion, "the middleware is configured correctly" is not.

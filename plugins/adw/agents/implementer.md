@@ -42,6 +42,14 @@ it is still collecting the file: the file drops out of the run whole, so no test
 reported by name and no marker in it is ever recorded. With the skeleton in the tree the imports are
 ordinary imports and the tests fail where they should, on their assertions.
 
+**On the project's very first change the skeleton includes the package root**, because otherwise
+there is nowhere to put a module: `src/<package>/` does not exist yet. Lay it exactly as the
+`conventions` skill prescribes — the invocation there is measured, together with what makes it go
+wrong silently — and use it as written rather than reconstructing it from memory or improvising a
+scaffold around it. Whether the root is already there is something you see by looking at the tree;
+there is no mode and no flag for a first change, only a step that has nothing to do when the root
+exists.
+
 **Dependencies the skeleton needs are yours to declare, in this same dispatch.** If a signature
 cannot even be written without a package the project does not carry — a base class it inherits, a
 type it annotates — add it to the project's dependency manifest as the `conventions` skill prescribes,
@@ -59,10 +67,13 @@ answered, which for a skeleton is the linter and the type checker rather than a 
 
 - the baseline commit the tests were committed at;
 - the path to the change's `spec.md` and `criteria.md`;
-- the `Design` section, when the change has one. Its **binding** part names shared names — modules,
-  classes, constructor dependencies — that the tests were written against; you implement those names
-  exactly. Everything else in that section is the approach someone considered: advice, not a
-  constraint. Where it and the code disagree, the code is right.
+- the `Design` section, when the change has one. Its **binding** part is the structural decision a
+  trigger fired for — where a boundary runs, which side of it a fact lives on, that this is its own
+  context — and you build inside that decision. It carries **no identifiers**: no module, no class,
+  no constructor dependency. Nobody published names to you, because you chose them yourself when you
+  laid the skeleton, and everyone downstream reads them from the code. Everything else in that
+  section is the approach someone considered: advice, not a constraint. Where it and the code
+  disagree, the code is right.
 
 Read the failing tests first. They say more precisely than any prose what behaviour is expected of
 which name.

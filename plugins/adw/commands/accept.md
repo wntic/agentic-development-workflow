@@ -120,12 +120,16 @@ would have to change, and stop.
 The order carries weight: it is what keeps the delta reachable after it leaves the tree.
 
 1. **Commit** the living spec merge on the change branch.
-2. **Merge** the branch into the base branch it started from (`git merge --no-ff`). Ambiguous which
+2. **Check out the base branch.** It is named as a step because merging is directional and you are
+   standing on the wrong side of it: run the next step from `change/NNN` and you merge the base
+   branch *into the change*, which succeeds quietly, leaves the delta sitting on the branch and puts
+   the tag on a commit the base branch never sees.
+3. **Merge** the branch into the base branch it started from (`git merge --no-ff`). Ambiguous which
    branch that is → ask.
-3. **Tag** that merge commit `change/NNN`. Its tree still holds `specs/changes/NNN-*/`, and that is
+4. **Tag** that merge commit `change/NNN`. Its tree still holds `specs/changes/NNN-*/`, and that is
    what makes the delta recoverable afterwards.
-4. **Delete** `specs/changes/NNN-*/` and commit the deletion.
-5. **Delete** the merged branch: `git branch -d change/NNN`. After the merge and the tag exactly one
+5. **Delete** `specs/changes/NNN-*/` and commit the deletion.
+6. **Delete** the merged branch: `git branch -d change/NNN`. After the merge and the tag exactly one
    ref carries the change, so `change/NNN` written bare stops being two things at once and names the
    tag.
 

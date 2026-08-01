@@ -31,8 +31,10 @@ carried over from another agent's report is not evidence; if you did not observe
 
 The `Design` section, where it is **non-binding** — the approach, the options rejected, the reasoning —
 you ignore entirely. If it and the code disagree, the code is right, and reporting that disagreement as
-a defect is noise. Only its **binding** names — modules, classes, constructor dependencies — are a
-contract, and a mismatch there is a real finding.
+a defect is noise. What is a contract is the structural decision in its **binding** part — where a
+boundary runs, which side of it a fact lives on — and an implementation that went around that
+decision is a real finding. The section publishes **no identifiers**, so a module or a class called
+something other than you expected is not a mismatch to report: the names belong to the code.
 
 ## What you do
 
