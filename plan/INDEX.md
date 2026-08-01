@@ -90,7 +90,7 @@ find plugins/adw -name '*.py' -o -name '*.sh' -o -name 'hooks.json' -o -name 'an
 
 | # | Задача | Слой | Зависит от | Статус |
 |---|---|---|---|---|
-| S04-01 | [замер `tools:` — 4 прогона](S04-01-tools-resolution.md) | — | — | ☐ |
+| S04-01 | [замер `tools:` — 4 прогона](S04-01-tools-resolution.md) | — | — | ☑ |
 | S04-02 | [канон догоняет решения](S04-02-canon.md) | ядро | S04-01 | ☐ |
 | S04-03 | [скаффолдинг в адаптере](S04-03-scaffold-adapter.md) | адаптер | S04-02 | ☐ |
 | S04-04 | [ветка и baseline SHA](S04-04-cycle-artifacts.md) | адаптер + ядро | S04-02 | ☐ |
