@@ -268,3 +268,8 @@ Logging:
   or secrets.
 - Binding a sensitive field — a password, a bearer token, an API key → stop, log a length or a hash,
   never the value.
+
+Comments:
+
+- A comment that is not a non-obvious *why*, or one running past a single short line → stop.
+  Default to no comments; where one is warranted it is one short line, never a multi-line block.
