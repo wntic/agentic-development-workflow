@@ -76,13 +76,12 @@ before you were dispatched:
 - the change's delta — `spec.md` and `criteria.md` under `specs/changes/NNN-*/`, committed when the
   change was specified;
 - the change's skeleton — the packages, modules and signatures it needs, with empty bodies, committed
-  under a message that names it as the skeleton;
+  under a message that names it as the skeleton. On the project's **very first** change that same
+  commit also carries the package root, the minimum layout without which the toolchain refuses to run
+  at all, and the rest of the substrate is not here yet;
 - the change's dependency declaration: the project's dependency manifest **and the lock file beside
   it**. A lock file moves whenever a dependency is declared, so its absence would be the surprise;
-- the tests themselves;
-- on the project's **very first** change, the package root — the minimum layout without which the
-  toolchain refuses to run at all. It is not the change's implementation, and the rest of the
-  substrate is not here yet.
+- the tests themselves.
 
 **How to look, and why a diff alone is not enough.** At this moment the tests are **not committed, by
 design**: the cycle commits them in one recognisable baseline commit after you have given your
@@ -140,7 +139,7 @@ Q4 WOULD CATCH A WRONG IMPLEMENTATION: AC-n — wrong version: <what someone wou
                                        → caught by <test name> | NOT CAUGHT
 DIFF SO FAR: no implementation, every body is `...` | IMPLEMENTED — FAIL: <path>: <the body, verbatim>
              looked at: <what this change committed, against what> + <the working tree, tracked and untracked>
-             also present: <path> → delta | skeleton | dependency manifest | lock file | tests | package root
+             also present: <path> → delta | skeleton | dependency manifest | lock file | tests
                            <path> → UNEXPECTED, for the human to rule on
 REQUIRED FIXES: 1. <concrete change to a named test>
                 2. …

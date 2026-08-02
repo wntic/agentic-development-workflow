@@ -157,6 +157,10 @@ it. The whole defence against tests bent to fit an implementation is one command
 commit — `git diff <baseline>..HEAD -- tests/` — read by the evaluator and again by the human at
 acceptance. "The baseline commit" as a phrase in a prompt is not that; a SHA is.
 
+**A test edited between the baseline and the implementation is legitimate when the commit that edits
+it explains why** — the guard shows the edit either way, and what it is looking for is an
+explanation, not an empty diff; unexplained, it stays what the verdict has to account for.
+
 The skeleton was committed at step 1, and the dependencies the tests need by the author, on their
 own, after it. This commit is the tests, and it is **yours and not the author's**: the author leaves
 the tests in the working tree and lists them, so that exactly one commit exists for every later
@@ -256,6 +260,11 @@ implementation was spent:
   loudly, in direct contrast with the iteration limit below, which arrives silently. It costs the
   full wall time of the dispatch and produces no work at all, so there is nothing to have spent —
   dispatch it again, and say in your report that you did and why.
+
+A **resume of a dispatch that already came back** — a `SendMessage` to the same agent rather than a
+new dispatch — is not a new dispatch and does not count against the ceiling either. Measured on
+change 004: the implementer returned `BLOCKED`, was resumed, and finished green; counting that
+resume would have put a healthy run at the ceiling on its correct move.
 
 The number was decided on 2026-07-29, and the design document's own §6 states it the same way — a
 count of implementer dispatches rather than of full passes. Two reasons, both about
