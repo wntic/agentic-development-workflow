@@ -119,13 +119,14 @@ these skills in a project.
 
 ## Skill format
 
-The authoritative format — frontmatter fields, their budget, the four-section body, and the four skill
+The authoritative format — frontmatter fields, their budget, the canonical body, and the four skill
 shapes — lives in `meta-skill-author`. In one breath: `name` + `description` (+ `when_to_use`, +
 `paths` when the skill is scoped to part of the tree), then a body of
 
 1. **When to use vs. neighbours** — disambiguates this skill from those covering adjacent artifacts, and
    carries the negative routing the description deliberately leaves out.
-2. **Template(s)** — literal file content with placeholders, not prose.
+2. **Template(s)** — literal file content with placeholders, not prose. `meta-skill-author` carries
+   the one allowance to this heading; read it there before assuming this list is the whole rule.
 3. **Rules** — only what applies when writing *this* artifact. Cross-cutting concerns are referenced,
    not restated, except for a brief inlined slice when load-bearing.
 4. **Hard stops** — explicit cases where the reader must stop and switch skills.

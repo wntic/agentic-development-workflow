@@ -257,8 +257,8 @@ implementation was spent:
   full wall time of the dispatch and produces no work at all, so there is nothing to have spent —
   dispatch it again, and say in your report that you did and why.
 
-The design document's own §6 says "3 full passes"; the number in force is **2**, decided on
-2026-07-29, and it counts implementer dispatches rather than full passes. Two reasons, both about
+The number was decided on 2026-07-29, and the design document's own §6 states it the same way — a
+count of implementer dispatches rather than of full passes. Two reasons, both about
 cost: it reaches the human sooner, and a dispatch of this role is expensive before it does anything
 at all — the house-style knowledge preloaded into it was measured at roughly 41.7 thousand tokens of
 context, paid again on every dispatch.
