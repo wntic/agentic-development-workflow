@@ -1,7 +1,7 @@
 ---
 name: meta-skill-author
-description: Apply when adding a new skill to the catalog. Produces one `<name>/SKILL.md` in the canonical format — the frontmatter that drives auto-invocation, the four-section body, and the shared placeholder vocabulary — so a reader who has applied one skill can apply the new one the same way.
-when_to_use: Adding a brand-new skill, or checking that a hand-written one conforms to the canonical frontmatter and the four-section body. Not for editing an existing skill (edit it directly) or for sweeping cross-references after a rename.
+description: Apply when adding a new skill to the catalog. Produces one `<name>/SKILL.md` in the canonical format — the frontmatter that drives auto-invocation, the four-section body with the template allowance rule 1 states, and the shared placeholder vocabulary — so a reader who has applied one skill can apply the new one the same way.
+when_to_use: Adding a brand-new skill, or checking that a hand-written one conforms to the canonical frontmatter and to the four-section body as rule 1 qualifies it. Not for editing an existing skill (edit it directly) or for sweeping cross-references after a rename.
 ---
 
 # Meta — Skill Author
@@ -130,19 +130,26 @@ are how a reader self-detects "I'm in the wrong skill".>
 ## Rules
 
 1. **Match the section order exactly — with one allowance for templates.** Section headings are how a
-   reader decides what to read, so renaming or reordering breaks navigation. The allowance: a skill
-   covering **several artifacts** may group its templates by topic instead of collecting them under one
-   `## Template(s)` — topical `##` sections with the templates as `###` subheadings inside. What makes
-   that form legal is a single condition: **the heading names the artifact** (`## The Table`,
-   `## The container`, `## Upload templates`), never the subject of a discussion (`## Notes`,
-   `## Background`). An artifact name answers "is this the section I need?" as well as `Template(s)`
-   does; a topic name does not. Every other section keeps its exact heading and its place in the order.
-   A skill covering **one** artifact keeps the single `## Template(s)`, and a Reference skill still
-   omits it — neither changes.
-   The allowance rests on one observation: a skill already written in the topical form was loaded and
-   applied, and no template went unfound. That is evidence of success, not a test of failure. If a
-   template is ever missed because it sat under a topical heading, the allowance is withdrawn and the
-   single `## Template(s)` becomes the only form.
+   reader decides what to read, so renaming or reordering breaks navigation. `## Template(s)` is the
+   canonical heading; the allowance touches that section alone and takes two forms.
+   **Grouped by topic** — a skill covering **several artifacts** may group its templates by topic
+   instead of collecting them under one `## Template(s)`: topical `##` sections with the templates as
+   `###` subheadings inside. What makes that form legal is a single condition: **the heading names the
+   artifact** (`## The Table`, `## The container`, `## Upload templates`), never the subject of a
+   discussion (`## Notes`, `## Background`). An artifact name answers "is this the section I need?" as
+   well as `Template(s)` does; a topic name does not.
+   **Singular or named** — a heading that carries **one** template may read `## Template`, or name the
+   form under it (`## Template — async, SDK-client form`, `## Skeleton — router file`). It is the same
+   section under a name that fits what sits below it: the plural stays canonical, and a skill showing
+   several forms of one artifact may either collect them under `## Template(s)` with `### <kind>`
+   subheadings or head each form by its name.
+   Every other section keeps its exact heading and its place in the order, and a Reference skill still
+   omits the template section — neither changes.
+   Both forms rest on evidence of success rather than a test of failure: a skill already written in the
+   topical form was loaded and applied, and no template went unfound; nothing has been observed to go
+   unfound under a singular or named heading either. If a template is ever missed because it sat under a
+   topical heading, or under a singular or named one, that form is withdrawn and the single
+   `## Template(s)` becomes the only heading.
 2. **Keep the body concise.** Once a skill is loaded its body stays in context for the rest of the
    session, so every line is a recurring cost. State what to do rather than narrating how or why. A
    body past ~500 lines is the signal to split into sibling topic files.

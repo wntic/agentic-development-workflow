@@ -164,12 +164,16 @@ cross-cutting ones where a glob would exclude nothing.
 
 The canonical body is four sections — *When to use vs. neighbours · Template(s) · Rules · Hard stops* —
 with two optional helpers (*Inlined typing / import rules*, *Package wiring*). A reference skill that
-produces no file omits `Template(s)`. **A skill covering several artifacts may group its templates
+produces no file omits `Template(s)`. The template section carries an allowance in two forms, both
+stated in `meta-skill-author` rule 1. **A skill covering several artifacts may group its templates
 under topical `##` headings instead**, with the templates as `###` inside — legal since the step-4
-ruling on F-58, on one condition stated in `meta-skill-author` rule 1: the heading must **name an
-artifact** (`## The Table`), not a subject of discussion (`## Notes`). Five skills use that form. The
-allowance rests on a single observation of success rather than a test of failure, so it carries its own
-withdrawal condition: if a template is ever missed under a topical heading, it goes.
+ruling on F-58, on one condition: the heading must **name an artifact** (`## The Table`), not a subject
+of discussion (`## Notes`). **A heading carrying one template may read in the singular or name the form
+under it** — `## Template`, `## Template — async, SDK-client form`, `## Skeleton — router file` —
+legal since the ruling on F-79 of 2026-08-02, which chose to legalise the headings already in the tree
+rather than rename them, there being no measurement that a name variant ever cost anyone a template.
+Each form rests on evidence of success rather than a test of failure, so each carries the same
+withdrawal condition: if a template is ever missed under such a heading, that form goes.
 
 Counted in the tree rather than from the register, and the count ages — recheck it with the command
 rather than trusting this line:
@@ -179,11 +183,10 @@ ls -d plugins/adw/skills/*/ | wc -l                                # skills in t
 grep -l '^## Template(s)' plugins/adw/skills/*/SKILL.md | wc -l    # carrying the canonical heading
 ```
 
-At the time of writing exactly half carry `## Template(s)`. The other half splits three ways: reference
-skills that omit it by rule; skills grouping topically under the allowance above; and — the group the
-register missed — skills carrying a **singular `## Template` or a named variant** (`## Template — async,
-SDK-client form`, `## Skeleton — router file`). That last kind is a different deviation, is *not*
-covered by the allowance, and has not been ruled on — F-79.
+The skills the second command does not list split three ways, and all three are legal: reference skills
+that omit the section by rule; skills grouping topically; and skills carrying a singular or named
+heading. Read the split out of the tree the same way — the commands are the source, and the shape of
+each group is `meta-skill-author` rule 1, not a number here.
 
 **There are no router skills and no topic files.** A theme past ~500 lines was the documented signal to
 split into a thin `SKILL.md` plus `<topic>.md` siblings; that shape is deliberately not used here,
