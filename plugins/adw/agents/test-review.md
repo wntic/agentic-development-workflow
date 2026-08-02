@@ -78,7 +78,10 @@ before you were dispatched:
 - the change's skeleton — the packages, modules and signatures it needs, with empty bodies, committed
   under a message that names it as the skeleton. On the project's **very first** change that same
   commit also carries the package root, the minimum layout without which the toolchain refuses to run
-  at all, and the rest of the substrate is not here yet;
+  at all, and the rest of the substrate is not here yet. On a change that **widens a port an
+  in-memory fake implements** that same commit also carries the fake's new method — the signature
+  only, with an empty body — without which the fake stops matching the port and the type checker
+  fails;
 - the change's dependency declaration: the project's dependency manifest **and the lock file beside
   it**. A lock file moves whenever a dependency is declared, so its absence would be the surprise;
 - the tests themselves.

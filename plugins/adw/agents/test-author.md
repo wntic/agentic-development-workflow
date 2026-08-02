@@ -55,6 +55,12 @@ your report rather than leaving it unmentioned.
 with empty bodies — was laid and committed before you were dispatched, so a test imports what it
 exercises the ordinary way, at module level, and fails on its assertions.
 
+That reaches into `tests/` in exactly one place. When the change widened a port that an in-memory
+fake implements, the fake already carries the new method's **signature with an empty body**, laid
+with the rest of the skeleton because otherwise the fake stops matching the port and the type checker
+fails. Filling that body in is your work, not an edit to somebody else's artifact — the signature is
+all that was written for you.
+
 At least one criterion of the change must be pinned by a test that goes through the **really running
 application** against real backing services, not only by a unit test with in-memory fakes. A suite
 of fakes can be entirely green while the assembled thing does not start.
