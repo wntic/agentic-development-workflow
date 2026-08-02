@@ -32,7 +32,10 @@ That is legitimate **only** on these terms, and a warden checks each one:
 - you do **exactly** what the ruling names and nothing it does not. A ruling that adds one field is
   not a licence to reorganise the template around it;
 - if the ruling and the canon disagree, that is a **stop**, not a judgement call. Report the
-  contradiction with both quotes and change neither.
+  contradiction with both quotes and change neither;
+- if you open the citation and the ruling is not there, a neighbouring ruling stands in only when it
+  covers the **substance** of the edit, not merely its topic. If a single line of the diff rests on
+  the missing citation alone, that is a **stop**, not execution.
 
 Everything the task does not cite falls under the ordinary rules: it is a finding, not a build.
 

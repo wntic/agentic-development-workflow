@@ -100,7 +100,7 @@ OpenSpec's `ADDED`/`MODIFIED`/`REMOVED` + `WHEN … THEN` form and is deleted on
 are observable behaviour pinned by `@pytest.mark.ac("<criterion-slug>")` tests — the checklist line
 carries an ordinal for humans to point at, the marker carries only the slug, because the marker
 namespace spans the whole tree and an ordinal answers "is this criterion covered" with a false yes
-(measured three times, F-54); the red phase and the green phase each get a verdict from an agent that
+(measured, F-54); the red phase and the green phase each get a verdict from an agent that
 did not author it (four roles, the implementer dispatched twice: **implementer lays the skeleton** →
 test-author → test-review → implementer writes the code → evaluator); "green" is `make check` —
 **zero scripts of our own**; bypass is caught by reading `git diff`, not by a machine; one branch
