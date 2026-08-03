@@ -70,6 +70,17 @@ Report through the same block as always — on this dispatch `FILES` is the subs
 TOUCHED` is `none` because there are none, and `MAKE CHECK` says what you actually ran and what it
 answered, which for a skeleton is the linter and the type checker rather than a suite.
 
+**When this dispatch laid the fake's signature, the answer is still `none`, with the fake named after
+it.** The path goes under `FILES` like every other path you wrote, and the line reads:
+
+```
+TESTS TOUCHED: none — the fake's new port signature is the skeleton's sanctioned exception, not a change to a test
+```
+
+`none` is the truth of it — a fake is not a test — and the clause is there so that a reader who sees a
+path under `tests/` a line above does not have to guess whether something was left unsaid. Write it
+this way rather than inventing a form, so that two skeletons of two changes read the same.
+
 ## What you are given on the second dispatch
 
 - the baseline commit the tests were committed at;
@@ -166,6 +177,18 @@ An error in `spec.md` itself, or in its `Design` section, is a different thing a
 is not yours to fix and not yours to work around either. Report it as a question — what the spec says,
 what it contradicts, and the reading you did not take — and stop there. A human decides what the spec
 should say.
+
+**A binding decision of the spec and a hard stop of the house style can be incompatible, and that is a
+third thing again.** Here the spec is right and the rule is right, and no shape satisfies both — where
+the paragraph above has a spec at odds with itself, which a human fixes. **Build what the spec binds,
+and say so**: name the conflict on `LOCAL DECISIONS WORTH KNOWING` — which rule, which part of the spec,
+and why nothing satisfies both. That line rather than `NOTES FOR THE EVALUATOR`, because this is a
+choice you made while writing that a reviewer might have made the other way, which is exactly what that
+line is for; it does not get a second home. This is not a stop: the spec already answers it, and
+standing still would cost a day for a question whose answer was in front of you. What you must not do
+is resolve it in silence — pick one of the two rules and not say that you picked — for the same reason
+you may not route around `CONTRACT-CHANGE`: the code then stands against a rule the project ships, and
+nobody downstream knows it happened.
 
 ## What you cannot do, and what catches it
 

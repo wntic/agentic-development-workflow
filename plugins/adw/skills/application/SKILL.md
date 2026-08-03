@@ -256,10 +256,16 @@ class ListFoosResult:
    `async def execute(self, cmd: <CommandClass>) -> <ReturnType>`. Nothing else public.
 2. **Constructor takes only domain protocols, domain services, a unit of work, or tunable value
    objects.** Never a session, never an HTTP client, never `Any`.
-3. **Return type:** `UUID` for a create, `None` for everything else. Never return the entity. A "do the
-   work, then show the result" use case is still a command returning the affected id — the caller
-   re-reads through the matching query (`ProcessMeeting` returns the meeting id; the READY view comes
-   from `GetMeeting`). One mutate-and-return-a-view operation would straddle the command/query split.
+3. **Return type:** the created aggregate's **identity** for a create, `None` for everything else.
+   `UUID` when that identity is surrogate — the common case, and what the templates show. When the
+   aggregate's key is **natural** — a code, a slug, a handle minted by the domain or supplied by the
+   client, with no surrogate column in the schema — the handler returns that key, typed as the key is
+   typed, because it *is* the identity. Do not add a surrogate id to an aggregate that has none just to
+   satisfy the letter of this rule. Never return the entity. A "do the work, then show the result" use
+   case is still a command returning the affected id — the caller re-reads through the matching query
+   (`ProcessMeeting` returns the meeting id; the READY view comes from `GetMeeting`). One
+   mutate-and-return-a-view operation would straddle the command/query split; the single bounded
+   exception is stated under `Hard stops`.
 4. **No business logic in the handler.** Build and mutate domain entities; let `__post_init__` and domain
    services enforce the rules. The handler orchestrates: load, mutate, call the repository.
    **Normalization — strip, lowercase, canonicalize — is a domain concern** living in the entity's
@@ -319,7 +325,14 @@ provider that constructs a handler is `infra-wiring`.
 
 - Spec asks a command handler to return a list, a `Result`, or the entity → stop, that is a query — and
   re-read the spec, because mutations do not return data.
-- Spec asks a query handler to mutate state → stop, that is a command.
+- Spec asks a query handler to mutate state → stop, that is a command. **One exception, and it is
+  narrow:** an operation the spec *binds* to a single call, where the write and the returned data must
+  land in one request — splitting it into a command plus a follow-up query would either lose the
+  atomicity the spec demanded or make the written value untrue. Then the read carries the write, and the
+  price is named up front rather than discovered later: that read is no longer pure, it is slower, and
+  it can now fail — a caller who would have received data receives an error instead. This is legal only
+  where the spec ties the two together; a mutation that landed in a read because that was the convenient
+  place is still a stop.
 - Spec asks a handler to catch a `DomainError` and translate it → stop, that is the central error
   handler's job (`restapi-app`).
 - Spec asks a handler to validate cross-aggregate state inline → stop, extract a `domain-service` and
