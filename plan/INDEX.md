@@ -220,9 +220,9 @@ F-124 закрыта решением человека 2026-08-03: фича бы
 
 | # | Задача | Слой | Зависит от | Статус |
 |---|---|---|---|---|
-| S08-01 | [таблица проверок и `rtk proxy`](S08-01-orient-checks.md) | дев-запись | — | ☐ |
-| S08-02 | [легенды и число в хребте](S08-02-legends-and-canon.md) | дев-запись + ядро | — | ☐ |
-| S08-03 | [охват комментариев, `line-length`](S08-03-comments-scope-and-line-length.md) | ядро | — | ☐ |
+| S08-01 | [таблица проверок и `rtk proxy`](S08-01-orient-checks.md) | дев-запись | — | ☑ |
+| S08-02 | [легенды и число в хребте](S08-02-legends-and-canon.md) | дев-запись + ядро | — | ☑ |
+| S08-03 | [охват комментариев, `line-length`](S08-03-comments-scope-and-line-length.md) | ядро | — | ☑ |
 | S08-04 | [формы у двух правил `application`](S08-04-application-forms.md) | ядро | — | ☐ |
 | S08-05 | [маршрут тупика, фейк, `description`](S08-05-roles-route-and-report.md) | адаптер | — | ☐ |
 | S08-06 | [housekeeping в пробе](S08-06-probe-housekeeping.md) | вне репозитория | S08-03 | ☐ |

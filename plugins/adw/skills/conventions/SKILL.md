@@ -314,6 +314,14 @@ configuration those commands read, because it is house style and has no other ho
   `flake8-bugbear` rules, not the whole `B` family — keep the select narrow. The `__init__.py`
   F403/F405 ignore is the **only** sanctioned ruff suppression; never an inline `# noqa` on a content
   module.
+- **`line-length` is the project's own parameter.** `[tool.ruff]` `line-length` defaults to 88; **120 is
+  legal** and is the value to pick when signatures and single-line explanatory comments keep colliding
+  with the limit. The cost is measured, not estimated: `line-length` drives the **formatter** as well as
+  `E501`, so raising it reformats the tree — on a 67-file project the move from 88 to 120 put **20 files
+  under reformat** (`uv run ruff format --check --line-length 120 src tests migrations`). The
+  consequence the number carries: this is a **project-setup decision**, settled once when the project is
+  laid down, not adjusted mid-change. If an established project does move, the reformat travels as its
+  own commit, so it cannot hide a behaviour change inside it.
 - **mypy config**: `[tool.mypy]` `strict = true`, `python_version = "3.12"`,
   `plugins = ["pydantic.mypy"]`. A third-party package that ships **no type stubs and no `py.typed`
   marker** gets one `[[tool.mypy.overrides]]` block with `ignore_missing_imports = true` — list every

@@ -269,7 +269,15 @@ Logging:
 - Binding a sensitive field — a password, a bearer token, an API key → stop, log a length or a hash,
   never the value.
 
-Comments:
+Comments — the rule has a scope, and the scope differs between the two trees:
 
-- A comment that is not a non-obvious *why*, or one running past a single short line → stop.
-  Default to no comments; where one is warranted it is one short line, never a multi-line block.
+- **In `src/`**: a comment that is not a non-obvious *why*, or one running past a single short line →
+  stop. Default to no comments; where one is warranted it is one short line, never a multi-line block.
+- **In `tests/`**: the same holds for a comment sitting inside a test body. What is additionally legal
+  there is a **multi-line section banner** above a group of tests, when it says *what* the group pins
+  and *why* it is pinned that way — which behaviour the group stands as evidence for, that the clock is
+  the real one and not a substituted double, that both routes have to be exercised. A banner that
+  retells what the tests below it do → stop; that is the code said twice, and it is the form that goes
+  stale. *This allowance rests on banners having held so far, not on a test of failure, so it carries
+  its withdrawal condition next to it: if a banner is ever found lying or silently out of date, the
+  allowance goes and `tests/` falls under the `src/` form.*
