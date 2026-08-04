@@ -129,6 +129,19 @@ can record it without re-deriving your reasoning.
 
 Do not write to `FINDINGS.md`. The main session writes it. You only supply the entry.
 
+## One thing you report without judging it: the shipped version
+
+If the diff touches anything under `plugins/adw/**`, say in one line whether
+`plugins/adw/.claude-plugin/plugin.json` moved its `version`, and what it reads now. Read the file —
+do not infer it from the diff, because the bump usually is not in the diff you were given.
+
+**This is never grounds for REJECT.** By the human's ruling of 2026-08-04 the bump happens at
+publication, not per pass, so a pass that ships behaviour with the version standing still is the
+expected case and not a defect. You report it because the alternative — the orchestrator remembering at
+the end of a pass — has four measured instances of being forgotten in a single day (F-113, F-154, F-160,
+F-163), and because a builder cannot do it: the version sits in no task's Deliverables, so touching it
+would be the scope excess F-138 counts.
+
 ## Your verdict
 
 Return exactly this shape, and nothing else:
