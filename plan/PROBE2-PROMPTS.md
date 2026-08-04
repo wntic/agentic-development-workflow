@@ -52,6 +52,10 @@ What I have already decided:
 - an interval is **half-open**: it includes its start and excludes its end. Two bookings where one ends
   exactly when the other begins do not collide. I am stating this now because change 002 is about
   collisions and I do not want that rule invented there;
+- the toolchain is laid at **`line-length = 120`**, written into `[tool.ruff]` explicitly rather than
+  left to the default. That is a project-setup decision and this is the change that lays the project;
+  I am telling you the number because the condition the house style names for choosing it — signatures
+  and single-line comments colliding with the limit — cannot be observed on an empty project;
 - instants are stored and returned in UTC, and the response reports them in the same form for every
   booking regardless of how the request wrote them;
 - a room on this change is **just a value the caller supplies**. There is no room registry, nothing
