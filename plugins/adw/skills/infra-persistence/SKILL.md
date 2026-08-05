@@ -142,15 +142,22 @@ Pick once, and document the consequence in the repository's `delete`.
 
 ### Rules — constraint names (load-bearing)
 
-- **Never pass `name=` for a primary key, FK, unique or index in the `Table`** — let the metadata
-  convention generate it.
+- **In the `Table`, pass no `name=` for a primary key, an FK, or a single-column unique or index** — the
+  metadata convention builds the right name out of the table and that one column.
+- **A composite unique constraint carries an explicit `name=`.** The convention is
+  `uq_%(table_name)s_%(column_0_name)s`, and it interpolates the **first** column only, so an auto-name
+  silently drops the rest: `UniqueConstraint("foo_id", "position")` and `UniqueConstraint("foo_id",
+  "kind")` on one table both come out `uq_<table>_foo_id` — two different constraints under a single
+  name, and `_map_integrity_error` left matching a name the database does not hold. A composite index is
+  named explicitly for the same reason (see the index rules above).
 - **Always pass `name=` (the suffix) for a `CheckConstraint`** so the convention can prepend
   `ck_<table>_`.
-- **The same two rules hold inside an Alembic revision's `op.create_table`** — no `name=` for the
-  primary key, FK or unique constraint, the suffix for a `CheckConstraint`. `env.py` hands Alembic the
-  shared metadata as `target_metadata`, so `op.create_table` builds on the convention exactly as the
-  `Table` does. Writing the full name for a check yields `ck_foos_ck_foos_name_non_empty`, because the
-  `ck` convention interpolates whatever you pass as its `%(constraint_name)s`.
+- **The same rules hold inside an Alembic revision's `op.create_table`** — no `name=` for a primary key,
+  an FK or a single-column unique, an explicit name for a composite unique, the suffix for a
+  `CheckConstraint`. `env.py` hands Alembic the shared metadata as `target_metadata`, so
+  `op.create_table` builds on the convention exactly as the `Table` does. Writing the full name for a
+  check yields `ck_foos_ck_foos_name_non_empty`, because the `ck` convention interpolates whatever you
+  pass as its `%(constraint_name)s`.
 - Renaming one is a breaking change: the repository's map changes in the same commit.
 
 ### Rules — junction and owned-children tables
@@ -449,6 +456,15 @@ head. A schema change is a coordinated pair — the `Table` above and a new revi
 commit. A later field change is reconciled by authoring a **new** revision, never by rewriting a prior
 one. `alembic revision --autogenerate` produces only a draft: it misses naming-convention nuance, partial
 indexes and seed data, so hand-edit it against the rules above.
+
+**A change that touched both the `Table` and a revision runs `uv run alembic check` itself**, against a
+migrated database — it answers `No new upgrade operations detected` when the two sides agree and an
+autogenerate diff when they have drifted. Run it by hand because nothing else reports the drift: lint,
+type-check and the test suite all stay green through it. The number behind that claim: on a project whose
+suite was 73 tests, flipping only the `Table`'s range bound from `'[)'` to `'[]'` and leaving the
+migration correct still gave **73 passed**. What diverges is not behaviour — behaviour comes from the
+migration, which is what actually runs — but the metadata the code is read through, and the starting
+point the next revision autogenerates from.
 
 ```python
 # alembic/versions/0042_create_foos.py  (id + down_revision assigned by `alembic revision`)
