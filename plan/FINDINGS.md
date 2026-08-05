@@ -4682,3 +4682,145 @@ rtk proxy grep -n 'ruff\|line' ~/Projects/adw-probe/pyproject.toml
   деградирует мягко, но **у дрейфа версии ноль замеренных экземпляров**: версии полчаса. Класс замерен,
   экземпляр нет, и красная линия 1 запрещает механизм под `ПРЕДСТАВИМО`. Первый настоящий дрейф даст
   замер, и тогда развилка вернётся.
+
+---
+
+# Находки чтения кода второй пробы человеком, 2026-08-05
+
+Первые находки, пришедшие **от человека, читающего код**, а не от разбора прогона. Это тот самый
+источник, ради которого заведена вторая проба (§11.6, шаг 5 §10): разрыв между тем, что написал агент,
+и тем, что человек написал бы сам. Все три — ИЗМЕРЕНО, и все три ведут в каталог скиллов, а не в код
+пробы: код пробы верно исполнил то, что скилл написал.
+
+## F-167 · Плоское пространство имён `testcontainers` устарело целиком, и три скилла держат его как канон
+Найдено: человек, прогоном `pytest` в `adw-rooms` после change 001
+Класс: ИЗМЕРЕНО.
+
+```
+tests/integration/conftest.py:42: DeprecationWarning: testcontainers.postgres is deprecated,
+use testcontainers.community.postgres instead
+```
+
+Замерено главной сессией в `.venv` пробы, `testcontainers 4.15.0`:
+
+```bash
+cd ~/Projects/adw-rooms && uv run python -c "..."
+# testcontainers.postgres -> 'testcontainers.postgres is deprecated, use testcontainers.community.postgres instead'
+# testcontainers.qdrant   -> 'testcontainers.qdrant is deprecated, use testcontainers.community.qdrant instead'
+```
+
+Устарел **не postgres, а весь плоский слой**: `testcontainers/postgres.py` — шим из шести строк,
+который реэкспортирует из `testcontainers.community.postgres` и предупреждает. Затронуты три места
+каталога, а не одно: `testing-integration-setup/SKILL.md:81` (postgres), `:102` (minio),
+`testing-contract/SKILL.md:208` (qdrant).
+
+**Хвост, которого в замечании не было.** `testcontainers.community` появился ровно в **4.15.0** —
+замерено бисекцией:
+
+```bash
+for v in 4.14.0 4.13.0 4.12.0; do uv run --no-project --with "testcontainers==$v" \
+  python -c "import testcontainers.community.postgres"; done
+# все три: ModuleNotFoundError: No module named 'testcontainers.community'
+```
+
+Значит правка импорта заводит **границу версии**, а `conventions` §D («No versions in the substrate»)
+допускает флор только на «известной ломающей границе» и только с причиной в комментарии. Это ровно она,
+но флор в списке dev-зависимостей — решение, а не следствие правки.
+
+Что сломается: ничего сегодня — шим работает. Но плоский слой снимут, и тогда сломается **каждый
+проект, поставленный по этим скиллам**, разом и на импорте. Второе, тише: скилл учит форме, которую
+рантайм объявил устаревшей, то есть агент пишет код, за который его правит человек, — и это ровно тот
+разрыв, ради измерения которого заведена проба.
+Решение отложено до: человек.
+
+## F-168 · Baseline-ревизия названа снимком, а `metadata.create_all` делает её зеркалом — и агент чинил это дважды, в обеих пробах
+Найдено: человек, чтением первой миграции `adw-rooms`; в `adw-probe` тот же случай
+Класс: ИЗМЕРЕНО.
+
+```bash
+rtk proxy grep -rn 'create_all' plugins/adw/    # единственное вхождение: conventions/SKILL.md:243
+```
+
+`conventions:230–248` даёт шаблон `0001_initial.py` с `metadata.create_all(op.get_bind())` и тут же, в
+строке 250, называет результат «a derived snapshot of the tables **as they stand**». Снимком он не
+является: `metadata` импортируется живой, и `create_all` читает её **в момент прогона ревизии**, а не в
+момент её написания. Реплей цепочки с нуля после change 002 построит таблицу такой, какой она стала, —
+и следующая автогенерированная ревизия попытается добавить то, что уже создано.
+
+Диагноз написан не здесь, а **в самой пробе**: имплементер 001 отказался от шаблона, спросил разрешения
+и оставил причину в докстринге `adw-rooms/migrations/versions/0001_initial.py:1–7` — «`metadata.create_all`
+reads the metadata as it stands when the revision RUNS, so replaying this revision later would build
+whatever the table has become rather than what it was when this was written». Готовая правильная форма
+(`op.create_table(...)` с колонками, типами и констрейнтами выписанными) лежит там же, строки 21–39.
+
+Что сломается: цепочка миграций перестаёт быть воспроизводимой с нуля начиная со **второго** изменения
+любого проекта. В обеих пробах это не сломалось только потому, что оба раза агент **не послушался
+скилла** — то есть скилл держится на том, что его нарушают.
+Решение отложено до: человек.
+
+## F-169 · Устаревание, которого тулчейн проекта не видит: `asynccontextmanager` + `AsyncIterator`
+Найдено: человек, редактором (Pylance) в `adw-rooms/src/rooms/restapi/main.py`
+Класс: ИЗМЕРЕНО.
+
+Устарел не декоратор, а **аннотация возврата под ним**. Замерено, что `make check` этого не показывает
+и не покажет:
+
+```bash
+cd ~/Projects/adw-rooms
+uv run mypy --enable-error-code deprecated src/rooms/restapi/main.py   # Success: no issues found
+uvx pyright -p <config с reportDeprecated=error>                        # The function "asynccontextmanager"
+#   is deprecated: Annotating the return type as `-> AsyncIterator[Foo]` with `@asynccontextmanager`
+#   is deprecated. Use `-> AsyncGenerator[Foo]` instead.
+```
+
+Расхождение объяснено: typeshed у pyright несёт `@deprecated`-перегрузку, а вендоренная копия typeshed
+у **mypy 2.3.0** — ещё нет (`contextlib.pyi`: одна сигнатура, `Callable[_P, AsyncIterator[_T_co]]`, без
+перегрузок). То есть сигнал существует только в редакторе, а гейт зелёный.
+
+Место в каталоге одно: `restapi-app/SKILL.md:41` и `:54`. Форма `AsyncGenerator[None]` на 3.12
+исполняется в рантайме — проверено, и это не формальность: `python-style` запрещает
+`from __future__ import annotations`, поэтому аннотация вычисляется.
+
+**Чего правка НЕ касается, и это важно, чтобы не разъехалась.** Фикстуры pytest с `-> AsyncIterator[T]`
+не задеты: устаревание висит на `asynccontextmanager`, а под фикстурой его нет. Правила в
+`conventions:307`, `testing-contract:340` и `testing-integration-setup:452` верны как написаны.
+Что сломается: когда mypy подтянет typeshed, `make check` покраснеет разом во всех проектах,
+поставленных по скиллу, — и покраснеет на шаблонном коде, который агент писал по канону.
+Решение отложено до: человек.
+
+## F-170 · Два прогона проехали мимо DeprecationWarning, потому что предупреждение не входит в определение «зелёного»
+Найдено: главная сессия, при разборе F-167
+Класс: ИЗМЕРЕНО (F-167 — экземпляр; вывод pytest содержал предупреждение, `make check` был зелёным, и
+ни оценщик 001, ни ревью тестов его не назвали).
+
+`make check` пробы — `ruff check`, `ruff format --check`, `mypy src tests`, `pytest`. Предупреждение
+проходит все четыре. `test-principles:129` уже **упоминает** `-W error` («an unregistered marker is a
+`PytestUnknownMarkWarning`, and under `-W error` a failure»), но нигде не требует его включить, и
+`[tool.pytest.ini_options]` в `adw-rooms/pyproject.toml` не несёт `filterwarnings` вовсе.
+Что сломается: любое будущее устаревание рантайма видит только человек, читающий хвост вывода pytest.
+F-167 — первый экземпляр, и его поймал человек, а не конвейер.
+Решение отложено до: человек.
+
+---
+
+# Решения человека, 2026-08-05 — три замечания по коду второй пробы
+
+Приняты в разговоре 2026-08-05, после того как change 001 второй пробы принят человеком.
+
+- **F-167 → импорты переводятся на `testcontainers.community.*` во всех трёх местах.** Плоский слой —
+  шим с предупреждением, и учить ему нельзя.
+- **F-168 → шаблон baseline-ревизии в `conventions` переписывается на выписанный `op.create_table(...)`,
+  и прозаическое «derived snapshot» приводится в соответствие.** Образец — тот, что имплементер пробы
+  написал сам, включая причину в докстринге.
+- **F-169 → `restapi-app` переводится на `-> AsyncGenerator[None]`.** Правка узкая: только под
+  `@asynccontextmanager`. Правила о фикстурах не трогаются.
+- **F-170 → развилка (а): `filterwarnings` в `[tool.pytest.ini_options]`, дом — `test-principles`,
+  раздел «Reliability rules».** Довод: это **не новый механизм**, а расширение уже существующего гейта —
+  `pytest` уже в `make check`, и предупреждение просто перестаёт быть невидимым. Формулировка
+  `-W error`-политики уже наполовину в скилле (строка 129), у неё не было только требования включить.
+  Отвергнуто: строка в `evaluator` или `test-review` — она опирается на внимание агента к хвосту
+  вывода, а F-112 назвала этот класс бумагой о работе; конвейер, который *просят* посмотреть, и есть то,
+  чего здесь избегают. Гейт не просит.
+  **Цена названа заранее:** политика требует списка исключений для чужих библиотек, иначе первая же
+  внешняя `DeprecationWarning` красит чужой суите. Скилл обязан сказать, как исключение записывается и
+  что оно несёт причину.
