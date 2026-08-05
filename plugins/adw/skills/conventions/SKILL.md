@@ -254,7 +254,7 @@ def upgrade() -> None:
         sa.Column("email", sa.Text, nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.PrimaryKeyConstraint("id", name="pk_users"),
+        sa.PrimaryKeyConstraint("id"),
         # A check constraint's `name` is the SUFFIX: `env.py` hands Alembic the shared metadata, whose
         # naming convention prepends `ck_users_`. Writing the full name here yields it twice over.
         sa.CheckConstraint("char_length(email) > 0", name="email_non_empty"),
@@ -272,9 +272,13 @@ The revision does not import the project's `metadata` or its table registrar at 
 and either import would be a false trail back to the derived form. **Every subsequent migration is a
 real Alembic revision**
 (`uv run alembic revision --autogenerate -m "<change>"`), authored when entity fields and table columns
-drift apart. `migrations/` lives at the tree root, outside `src/` and `tests/`, so it is not inside the
-lint and type-check surface; its correctness is exercised by `alembic upgrade head` in the integration
-suite.
+drift apart. `migrations/` lives at the tree root, outside `src/` and `tests/`, which puts it inside one
+of the two surfaces `make check` has and outside the other: `ruff check` and `ruff format --check` run
+with **no paths**, so lint and formatting cover the whole tree, `migrations/` included, while
+`mypy src tests` names its two directories, so the type surface stops at their edge. The two surfaces
+differ by exactly that one directory — which is why a formatter count taken over `src tests` alone is not
+the count `make check` produces. Its correctness as a schema chain is exercised by
+`alembic upgrade head` in the integration suite.
 
 ## D. Stack substrate (library NAMES, no versions)
 
@@ -336,14 +340,22 @@ configuration those commands read, because it is house style and has no other ho
   `flake8-bugbear` rules, not the whole `B` family — keep the select narrow. The `__init__.py`
   F403/F405 ignore is the **only** sanctioned ruff suppression; never an inline `# noqa` on a content
   module.
-- **`line-length` is the project's own parameter.** `[tool.ruff]` `line-length` defaults to 88; **120 is
-  legal** and is the value to pick when signatures and single-line explanatory comments keep colliding
-  with the limit. The cost is measured, not estimated: `line-length` drives the **formatter** as well as
-  `E501`, so raising it reformats the tree — on a 67-file project the move from 88 to 120 put **20 files
+- **`line-length` is the project's own parameter, and the number gets written down.** `[tool.ruff]`
+  `line-length` defaults to 88; **120 is legal**, and on an established project it is the value to pick
+  when signatures and single-line explanatory comments keep colliding with the limit. **Whatever the
+  number, write it in `pyproject.toml` explicitly** — a decision that is invisible in the config has not
+  been made, and a later reader cannot tell a chosen 88 from ruff's inherited default. The cost of moving
+  is measured, not estimated: `line-length` drives the **formatter** as well as `E501`, so raising it
+  reformats the tree — on a 67-file project the move from 88 to 120 put **20 files
   under reformat** (`uv run ruff format --check --line-length 120 src tests migrations`). The
   consequence the number carries: this is a **project-setup decision**, settled once when the project is
   laid down, not adjusted mid-change. If an established project does move, the reformat travels as its
-  own commit, so it cannot hide a behaviour change inside it.
+  own commit, so it cannot hide a behaviour change inside it. **On a project being laid down, write
+  120.** The colliding-with-the-limit signal cannot be read at that moment — there are no signatures and
+  no explanatory comments yet — while the reformat cost that argues for staying at 88 is **zero** on an
+  empty tree, there being nothing to reformat. Against that zero stand two measured cases where 88 made
+  the limit cut the content instead of wrapping it: single-line comments that had to be trimmed with a
+  loss of meaning at 89 characters, and a port docstring's contract keys dropped at 93 and 117.
 - **mypy config**: `[tool.mypy]` `strict = true`, `python_version = "3.12"`,
   `plugins = ["pydantic.mypy"]`. A third-party package that ships **no type stubs and no `py.typed`
   marker** gets one `[[tool.mypy.overrides]]` block with `ignore_missing_imports = true` — list every
