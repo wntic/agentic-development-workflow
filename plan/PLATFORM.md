@@ -1183,3 +1183,237 @@ what the change should do
 
 **Граница замера — НЕ ПРОВЕРЕНО:** как отрисуется список из **двух и более** элементов. В шипнутых
 файлах такого нет, поэтому не пробовалось, и замер накрывает ровно две формы, которые в дереве есть.
+
+---
+
+## Что видит родитель о типе агента до диспатча: `description` и `tools`, **без тела**
+
+Кладётся по решению человека 2026-08-05 (`plan/FINDINGS.md`, «раунд 6: платформа и установка» → F-137),
+источник — F-137. **Класс: ЗАМЕРЕНО. Дата: 2026-08-05.
+Версия: `claude --version` → `2.1.222 (Claude Code)`** — на патч старше, чем шапка этого файла
+(`2.1.220`), поэтому версия названа здесь отдельно, а не взята из шапки.
+
+**Предмет — агент, а не скилл.** Вопрос 7 меряет авто-вызов **скилла** по его `description` внутри
+сабагента: там речь про реестр скиллов и про то, дотягивается ли до него сабагент. Здесь меряется
+другое — что о **типе агента** лежит в контексте сессии, которая этот тип может диспатчить. Общее у
+двух замеров только слово `description`; вопрос 7 этим разделом не затрагивается и не переписывается.
+
+**Стенд.** `<scratch>/probe10/proj/.claude/agents/pelican-auditor.md` — выбрасываемый project-scoped
+агент, `tools: Glob`, `model: inherit`. В нём два токена, и каждый лежит ровно в одном месте:
+`KIWI-DESC-4417` — первое слово `description:`, `ZEBRA-BODY-9931` — только в теле промпта, дважды
+(`grep -rc` по файлу → `3`). Оба токена случайны и заведены этим стендом; каталог создан пустым прямо
+перед прогоном, и других файлов в нём нет. Дочерние сессии — `claude -p … --output-format stream-json --verbose`, из каталога
+стенда, каждая с явным запретом файловых инструментов — одной строкой, как она передавалась:
+
+```
+--disallowedTools "Read,Grep,Glob,Bash,Write,Edit,WebFetch,WebSearch,Skill,TodoWrite"
+```
+
+Читать файл агента сессии нечем; всё, что она скажет о токенах, она может взять только из своего
+контекста.
+
+**Как отличается успех от тихого несрабатывания.** Токен `KIWI-DESC-4417` — положительный признак:
+если он вернулся, `description` в контексте есть и модель отвечает по существу. Токен
+`ZEBRA-BODY-9931` — отрицательный: его отсутствие и есть искомая форма, и она названа буквой, а не
+описана словами.
+
+**Наблюдение 1 — ростер есть, и он дословно такой.** Ответ сессии, целиком:
+
+```
+ROSTER=- pelican-auditor: KIWI-DESC-4417 audits pelican invoices for duplicate line items and returns a table of offenders. Use when an invoice must be checked for duplicates before payment. (Tools: Glob)
+DESC=KIWI-DESC-4417
+BODY=ABSENT
+```
+
+`tool_uses: 0`, `num_turns: 1` — сессия не воспользовалась ни одним инструментом.
+
+**Наблюдение 2 — то же на настоящем ростере этого репозитория.** Сессия запущена из корня репозитория,
+где `.claude/agents/` несёт три роли. Ответ, целиком:
+
+```
+ROSTER=- adw-prober: Measures actual Claude Code platform behaviour by experiment and records only what it observed, separating measurement from documentation claims. Use when a design decision depends on how the platform really behaves — subagent frontmatter fields, tool restrictions, skill loading, iteration ceilings. Never writes workflow artifacts; that is adw-builder. (Tools: Read, Write, Bash, Glob, Grep, WebFetch)
+PHRASE=ABSENT
+```
+
+`tool_uses: 0`. Строка сверена с файлом посимвольно: взято `description:` из
+`.claude/agents/adw-prober.md`, к нему приписано `" (Tools: " + tools: + ")"`, сравнение с ответом
+сессии дало `IDENTICAL: True`. Форма, которой искали во второй строке, — предложение тела
+`Words that must never appear as a conclusion`, встречающееся во всём репозитории **один раз**, в теле
+того же файла агента (`grep -rn … --include='*.md'` → одна строка, `adw-prober.md:28`).
+
+**Наблюдение 3 — то же спрошено положительно, а не как «есть ли строка».** Отдельная сессия того же
+стенда, вопрос «назови пароль, которым пользуется агент pelican-auditor». Ответ целиком:
+
+```
+PASS=UNKNOWN
+```
+
+`tool_uses: 0`.
+
+**Наблюдение 4 — контроль: тело существует и доезжает, но только до сабагента.** Ещё одна сессия того
+же стенда, на этот раз с разрешённым `Task`; агент продиспатчен с промптом
+`State your passphrase and nothing else.` Дословно из потока:
+
+```
+TOOL_USE: Agent {"subagent_type": "pelican-auditor", … "prompt": "State your passphrase and nothing else."}
+SUB TEXT: ZEBRA-BODY-9931.
+TOOL_RESULT: [{'type': 'text', 'text': 'ZEBRA-BODY-9931.'}, … <usage>subagent_tokens: 1975
+tool_uses: 0
+duration_ms: 2720</usage>]
+MAIN TEXT: PASS=ZEBRA-BODY-9931
+```
+
+Сабагент назвал токен при `tool_uses: 0`, то есть взял его из своего системного промпта, а не из
+файла. Значит «BODY=ABSENT» у родителя — не о том, что токена нет или что модель отказывается его
+печатать, а ровно о том, что **в контексте родителя тела нет**.
+
+**Наблюдение 5 — граница: ростер приходит вместе с инструментом диспатча.** Первый прогон делался с
+`Task` в списке запрещённых, и тогда ответ был другим, дословно:
+
+```
+ROSTER=ABSENT — no agent type list is present in my context, and no subagent type named pelican-auditor appears anywhere in it.
+DESC=ABSENT
+BODY=ABSENT
+```
+
+То есть без инструмента диспатча в контексте нет и `description`. Прогон приведён потому, что он был
+ложным отрицанием и едва не стал ответом: сессия без `Task` не «не видит тела», она не видит ничего.
+
+**Побочно, из события `system`/`init` того же потока.** Перечень типов агентов приходит в поток
+отдельным полем — **только имена**, без описаний и без инструментов:
+
+```
+agents: ['adw-builder', 'adw-prober', 'adw-warden', 'claude', 'Explore', 'general-purpose', 'Plan', 'statusline-setup']
+```
+
+**Вывод: ЗАМЕРЕНО.** В контекст сессии, которая может диспатчить, попадает по одной строке на тип
+агента: `- <name>: <description дословно> (Tools: <список tools через запятую>)`. Тела файла агента
+там нет — искали строкой `ZEBRA-BODY-9931` и предложением
+`Words that must never appear as a conclusion`, обе вернулись отсутствием при нуле тул-коллов, а
+контроль показал, что обе достижимы, когда тело в контексте действительно есть.
+
+**Границы замера.**
+
+- **НЕ ПРОВЕРЕНО:** попадает ли в ростер что-либо ещё, кроме `description` и `tools`, — мерились два
+  поля, потому что только они в строке и появились; `model:` в обеих строках не отражён, но
+  специального признака под него не ставилось.
+- **НЕ ПРОВЕРЕНО:** то же для **плагинных** агентов. Оба наблюдения сделаны на project-scoped агентах
+  из `.claude/agents/`; у второй пробы плагинные роли объявлены (`adw:evaluator`, `adw:implementer`,
+  `adw:test-author`, `adw:test-review`), но токена в их телах нет, и подкладывать его туда — правка
+  шипящегося файла.
+
+---
+
+## Второй путь подключения плагина: проектный `extraKnownMarketplaces` с `source: directory`
+
+Кладётся по решению человека 2026-08-05 (`plan/FINDINGS.md`, «раунд 6: платформа и установка» → F-187),
+источник — F-187. **Класс: ЗАМЕРЕНО. Дата: 2026-08-05.
+Версия: `claude --version` → `2.1.222 (Claude Code)`.**
+
+**Что за путь.** `~/Projects/adw-rooms/.claude/settings.json`, дословно и целиком:
+
+```json
+{
+  "enabledPlugins": {
+    "adw@wntic-adw": true
+  },
+  "extraKnownMarketplaces": {
+    "wntic-adw": {
+      "source": {
+        "source": "directory",
+        "path": "/Users/egorvorobyev/Projects/agentic-development-workflow"
+      }
+    }
+  }
+}
+```
+
+Это не то же, что §13 выше: там плагин живёт копией в `~/.claude/plugins/cache/<marketplace>/<plugin>/<sha>`
+и двигается только явным `claude plugin update`. Под `adw-rooms` в `installed_plugins.json` записи нет:
+у ключа `adw@wntic-adw` там ровно один элемент, и его `projectPath` — `~/Projects/adw-probe`.
+
+**Признак, по которому мерили, и почему именно он.** Правило 9 скилла `test-principles`
+(`filterwarnings`) появилось в дереве коммитом `cf12e78` **2026-08-05T11:00:40+05:00**
+(= `06:00:40Z`); файл на диске последний раз менялся **2026-08-05T21:44:10+05:00** (= `16:44:10Z`,
+`stat -f '%Sm'`). Правок этого прохода в признаке нет сознательно: правка свежее сессии дала бы
+«нет» по причине возраста сессии, а не по механизму. Сессия запущена **2026-08-05T23:54:06+05:00**
+(= `18:54:06Z`) и завершилась в `23:54:18+05:00`, `session_id 5a3914cc-c369-4e5f-ad61-ec54f13532b5`.
+Все три времени названы с зоной намеренно: единственная выдуманная загадка этого файла (вопрос 9)
+родилась из смешения `+05:00` и `Z`.
+
+**Как мерили.** `claude -p` из `~/Projects/adw-rooms`, инструменты сведены к одному:
+`--allowedTools "Skill" --disallowedTools "Read,Grep,Glob,Bash,Write,Edit,WebFetch,WebSearch,Task,TodoWrite"`.
+Прочитать `SKILL.md` из рабочего дерева сессии нечем; единственная дорога к тексту — сам скилл.
+Вопрос: процитировать правило 9 дословно либо ответить `RULE9=ABSENT`.
+
+**Что наблюдал — событие `system`/`init`, поля дословно:**
+
+```
+adw plugin entry: {"name": "adw", "path": "/Users/egorvorobyev/Projects/agentic-development-workflow/plugins/adw", "source": "adw@wntic-adw", "version": "1.1.0"}
+skills count: 48
+skills: [… "adw:application", "adw:architecture", … "adw:test-principles", …]
+agents: ['adw:evaluator', 'adw:implementer', 'adw:test-author', 'adw:test-review', 'claude', 'Explore', 'general-purpose', 'Plan', 'statusline-setup']
+```
+
+`path` указывает **прямо в рабочее дерево**, не в кэш, а `version` — `1.1.0`, то есть semver из
+`plugin.json` дерева, а не SHA.
+
+**Что наблюдал — ответ сессии.** Единственный тул-колл — `Skill {"skill": "adw:test-principles"}`,
+результат `Launching skill: adw:test-principles`. Затем, дословно:
+
+```
+RULE9=**A warning is a failure, not a line in the tail of the output.** `[tool.pytest.ini_options]` carries `filterwarnings` with `"error"` as its first entry — the same table that already holds `asyncio_mode` and `markers` — so a warning raised anywhere in the run turns the suite red. This is part of what "green" means: no extra command, no second run, nothing anyone has to remember to read. The price is that a deprecation from a library the project cannot fix reddens the suite too, so an exception is written as one narrow entry after `"error"` — `"ignore:<message>:<Category>:<module>"`, scoped as tightly as the warning allows — and it carries its reason beside it in a comment: whose warning it is, why the project cannot remove it at the source, and what will retire the entry. An exception without a reason is the rule switched off. A warning raised from the project's own `src/` never goes on that list; it gets fixed. Same watershed `conventions` draws around `# noqa`: a suppression is legal at someone else's boundary, never on your own content.
+FILTERWARNINGS=PRESENT
+```
+
+Процитированное сверено с деревом посимвольно: строки 200 и 201 `SKILL.md`, склеенные пробелом, дали
+`IDENTICAL: True` при длине 1055 знаков. Правило 9 в дереве занимает две строки, и сессия вернула
+обе — то есть не «слово `filterwarnings` где-то мелькнуло», а тот же текст.
+
+**Отрицательный контроль — вопрос умеет отвечать «нет».** Выбрасываемый плагин
+`<scratch>/probe10/oldplug` со скиллом того же имени `test-principles`, тело — восемь правил без
+девятого и без слова `filterwarnings`; тот же вопрос, те же ограничения инструментов,
+`--plugin-dir <scratch>/probe10/oldplug`. Ответ целиком:
+
+```
+RULE9=ABSENT
+FILTERWARNINGS=ABSENT
+```
+
+**Вывод: ЗАМЕРЕНО.** Плагин, подключённый проектным `extraKnownMarketplaces` с `source: directory`,
+отдаёт сессии **текущий текст рабочего дерева**: правка, закоммиченная за 12 ч 53 мин 26 с до старта
+сессии и лежавшая на диске за 2 ч 09 мин 56 с до него, в сессии есть дословно. Помеченное `НЕ ПРОВЕРЕНО` в F-187 закрыто в сторону «дерево
+перечитывается»; «проба приколота к состоянию на старте» отвергнуто наблюдением, а не рассуждением.
+
+**Второе наблюдение, отдельной сессией: проектный `settings.json` перебивает запись в реестре
+установок.** Тот же вопрос был задан из `~/Projects/adw-probe` — пробы, которая в реестре стоит как
+установка через кэш:
+
+```
+adw@wntic-adw  scope=project  projectPath=/Users/egorvorobyev/Projects/adw-probe
+installPath=~/.claude/plugins/cache/wntic-adw/adw/89ac6e8c8ea9  version=89ac6e8c8ea9
+installedAt=2026-07-30T05:15:54.875Z   lastUpdated=2026-08-04T14:22:28.269Z
+```
+
+Кэш-копия по этому SHA девятого правила не несёт (`grep -c 'filterwarnings' $C/skills/test-principles/SKILL.md`
+→ `0`). Сессия, тем не менее, ответила `FILTERWARNINGS=PRESENT` и тем же текстом правила 9, а её
+`init` дал `{"name": "adw", "path": "/Users/egorvorobyev/Projects/agentic-development-workflow/plugins/adw", … "version": "1.1.0"}`
+(`session_id 7784f845-619a-4ba6-a79a-daf6fca68404`, старт **2026-08-05T23:55:45+05:00** =
+`18:55:45Z`). Причина видна в файле: у `adw-probe` есть свой
+`.claude/settings.json`, дословно совпадающий с приведённым выше — тот же `extraKnownMarketplaces`,
+тот же `source: directory`. Его mtime — **2026-07-30T10:15:54+05:00**, ровно момент `installedAt`
+(`05:15:54.875Z`) той же записи реестра: установка из directory-маркетплейса **написала оба места
+сразу**, и при старте сессии выигрывает `settings.json`, а не `installPath`.
+
+**Границы замера.**
+
+- **НЕ ПРОВЕРЕНО:** в какой момент читается файл скилла — на старте сессии или в момент вызова
+  `Skill`. Обе правки признака старше старта сессии, поэтому два объяснения здесь неразличимы.
+  Эксперимент, который их различил бы: править `SKILL.md` **посреди** открытой сессии и спрашивать
+  повторно.
+- **НЕ ПРОВЕРЕНО:** доезжает ли до такой сессии добавление **нового** скилла (новый каталог), а не
+  правка существующего, — это оговорка вопроса 5 про свежесозданный каталог, и на directory-пути она
+  не мерилась.
+- **НЕ ПРОВЕРЕНО:** что видит сессия при `source: directory`, когда `settings.json` проекта убран, а
+  запись в реестре установок остаётся. Одного такого проекта под рукой нет: оба существующих несут
+  `settings.json`, и убрать его — правка пробы.
