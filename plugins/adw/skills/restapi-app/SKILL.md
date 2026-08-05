@@ -38,7 +38,7 @@ src/<root>/restapi/
 ### `restapi/main.py`
 
 ```python
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -51,7 +51,7 @@ from .error_handler import register_error_handlers
 __all__ = ["create_app"]
 
 @asynccontextmanager
-async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     container: Container = app.state.container
     yield
     # Teardown disposes the long-lived resources the container actually owns,
