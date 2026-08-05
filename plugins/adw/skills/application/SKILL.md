@@ -1,6 +1,6 @@
 ---
 name: application
-description: The house forms for the CQRS application layer — a command (frozen DTO plus a handler returning `UUID | None`, success-only logging) and a query (frozen DTO, a handler, and a `*Result` DTO when the response is more than one entity). Reads never mutate and never log business events.
+description: The house forms for the CQRS application layer — a command (frozen DTO plus a handler returning the created aggregate's identity for a create, `UUID` only when that identity is surrogate, and `None` otherwise; success-only logging) and a query (frozen DTO, a handler, and a `*Result` DTO when the response is more than one entity). Reads never log business events, and never mutate except where the spec binds the write and the returned data into one call.
 when_to_use: Producing or editing an application command or query handler, or deciding what a read returns when it needs fields the domain entity does not carry.
 paths: src/**/application/**
 ---
@@ -332,7 +332,9 @@ provider that constructs a handler is `infra-wiring`.
   price is named up front rather than discovered later: that read is no longer pure, it is slower, and
   it can now fail — a caller who would have received data receives an error instead. This is legal only
   where the spec ties the two together; a mutation that landed in a read because that was the convenient
-  place is still a stop.
+  place is still a stop. *This exception rests on a single instance rather than a test of failure, so it
+  carries its withdrawal condition next to it: if a second mutating query appears whose spec does not tie
+  the write and the returned data into one call, the exception goes and this stop is unconditional again.*
 - Spec asks a handler to catch a `DomainError` and translate it → stop, that is the central error
   handler's job (`restapi-app`).
 - Spec asks a handler to validate cross-aggregate state inline → stop, extract a `domain-service` and
