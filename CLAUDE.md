@@ -85,7 +85,11 @@ previous attempt were made redundant by features that already existed.
 
 **English for everything the workflow ships or produces** — skills, commands, agents, code, commit
 messages. The dev record (`plan/`, `research/`) and dialogue follow the user's language, which is
-Russian. Commands the workflow ships defer to *the consuming project's* dialogue language.
+Russian. **A commit message is English whatever the commit touches**: a `plan:` commit is a message
+about the dev record, so it falls under both sentences, and the first one wins. That seam is the
+common case here, not a corner — `plan:` is most of this repository's commits (F-186, where seven
+went out in Russian and every one of them was a `plan:`). Commands the workflow ships defer to *the
+consuming project's* dialogue language.
 
 ## The design
 
