@@ -346,13 +346,13 @@ greenfield-пути), F-138 и F-140 — решением раунда 1 про 
 | S10-03 | INDEX: два правила протокола | дев-запись | — | ☐ |
 | S10-04 | PLATFORM: пять фактов, что уже замерены | дев-запись | — | ☐ |
 | S10-05 | PLATFORM: два эксперимента (prober) | дев-запись | S10-04 | ☐ |
-| S10-06 | `test-principles` + `test-application-handler` | ядро | — | ☐ |
-| S10-07 | `python-style` | ядро | — | ☐ |
-| S10-08 | `conventions` | ядро | — | ☐ |
-| S10-09 | `application` | ядро | — | ☐ |
-| S10-10 | `domain-model` + `domain-service` | ядро | — | ☐ |
-| S10-11 | `infra-persistence` | ядро | — | ☐ |
-| S10-12 | `implementer` + `test-author` | ядро | — | ☐ |
+| S10-06 | `test-principles` + `test-application-handler` | ядро | — | ☑ |
+| S10-07 | `python-style` | ядро | — | ☑ |
+| S10-08 | `conventions` | ядро | — | ☑ |
+| S10-09 | `application` | ядро | — | ☑ |
+| S10-10 | `domain-model` + `domain-service` | ядро | — | ☑ |
+| S10-11 | `infra-persistence` | ядро | — | ☑ |
+| S10-12 | `implementer` + `test-author` | ядро | — | ☑ |
 | S10-13 | `evaluator` + `build` | ядро/адаптер | — | ☐ |
 | S10-14 | `accept` + `templates/capability` | адаптер/ядро | — | ☐ |
 | S10-15 | housekeeping во второй пробе | вне репозитория | S10-07, S10-12 | ☐ |
