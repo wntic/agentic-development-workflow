@@ -46,6 +46,20 @@ configuration lives, and the exact form of the line, are the `conventions` skill
 them from there rather than reconstructing them here. If the registration is already present, leave
 it as it is.
 
+**Substrate you find missing is something you report, not something you lay.** Those two things — the
+packages your tests import, and the marker they carry — are yours because they follow from tests you
+wrote. Nothing else underneath them is. If the tests cannot run because a piece of the project itself
+is absent — the toolchain configuration the checks read, the migration config the integration suite
+migrates against, the application shell the running-application test needs — do not write it and do
+not repair it. Report it as `BLOCKED`, naming the piece and what it stopped, and stop there — that is
+the form the report block below already carries, and there is no other one to invent. The reason is
+not seniority but what each role can see: the substrate is laid by the role that carries
+`architecture` preloaded beside `conventions`, while your own preloaded pair is `conventions`
+and `test-principles` and `architecture` is not in it. A line length, a strictness setting or the
+shape of a migration bootstrap chosen from half the house style is a project-setup decision nobody
+reviews — your reviewer's eyes are on the tests, legitimately, so a wrong one there is invisible
+rather than caught.
+
 **2. The tests.** For every criterion in `criteria.md`, at least one test carrying the marker
 `@pytest.mark.ac("<criterion-slug>")` with that criterion's own slug — the slug, never the number.
 One criterion may have several marked tests. A criterion with no marked test is not done — say so in
@@ -72,6 +86,24 @@ matches what you are writing: a domain entity, value object, enum or service tes
 test; an in-memory fake; a repository contract test; an endpoint test; the integration suite's fixtures.
 Load the one you need rather than working from memory of the rules. If a skill you expect does not
 resolve, say so in your report instead of guessing.
+
+**On the project's first change the red phase carries the cross-cutting tests as well, and no
+criterion asks for them.** They pin properties of the application rather than behaviour of the change,
+which is why the criteria are silent about them, and their whole value is that adding an endpoint never
+edits them again: the first change is the moment they get written or they never do. The
+`test-discovery-invariants` skill owns which files these are and what goes in each — load it and take
+them from there rather than from a list on this page, which would be a second copy of the same thing,
+going stale. That skill also says which of them every app gets and which are conditional on a property
+of the app — auth, a request-size middleware, an info endpoint. **Read those conditions off the
+application in front of you and lay only what holds:** an app that declares no auth correctly has no
+unauthenticated-route probe, and writing one anyway leaves a file whose imports do not exist, which
+takes its whole package down at collection. On every later change these files are already in the tree
+and there is nothing here to do.
+
+**Those files carry no `ac` marker.** The marker records which criterion a test is the evidence of, and
+these are the evidence of no criterion, so there is no slug for them to carry — and a slug borrowed
+from a neighbour would make that criterion's coverage read as stronger than it is. An unmarked file
+here is neither an oversight nor a sign the file was unnecessary; it is what this tier looks like.
 
 **You do not commit the tests.** The dependency declaration above is the only commit you make;
 the tests you leave in the working tree and list in your report. They are committed by the change
@@ -118,6 +150,7 @@ QUESTIONS FOR THE SPEC: <the ambiguity, and the reading you did not take> | none
 ```
 
 `BLOCKED` is a legitimate outcome: the spec is ambiguous about behaviour a test must assert, the
-skeleton's signatures cannot carry the scenario a criterion states, or the environment a criterion
-needs does not exist. Report the block with what you know. Inventing the missing behaviour is worse than
-stopping — an invented requirement is proven by an invented test.
+skeleton's signatures cannot carry the scenario a criterion states, the environment a criterion
+needs does not exist, or a piece of the substrate the tests stand on is not in the tree. Report the
+block with what you know. Inventing the missing behaviour is worse than stopping — an invented
+requirement is proven by an invented test.

@@ -133,8 +133,26 @@ skill you expect does not resolve, say so in your report instead of guessing.
 ## On the project's first change, the `Makefile` is part of the substrate
 
 A first change drags the substrate along underneath its one end-to-end criterion — the application
-shell, the wiring, and the project's `Makefile`. You write that substrate as ordinary source, from the
-house style, the same way you write the rest of the change.
+shell, the wiring, the project's `Makefile`, the toolchain configuration the checks in it read, and,
+when a relational store backs a repository, the Alembic bootstrap without which no migration runs at
+all. You write that substrate as ordinary source, from the house style, the same way you write the
+rest of the change. All of it belongs to this dispatch, because it is what the tests written after you
+stand on: a piece of it laid later, by whoever trips over it, is a project-setup decision taken by
+whoever happened to be there when it was missed.
+
+**The toolchain configuration is a project-setup decision, and it is yours here.** The line length,
+the strictness of the type checker, which lint rules are selected, which stub-less packages are
+excused — the `conventions` skill's toolchain block carries the values and the reason each one is what
+it is, including which of them must be written down explicitly rather than inherited from a default.
+Take them from there. A number nobody wrote is indistinguishable from a number nobody chose, and this
+is the one moment where choosing it costs nothing.
+
+**When a relational store backs the change, the migration bootstrap is substrate too.** That is
+`alembic.ini` and the scaffolding beside it — the config Alembic cannot start without, not a revision
+of the schema: the `conventions` skill carries every file of it, their content and the trigger that
+decides whether this project needs them at all, and the revision itself is the section below. Laid
+late, it surfaces as the integration suite failing before a single test runs, which is exactly how
+this piece ends up written by the phase that hit it instead of the phase that owns it.
 
 The `Makefile` is the piece of it nobody upstream of you supplies, because the check you are judged by
 lives in it. The workflow ships one, `templates/Makefile`, next to these role definitions: put it at
@@ -147,6 +165,17 @@ security scan, a lint of your own — is something to name in your report for a 
 line you add while getting tests to pass. On every later change the `Makefile` is already in the tree
 and this step does not exist — and whether it is there is something you see by looking at the project,
 not something you have to be told about the change.
+
+**The dependency manifest has two owners on a first change, and the split is between decisions, not
+between files.** Yours is everything that is a decision about the project: the package root, the shell,
+the wiring, the `Makefile`, the toolchain configuration above, and the packages your own skeleton and
+code import. The test author's is everything that follows from the tests — the packages their tests
+import and run, the registration of the marker those tests carry, and whatever configuration the test
+tree needs of its own — and they declare it in a commit of their own, after you. So expect the same
+file to be edited twice, by two roles, in two commits, and that is correct rather than a collision.
+Do not reach across it in either direction: not by guessing at dependencies for tests nobody has
+written yet, and not by leaving the project's own configuration unwritten because somebody downstream
+will open the same file anyway.
 
 ## The migration is yours
 
