@@ -42,14 +42,11 @@ from tests.unit.fakes.fake_foo_repository import FakeFooRepository
 _CALLER = uuid.uuid4()
 
 async def test_assigns_uuid_and_stores() -> None:
-    # Arrange
     repo = FakeFooRepository()
     handler = CreateFooHandler(repo=repo)
 
-    # Act
     foo_id = await handler.execute(CreateFooCommand(caller_id=_CALLER, name="alpha"))
 
-    # Assert
     assert foo_id is not None
     stored = await repo.get_by_id(foo_id)
     assert stored.name == "alpha"

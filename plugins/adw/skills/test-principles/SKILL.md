@@ -126,8 +126,8 @@ Rules for it:
   *which stated criterion this test is the evidence for*, so a reader can go from a criterion to its proof
   and back.
 - **Register it** in `pyproject.toml` under `[tool.pytest.ini_options] markers` — an unregistered marker
-  is a `PytestUnknownMarkWarning`, and warnings are errors here (`-W error`, Reliability rule 9), so it
-  fails the run.
+  is a `PytestUnknownMarkWarning`, and warnings are errors here (`-W error` — a warning is a failure,
+  Reliability rules), so it fails the run.
 - **`pytest -m ac` selects every criterion-pinning test**, which is what makes the marker worth carrying.
   The selection spans the whole suite, tests written long ago included, and that is the intended reach:
   every value is a phrase that says what it stands for, so a particular criterion is looked up by its
@@ -155,21 +155,18 @@ Every test follows three visually-separated blocks:
 
 ```python
 async def test_assigns_uuid_and_stores() -> None:
-    # Arrange
     repo = FakeFooRepository()
     handler = CreateFooHandler(repo=repo)
 
-    # Act
     foo_id = await handler.execute(CreateFooCommand(caller_id=_CALLER, name="alpha"))
 
-    # Assert
     stored = await repo.get_by_id(foo_id)
     assert stored.name == "alpha"
 ```
 
 Rules:
 
-1. **Blank lines separate the three blocks.** Comments (`# Arrange`, `# Act`, `# Assert`) are optional once the pattern is established, but the blank lines are not.
+1. **Blank lines separate the three blocks.** They are the whole of the separation — no `# Arrange` / `# Act` / `# Assert` label above them, because a structural label is not a non-obvious *why*, and a comment inside a test body has to be one (`python-style`).
 2. **One Act per test.** If a test has two `handler.execute(...)` calls, the second one is part of Arrange (setup) for an assertion about the first. When in doubt, split into two tests.
 3. **One assertion subject per test.** Multiple `assert` statements that all check the same returned object are fine (`assert stored.name == "alpha"; assert stored.created_at >= ...`). Multiple assertions across different objects often means two tests in one.
 4. **Arrange constructs valid state.** Don't write defensive `try/except` in Arrange — if the setup fails, the test fails, and that's the right outcome.
