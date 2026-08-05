@@ -21,7 +21,7 @@ Change 001 **принят человеком**. Это housekeeping отдель
 
 ## Задача
 
-Четыре правки, все замерены на дереве пробы главной сессией — адреса ниже проверены, но **сверь их
+Три правки, все замерены на дереве пробы главной сессией — адреса ниже проверены, но **сверь их
 сам**, файл мог сдвинуться.
 
 **1. F-167 — импорт testcontainers.** `tests/integration/conftest.py:42`:
@@ -29,18 +29,19 @@ Change 001 **принят человеком**. Это housekeeping отдель
 `from testcontainers.community.postgres import PostgresContainer`. Единственное вхождение: minio и
 qdrant в этой пробе не заведены.
 
-**2. F-167, хвост — флор.** `pyproject.toml`, `[dependency-groups] dev`: `"testcontainers"` →
-`"testcontainers>=4.15"` с причиной, в форме, которую написала S09-02. Установленная версия 4.15.0,
-так что `uv lock` не сдвинется — но проверь, что не сдвинулся, и скажи об этом в отчёте.
+**Флора версии нет, и это решение, а не упущение.** Первая редакция этой задачи требовала
+`"testcontainers>=4.15"`; решение человека 2026-08-05 по **F-175** его отменило — `uv lock` и так
+резолвит последнюю, а у падения на старом локе ноль замеренных экземпляров. Строку
+`"testcontainers"` в `[dependency-groups] dev` **не трогай**.
 
-**3. F-169 — две аннотации под `@asynccontextmanager`, и ровно две.**
+**2. F-169 — две аннотации под `@asynccontextmanager`, и ровно две.**
 `src/rooms/restapi/main.py:1` и `:17` — `AsyncIterator` → `AsyncGenerator`, форма `AsyncGenerator[None]`.
 `tests/integration/api/bookings/test_booking_survives_a_second_process.py:21` и `:79` — то же для
 `_running_process`, форма `AsyncGenerator[str]`.
 Импорты в обоих файлах привести: `AsyncIterator` там больше не нужен — **если он в файле больше нигде
 не используется**; проверь, а не предполагай.
 
-**4. F-170 — `filterwarnings`.** `pyproject.toml`, `[tool.pytest.ini_options]`:
+**3. F-170 — `filterwarnings`.** `pyproject.toml`, `[tool.pytest.ini_options]`:
 `filterwarnings = ["error"]`, в форме, которую написала S09-04.
 
 **Это самая рискованная правка задачи, и её результат — часть отчёта.** После неё `make check` может
@@ -89,6 +90,7 @@ rtk proxy grep -rn 'asynccontextmanager' src/ tests/     # четыре стро
 rtk proxy grep -rn 'AsyncIterator' src/                  # пусто
 rtk proxy grep -rn 'AsyncGenerator' src/ tests/          # четыре строки: импорт+сигнатура в двух файлах
 rtk proxy grep -n 'testcontainers\|filterwarnings' pyproject.toml
+# dev-деп остаётся голым "testcontainers" (без флора); filterwarnings появился
 make check                                               # зелёный целиком
 git diff --stat -- . ':!uv.lock'                         # четыре файла
 ```
