@@ -59,6 +59,19 @@ provenance**. Without the name of the test, an invariant that has gone stale can
   the living spec says what holds, not how one run went.
 - A criterion whose only evidence in the verdict is a live run that no marked test repeats → also
   `*(MANUAL)*`.
+- A criterion whose marked test passes but proves **less** than the invariant claims → the invariant
+  keeps its `*(verified by: <test_id>)*` **and** carries the gap beside it, appended to that same
+  invariant after the provenance, in these words:
+  `— with one gap measured at change <NNN>: <how the test is weaker than the rule reads>`. The
+  content comes from the verdict's `Adversarial pass` section, where that weak assertion is already
+  named — one that holds for the right and the wrong implementation alike. **A gap is never invented
+  at this step**: it is either named in the verdict or there is none. It is not the `[m]` admission
+  above and does not replace it — that says nothing automatic pins the rule at all, while a gap says
+  a test does pin it, only more weakly than the rule reads, so the test citation stays and the gap is
+  added to it. The words are fixed because the gap exists to be found later:
+  `grep -n 'gap measured at change' specs/` is how a change months from now finds every invariant
+  pinned more weakly than it reads. Such an invariant is a **debt, not a defect** — it closes when a
+  later change strengthens the test, and one nobody wrote down closes never.
 
 An invariant is a rule about the system, not a checklist line: rewrite "AC-2: a refund above the
 paid amount → 422" into the rule it implies. The AC numbers do not travel — they belong to the

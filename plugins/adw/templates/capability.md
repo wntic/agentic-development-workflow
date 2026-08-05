@@ -28,8 +28,11 @@
 ## Invariants
 
 <!-- What always holds, whatever the caller does. Every invariant carries its provenance: the test
-     that pins it, or the admission that nothing automatic does. An invariant with no provenance is a
-     claim, and a claim quietly rots into a lie about the system. -->
+     that pins it, that test plus the gap measured between what it proves and what the rule claims,
+     or the admission that nothing automatic does. An invariant with no provenance is a claim, and a
+     claim quietly rots into a lie about the system. -->
 
 - <rule that always holds> *(verified by: <test_id>)*
+- <rule that always holds> *(verified by: <test_id>)*
+  — with one gap measured at change <NNN>: <how the test is weaker than the rule reads>
 - <rule nothing can pin automatically> *(MANUAL)*
