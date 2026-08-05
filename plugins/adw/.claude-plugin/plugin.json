@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "adw",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Spec-driven agentic development workflow for Python backends. Ships a 30-skill house-style catalog covering the four layers, their tests, and the derivation between an identifier and a file path; the four roles of the change cycle as subagents (test-author, test-review, implementer, evaluator); three cycle commands (spec, build, accept) plus commit; and the Markdown templates those commands fill (living spec, delta spec, criteria checklist, verdict) with a Makefile carrying the definition of green.",
   "author": {
     "name": "Egor Vorobyev",
