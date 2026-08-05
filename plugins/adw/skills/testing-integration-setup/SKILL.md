@@ -78,7 +78,7 @@ def postgres_container() -> Iterator[PgConn]:
         }
         return
 
-    from testcontainers.postgres import PostgresContainer
+    from testcontainers.community.postgres import PostgresContainer
 
     with PostgresContainer("postgres:17-alpine") as pg:
         yield {
@@ -99,7 +99,7 @@ def minio_container() -> Iterator[dict[str, str]]:
         }
         return
 
-    from testcontainers.minio import MinioContainer
+    from testcontainers.community.minio import MinioContainer
 
     # Pin the image tag — never float on :latest (mirrors postgres:17-alpine above
     # and the conventions "no floating versions" rule; :latest makes the suite

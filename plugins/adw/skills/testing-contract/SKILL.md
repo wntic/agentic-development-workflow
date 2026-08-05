@@ -205,7 +205,7 @@ def qdrant_url() -> Iterator[str]:
     if os.getenv("CI"):
         yield os.environ["MYAPP_QDRANT_URL"]
         return
-    from testcontainers.qdrant import QdrantContainer
+    from testcontainers.community.qdrant import QdrantContainer
 
     # Pin the image tag — never float on :latest (mirrors test-integration-isolation's
     # postgres/MinIO pins; :latest makes the suite non-reproducible). The specific pin
