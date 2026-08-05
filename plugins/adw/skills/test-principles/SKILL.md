@@ -126,7 +126,8 @@ Rules for it:
   *which stated criterion this test is the evidence for*, so a reader can go from a criterion to its proof
   and back.
 - **Register it** in `pyproject.toml` under `[tool.pytest.ini_options] markers` — an unregistered marker
-  is a `PytestUnknownMarkWarning`, and under `-W error` a failure.
+  is a `PytestUnknownMarkWarning`, and warnings are errors here (`-W error`, Reliability rule 9), so it
+  fails the run.
 - **`pytest -m ac` selects every criterion-pinning test**, which is what makes the marker worth carrying.
   The selection spans the whole suite, tests written long ago included, and that is the intended reach:
   every value is a phrase that says what it stands for, so a particular criterion is looked up by its
@@ -199,6 +200,8 @@ The single sanctioned exception is `monkeypatch.setenv` inside settings-parsing 
 6. **UUIDs used in assertions are constructed inside the test**, not pulled from `uuid.uuid4()` at module scope (except `_CALLER` which is conventional and irrelevant to assertion shape).
 7. **No environment-dependent values.** Tests must not read `os.environ` or check `os.getenv("CI")` to alter behavior. The isolation skill handles the local/CI fork once, in `postgres_container`.
 8. **`@pytest.mark.integration` / `@pytest.mark.asyncio` are never used.** Path-based collection separates unit from integration; `pytest-asyncio` runs in auto mode (declared once in `pyproject.toml`).
+9. **A warning is a failure, not a line in the tail of the output.** `[tool.pytest.ini_options]` carries `filterwarnings` with `"error"` as its first entry — the same table that already holds `asyncio_mode` and `markers` — so a warning raised anywhere in the run turns the suite red. This is part of what "green" means: no extra command, no second run, nothing anyone has to remember to read.
+   The price is that a deprecation from a library the project cannot fix reddens the suite too, so an exception is written as one narrow entry after `"error"` — `"ignore:<message>:<Category>:<module>"`, scoped as tightly as the warning allows — and it carries its reason beside it in a comment: whose warning it is, why the project cannot remove it at the source, and what will retire the entry. An exception without a reason is the rule switched off. A warning raised from the project's own `src/` never goes on that list; it gets fixed. Same watershed `conventions` draws around `# noqa`: a suppression is legal at someone else's boundary, never on your own content.
 
 ## Hard stops
 
