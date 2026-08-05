@@ -34,8 +34,21 @@ Commit: <git SHA the run was made against>
 
 ## Adversarial pass
 
-<!-- Not "do the tests pass" — that is above. Would each marked test FAIL if the implementation were
-     wrong in the obvious ways? Take a criterion, name a plausible wrong implementation, and say
-     whether any test would catch it. Assertions that hold for both the right and the wrong version
-     (status checked but body ignored, a call counted but its arguments not, a truthiness check where
-     the value matters) are named here even when everything is green. -->
+<!-- Not "do the tests pass" — that is above. For each criterion, take a plausible wrong
+     implementation and, where you can build it as an edit, run it: apply it to the working tree, run
+     the suite, revert the edit, and confirm the tree is clean again (`git status --porcelain` empty)
+     with `make check` green. The number the run gave you goes on the line, not the number you
+     expected. Where the wrong version cannot be built as an edit — the behaviour lives outside the
+     tree, the criterion is only provable live — the named wrong version with the reasoning about it
+     stands, and the line says which of the two was done. Assertions that hold for both the right and
+     the wrong version (status checked but body ignored, a call counted but its arguments not, a
+     truthiness check where the value matters) are named here even when everything is green. -->
+
+<!-- The two forms, one line each — applied on top, reasoned below. Delete the one you did not use
+     for that criterion; the run's own output is what goes where the numbers are. -->
+
+- AC-1 — applied · <the wrong implementation, as the edit that built it> · suite: <what the run
+  gave, e.g. "72 passed, 1 failed — tests/…::test_x"> · reverted, `git status --porcelain` empty,
+  `make check` green again
+- AC-2 — reasoned · <the wrong version, named> · <why it cannot be built as an edit> · <what
+  would or would not catch it>

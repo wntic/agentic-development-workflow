@@ -277,11 +277,10 @@ new dispatch — is not a new dispatch and does not count against the ceiling ei
 change 004: the implementer returned `BLOCKED`, was resumed, and finished green; counting that
 resume would have put a healthy run at the ceiling on its correct move.
 
-The number was decided on 2026-07-29, and the design document's own §6 states it the same way — a
-count of implementer dispatches rather than of full passes. Two reasons, both about
-cost: it reaches the human sooner, and a dispatch of this role is expensive before it does anything
-at all — the house-style knowledge preloaded into it was measured at roughly 41.7 thousand tokens of
-context, paid again on every dispatch.
+The number was decided on 2026-07-29, and it counts implementer dispatches rather than full passes.
+Two reasons, both about cost: it reaches the human sooner, and a dispatch of this role is expensive
+before it does anything at all — the house-style knowledge preloaded into it was measured at roughly
+41.7 thousand tokens of context, paid again on every dispatch.
 
 **The ceiling is held here, by this prose, and not by any per-agent iteration limit in the agent
 definitions.** Measured on 2026-07-29: when the platform's own iteration limit fires, the parent
