@@ -187,6 +187,11 @@ Level guide: `log.warning` for an expected business-rule violation surfacing at 
 uniqueness, a foreign key; `log.error` for an unexpected failure — a network timeout, a third-party 5xx,
 malformed data.
 
+A branch unreachable through the application's own write path — a constraint standing as defence in
+depth behind a domain rule that already refuses — is **not** excused from logging: if it fired, the
+domain was bypassed, and that is the most interesting entry in the log, not routine. Same level as the
+expected violation: `log.warning`.
+
 **Do not log the resulting domain exception.** The entrypoint logs it; logging at both layers duplicates
 the entry.
 
@@ -269,10 +274,16 @@ Logging:
 - Binding a sensitive field — a password, a bearer token, an API key → stop, log a length or a hash,
   never the value.
 
-Comments — the rule has a scope, and the scope differs between the two trees:
+Comments — the rule has a scope, and the scope is not the same across the tree:
 
 - **In `src/`**: a comment that is not a non-obvious *why*, or one running past a single short line →
   stop. Default to no comments; where one is warranted it is one short line, never a multi-line block.
+- **In `migrations/`**: the `src/` form, unchanged — a revision is code, not evidence. Inside
+  `upgrade()` / `downgrade()` a warranted comment is one short line of *why*, never a multi-line block:
+  the *why* worth writing is why this DDL is spelled out here rather than read from the live metadata,
+  and a block retelling what `op.create_table` does is exactly what the rule is written against. **A
+  revision module's docstring is not a comment, and this rule does not reach it** — a docstring
+  carrying ten lines of *why* is legal there and is not to be cut down to one.
 - **In `tests/`**: the same holds for a comment sitting inside a test body. What is additionally legal
   there is a **multi-line section banner** above a group of tests, when it says *what* the group pins
   and *why* it is pinned that way — which behaviour the group stands as evidence for, that the clock is
