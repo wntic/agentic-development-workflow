@@ -210,6 +210,10 @@ and proves nothing**, and that is measured, not feared: on the first real change
 workflow the implementation went uncommitted, the guard read empty, and the orchestrator ended up
 rewriting history to give it something to say. Commit here and it has something to say by construction.
 
+**This commit now has a second consumer, and that one is destructive:** the evaluator's adversarial pass
+applies wrong implementations to the working tree and reverts them, and a revert restores what is
+committed — so an uncommitted implementation would be reverted away rather than restored.
+
 ## 6. `evaluator` — the verdict on the green phase
 
 A **fresh dispatch**: not a continuation of the implementer's, and not the dispatch that did step 3.
@@ -251,7 +255,7 @@ the dispatches of step 5 that **came back**, whatever each of them returned — 
 `CONTRACT-CHANGE` round trip both spend one. A `FAIL` returning after the second → **stop and talk to
 the human.** Do not dispatch a third.
 
-Two kinds of dispatch do not count against it, and both for the same reason — nothing of the
+Three kinds of dispatch do not count against it, and all three for the same reason — nothing of the
 implementation was spent:
 
 - **the skeleton at step 1**, and its re-laying after a `CONTRACT-CHANGE`. It is not an
@@ -259,7 +263,14 @@ implementation was spent:
 - **a dispatch the platform cut off mid-flight.** Measured: a 529 arrives as a real error to you,
   loudly, in direct contrast with the iteration limit below, which arrives silently. It costs the
   full wall time of the dispatch and produces no work at all, so there is nothing to have spent —
-  dispatch it again, and say in your report that you did and why.
+  dispatch it again, and say in your report that you did and why;
+- **a dispatch the platform killed for stalling.** Measured, and it arrives just as loudly:
+  `Agent stalled: no progress for 600s (stream watchdog did not recover)`. Same conclusion as the 529 —
+  nothing of the implementation was spent, so dispatch it again and say that you did. One thing differs
+  and it matters: a killed agent's edits **stay on disk**. **Read the tree before you re-dispatch** —
+  `git status`, and the files that dispatch was told to produce — and say what you found, because a
+  blind re-dispatch writes over somebody's unfinished work and the second attempt then builds on half of
+  a first one nobody read.
 
 A **resume of a dispatch that already came back** — a `SendMessage` to the same agent rather than a
 new dispatch — is not a new dispatch and does not count against the ceiling either. Measured on

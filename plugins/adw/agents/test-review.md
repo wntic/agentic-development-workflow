@@ -34,11 +34,25 @@ by assumption.
 **2. Do they fail for the right reason?** A test must fail on an **assertion about behaviour**. An
 `ImportError`, a `NameError`, a syntax error, a collection error or an errored fixture means the test
 never exercised anything, and a test that never executed proves nothing about the code that will
-follow. Per test, quote the first real failure line and say which kind it is. This is a rule you can
-hold to without exceptions, because the names the tests import already exist — the skeleton was laid
-and committed before they were written. Some failures will arrive as an `AttributeError` or a
-`TypeError`, where a test reaches into what an empty body returned; those are failures of a named
-test that ran, not collection errors, and they are fine.
+follow. Per test, quote the first real failure line and say which kind it is. For every test that pins a
+criterion this is a rule you can hold to without exceptions, because the names the tests import
+already exist — the skeleton was laid and committed before they were written. Some failures will
+arrive as an `AttributeError` or a `TypeError`, where a test reaches into what an empty body returned;
+those are failures of a named test that ran, not collection errors, and they are fine.
+
+**The test that is green by construction, and how you judge it instead.** A few tests are meant to pass
+at this moment, and the mark of one is not its name: **the skill that describes it says so, in as many
+words** — a structural invariant over the shape of the tree or the wiring of the application, which
+holds on freshly laid names because nothing in it calls a body. There is no list of such files here and
+there will not be one; the skill is where the claim lives, so that is where you check it. Two things
+follow. Such a test carries **no `ac` marker** — it pins no criterion, so there is no criterion for its
+result to say anything about. And you judge it by one question, not by the shape of a failure it does
+not have: **does it pin what it promises?** Read what the skill says the invariant is for, then check
+that the test would go red when that thing breaks — a route whose schema will not build, a dependency
+the app needs at construction time and does not have. A green structural test whose assertion could not
+go red on the thing it names is as weak as any assertion that holds for both versions, and you say so.
+A green structural test that does pin what it claims is reported as green, and it is not a failure of
+the red phase.
 
 **3. Is there a test for every criterion?** Every `AC-n` in `criteria.md` must have at least one test
 carrying `@pytest.mark.ac("<criterion-slug>")` with that criterion's own slug. Check the slugs, not
@@ -135,6 +149,7 @@ VERDICT: PASS | FAIL
 COMMAND: <what you ran> → <summary line, verbatim>
 Q1 THEY RUN: yes | no — <what stopped them>
 Q2 RIGHT REASON: <test name> — assertion: <line> | NOT AN ASSERTION: <error>
+                 <test name> — STRUCTURAL, green by construction per <skill> — pins: <what reds it>
                  …
 Q3 CRITERIA COVERED: AC-n → <test name> | MISSING
                      live-application criterion: AC-n → <test name> | MISSING
