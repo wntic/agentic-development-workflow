@@ -146,9 +146,11 @@ Pick once, and document the consequence in the repository's `delete`.
   convention generate it.
 - **Always pass `name=` (the suffix) for a `CheckConstraint`** so the convention can prepend
   `ck_<table>_`.
-- **In an Alembic revision, write the full conventional name yourself** — `name="fk_foos_bar_id_bars"`,
-  `name="uq_foos_name"`, `name="ck_foos_name_non_empty"`. Alembic does not read the `Table`'s metadata
-  convention; it serializes what you write.
+- **The same two rules hold inside an Alembic revision's `op.create_table`** — no `name=` for the
+  primary key, FK or unique constraint, the suffix for a `CheckConstraint`. `env.py` hands Alembic the
+  shared metadata as `target_metadata`, so `op.create_table` builds on the convention exactly as the
+  `Table` does. Writing the full name for a check yields `ck_foos_ck_foos_name_non_empty`, because the
+  `ck` convention interpolates whatever you pass as its `%(constraint_name)s`.
 - Renaming one is a breaking change: the repository's map changes in the same commit.
 
 ### Rules — junction and owned-children tables
@@ -471,13 +473,15 @@ def upgrade() -> None:
         sa.Column(
             "bar_id",
             UUID(as_uuid=True),
-            sa.ForeignKey("bars.id", name="fk_foos_bar_id_bars", ondelete="RESTRICT"),
+            sa.ForeignKey("bars.id", ondelete="RESTRICT"),
             nullable=False,
         ),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.UniqueConstraint("name", name="uq_foos_name"),
-        sa.CheckConstraint("char_length(name) > 0", name="ck_foos_name_non_empty"),
+        sa.UniqueConstraint("name"),
+        # A check constraint's `name` is the SUFFIX: `env.py` hands Alembic the shared metadata, whose
+        # convention prepends `ck_foos_`. The full name written here would come out doubled.
+        sa.CheckConstraint("char_length(name) > 0", name="name_non_empty"),
     )
     op.create_index("ix_foos_bar_id", "foos", ["bar_id"])
     op.create_index("ix_foos_created_at", "foos", ["created_at"])
