@@ -229,9 +229,17 @@ The **baseline revision** is **write-once** — create `migrations/versions/0001
 
 ```python
 # migrations/versions/0001_initial.py
-import myapp.infrastructure.postgres.tables  # noqa: F401  — registers every Table on the shared metadata
+"""initial — the users table
+
+Every column, type and constraint is written out here rather than derived from the shared metadata:
+`metadata.create_all` reads the metadata as it stands when the revision RUNS, so replaying this
+revision later would build whatever the table has become rather than what it was when this was
+written. Schema evolution is versioned from this change onward, which means history stays replayable.
+"""
+
+import sqlalchemy as sa
 from alembic import op
-from myapp.infrastructure.postgres.metadata import metadata
+from sqlalchemy.dialects.postgresql import UUID
 
 revision = "0001"
 down_revision = None
@@ -240,15 +248,29 @@ depends_on = None
 
 
 def upgrade() -> None:
-    metadata.create_all(op.get_bind())
+    op.create_table(
+        "users",
+        sa.Column("id", UUID(as_uuid=True), nullable=False),
+        sa.Column("email", sa.Text, nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.PrimaryKeyConstraint("id", name="pk_users"),
+        # A check constraint's `name` is the SUFFIX: `env.py` hands Alembic the shared metadata, whose
+        # naming convention prepends `ck_users_`. Writing the full name here yields it twice over.
+        sa.CheckConstraint("char_length(email) > 0", name="email_non_empty"),
+    )
 
 
 def downgrade() -> None:
-    metadata.drop_all(op.get_bind())
+    op.drop_table("users")
 ```
 
-The baseline is a derived snapshot of the tables as they stand, not a hand-authored logic delta — it
-exists so the chain can start. **Every subsequent migration is a real Alembic revision**
+The baseline **freezes** the tables as they stood the day it was written — every column, type and
+constraint spelled out by hand, nothing read from the live `metadata` at run time. It carries no logic
+delta; it exists so the chain can start, and being frozen is what keeps the chain replayable from zero.
+The revision does not import the project's `metadata` or its table registrar at all: it needs neither,
+and either import would be a false trail back to the derived form. **Every subsequent migration is a
+real Alembic revision**
 (`uv run alembic revision --autogenerate -m "<change>"`), authored when entity fields and table columns
 drift apart. `migrations/` lives at the tree root, outside `src/` and `tests/`, so it is not inside the
 lint and type-check surface; its correctness is exercised by `alembic upgrade head` in the integration
