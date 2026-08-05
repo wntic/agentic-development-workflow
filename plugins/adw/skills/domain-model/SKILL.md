@@ -33,6 +33,20 @@ Outside it:
   query DTO wraps it plus authorization context.
 - Persistence of any of these → `infra-persistence`.
 
+One case is neither a shape here nor a neighbour's:
+
+- A predicate over a field carried by **both** the entity and a read-model of the same aggregate →
+  a **module-level function in the aggregate's package**, taking the field values as parameters and
+  called by whoever holds either type. Not the same method written twice, once per type: two copies of
+  one rule drift, and only the rewritten path's criterion notices. Not a shared base class — the rules
+  below forbid inheritance on both the entity and the value object, and the read-model is a frozen
+  dataclass of its own, so there is no base to hang it on (`application` carries the read/write split).
+  Not a domain service either: the entity rules hand a service the rules an entity *cannot* see, and
+  this one reads one field of one aggregate.
+
+  The shape recurs by convention rather than by accident — audit timestamps are never entity fields, so
+  a read that needs them comes back as a read-model, and the field then sits on two types.
+
 ## Template(s)
 
 ### Entity

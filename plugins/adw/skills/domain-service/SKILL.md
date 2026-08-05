@@ -68,6 +68,12 @@ service has collaborators to inject.
 6. **Raise domain exceptions directly.** Don't catch and rewrap; the central error handler does that.
 7. **No state beyond constructor dependencies.** No caches, no counters, no mutable attributes.
 8. **No transport, persistence, or framework code.** The only IO is through the injected protocols.
+9. **A uniqueness rule this service asserts is not a guarantee.** A check that reads and then writes
+   admits the second concurrent writer — nothing between the read and the write stops it. So the
+   `assert_*` method goes in paired with a constraint in the store, which is what actually holds the
+   rule (`infra-persistence`), and the store's rejection maps to the same domain exception this service
+   raises, so the caller sees one error whichever side refused. What the service contributes is the
+   earlier refusal with a legible message, not the guarantee.
 
 ## What a domain service is not
 
