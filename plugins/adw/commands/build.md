@@ -75,6 +75,16 @@ What comes back is packages, modules and the signatures of classes and methods �
 **bodies of `...`**, **no docstrings**, no behaviour of any kind. It is the shape of the change and
 nothing else; nothing in it is written to make a test pass, because there are no tests yet.
 
+**On the project's first change something else comes back with it, and it is not behaviour.** A first
+change drags the project's substrate along underneath it — the package root, the application shell, the
+wiring, the `Makefile`, the toolchain configuration the checks read, and the migration bootstrap when a
+relational store backs the change. That belongs to this dispatch, and the role definition is where the
+list and the reason live; do not restate it here and do not ask for it item by item. Two consequences
+for you. It arrives as **ordinary source with real content** — a `Makefile` is not a signature and
+`alembic.ini` has no body to leave empty — so it is not the "behaviour before the baseline" the
+paragraph below is about, and it goes into the skeleton commit with everything else. And on every later
+change it is already in the tree, so this paragraph describes nothing that happens.
+
 **Why this step exists is the language, not the model.** A test has to import a name, and against a
 name nothing defines yet Python raises `ModuleNotFoundError` while it is still *collecting* the file:
 the whole file disappears from the run — every test in it, every marker — and the reviewer at step 3
@@ -94,7 +104,8 @@ implementation, and this is not one.
 
 Do not add to the skeleton yourself and do not ask for behaviour "while it is open". A body that is
 not `...` at this point is implementation before the baseline, and the review at step 3 fails the red
-phase over it — correctly.
+phase over it — correctly. That is about the bodies of the change's own signatures, and not about the
+substrate above, which has no bodies to leave empty.
 
 ## 2. `test-author` — the tests
 
