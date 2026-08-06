@@ -26,7 +26,8 @@ measured before/after: [`plan/INDEX.md`](plan/INDEX.md).
 Change 003 (custom short codes, 8 criteria) shipped on 2026-07-30, and its defect log is the step-3+
 section of `plan/FINDINGS.md`. That run is the first where the curve bent down — a bigger change cost
 63m00s of compute against 002's 84m21s, and the orchestrator's share of output tokens fell from 77% to
-59%.
+59%. **It is not the last shipped change** — `adw-probe` went on to 004, 005 and 006, and a second
+probe, `adw-rooms`, shipped 001 and 002; see the toolchain section below for how to count them.
 
 **Step 4 — deciding the findings — was decided on 2026-07-31 and executed on 2026-08-01.** Its rulings
 live in `plan/FINDINGS.md`, section «Шаг 4, проход первый»; where that section disagrees with the older
@@ -243,10 +244,19 @@ and nothing of ours. Adding a script back is a decision governed by red lines 2,
 
 The workflow's own cycle is `/adw:spec` → `/adw:build` → `/adw:accept`, specified in `WORKFLOW.md` §6
 and written in `plugins/adw/commands/`. `/adw:build` runs eight numbered steps, 0–7; step 1 is the
-skeleton and is new since step 4, so **no run has exercised it yet** — change 004 will be the first.
-It has been run against three real changes in `adw-probe`, all accepted; the defect logs are in
-`plan/FINDINGS.md` under the step-2, step-3 and step-3+ headings, and the rulings that followed them
-under «Шаг 4, проход первый».
+skeleton, new since step 4, and **it has been exercised** — change 004 was its first run and
+`commands/build.md` cites that run as a measurement. The cycle has now been run against **eight**
+accepted changes across two probes; count them rather than trusting this line, because it is the line
+that went stale once (F-258):
+
+```bash
+cd ~/Projects/adw-probe && git tag        # change/001…006
+cd ~/Projects/adw-rooms && git tag        # change/001…002
+```
+
+The defect logs for the first three are in `plan/FINDINGS.md` under the step-2, step-3 and step-3+
+headings, and the rulings that followed them under «Шаг 4, проход первый»; everything after that is in
+the numbered `S0N`/`S10` sections of `plan/INDEX.md`.
 Inside a consuming project everything the plugin ships carries the `adw:` prefix — `/adw:build`,
 `adw:test-author`, `adw:conventions`. In this repository the commands and skills load instead from the
 `.claude/` symlinks and answer to short names (`/spec`), while the four cycle agents are not symlinked
