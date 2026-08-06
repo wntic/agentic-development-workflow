@@ -163,9 +163,17 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 ### `test_openapi_advertises_error_codes.py`
 
 ```python
-import pytest
 from fastapi import FastAPI
 from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
+
+# FastAPI publishes a `422` on any operation whose input it validates — a path param, a query
+# param, a body — whether or not the decorator declared one, and the decorator side of this
+# comparison cannot see it. Without this exemption the test reds on every route that takes any
+# input at all: measured on a live app, `GET /foos/{id}: decorator=[401, 404] spec=[401, 404,
+# 422] extra=[422]`, while the parameterless route on the same app matched. So it is the one code
+# allowed to stand in the document undeclared, and the only one. Declaring it anyway stays the
+# house style (`restapi-route-contracts`): a declared `422` is published and matches either way.
+_FRAMEWORK_VALIDATION_CODE = 422
 
 def _declared_codes(app: FastAPI) -> dict[tuple[str, str], set[int]]:
     """For each (METHOD, path), the set of HTTP error codes the route
@@ -228,7 +236,7 @@ async def test_every_route_advertises_what_its_decorator_declared(
             spec_codes = declared.get((method, path), set())
             decorator_codes = _expected_codes_from_route(context)
             missing = decorator_codes - spec_codes
-            extra = spec_codes - decorator_codes
+            extra = spec_codes - decorator_codes - {_FRAMEWORK_VALIDATION_CODE}
             if missing or extra:
                 mismatches.append(
                     f"{method} {path}: decorator={sorted(decorator_codes)} "
@@ -339,9 +347,9 @@ async def test_info_endpoint_is_public_and_returns_200(real_app: FastAPI) -> Non
 ## Rules
 
 1. **Every test discovers its inputs from `real_app`** — never from a hand-written `_endpoints()` / `_EXPECTED` / `RESOURCES` table. The cost of adding a new endpoint must be zero in this directory.
-2. **Protected-route detection is structural, not by-name.** Walk `route.dependant.dependencies`; check identity against `get_current_user` / `require_role` instead of string-matching the function name. Renamed dependencies are caught by import, not by silent miss.
+2. **Protected-route detection is structural, not by-name.** Walk the route contexts `iter_route_contexts(app.routes)` yields — never `app.routes` filtered for `APIRoute`, which finds zero operations on a FastAPI that defers `include_router`, measured — and check `context.dependant.dependencies` by callable identity against `get_current_user` / `require_role` instead of string-matching the function name. Renamed dependencies are caught by import, not by silent miss.
 3. **The 401 test substitutes path placeholders with valid-shaped dummies.** A test for `GET /foos/{id}` with literal `{id}` in the URL hits the router as 404 instead of triggering auth. UUID-shaped placeholders (`00000000-...`) route correctly and the request reaches the auth dependency.
-4. **OpenAPI cross-check compares decorator-declared codes to spec codes.** `route.responses` is FastAPI's authoritative store of what the `responses=error_responses(...)` decorator put there. The OpenAPI spec is generated from the same source; this test catches FastAPI bugs and decorator mismatches alike.
+4. **OpenAPI cross-check compares decorator-declared codes to spec codes.** Take both sides from the same `iter_route_contexts(app.routes)` walk as Rule 2: `responses` on the route context — a route internal, reached with `getattr` — is FastAPI's authoritative store of what the `responses=error_responses(...)` decorator put there. The OpenAPI spec is generated from the same source; this test catches FastAPI bugs and decorator mismatches alike.
 5. **Each file holds one invariant.** Don't merge `test_cors.py` and `test_request_size_limit.py` even though both are tiny — failures in one don't mask the other, and the file names form the spec.
 6. **CORS test uses an OPTIONS preflight.** Asserting on a GET response's `Access-Control-Allow-Origin` is a softer test; the preflight is the one browsers actually consult.
 7. **Request-size test uses raw bytes**, not JSON-encoded data, to bypass schema validation and hit the middleware directly. Otherwise the response is `422` (validation) before the middleware sees the body.
@@ -363,8 +371,8 @@ async def test_info_endpoint_is_public_and_returns_200(real_app: FastAPI) -> Non
 - Spec asks to add a `@pytest.mark.integration` marker → stop, path-scoped collection handles it.
 - Spec asks to fold a new per-endpoint test into one of these files (e.g. "test that POST /foos returns 401 unauth") → stop, the parametrized 401 test already covers it via discovery; add the endpoint and it joins the suite automatically.
 - Spec writes the 401 test against a hardcoded URL with literal placeholders (`/foos/{id}`) → stop, substitute UUID-shaped dummies so the route resolves before the auth dependency runs.
-- Spec uses string matching to identify "protected" routes (`if "auth" in route.name`) → stop, walk `route.dependant.dependencies` and compare callables by identity.
-- Spec compares the OpenAPI spec to a hardcoded `_EXPECTED` table → stop, derive expectations from `route.responses` so the source of truth is the decorator.
+- Spec uses string matching to identify "protected" routes (`if "auth" in route.name`) → stop, walk the route contexts from `iter_route_contexts(app.routes)` and compare `context.dependant.dependencies` callables by identity.
+- Spec compares the OpenAPI spec to a hardcoded `_EXPECTED` table → stop, derive expectations from the route context's `responses` so the source of truth is the decorator.
 - The `real_app` fixture is not defined up-tree (owned by `testing-integration-setup`) → stop, the suite cannot collect without it. (The `authed_client` factory is not consumed here — Rule 8 — so its absence does not block this skill.)
 - Spec hardcodes a CORS origin (e.g. `http://localhost:3000`) in `test_cors.py` → stop, read a configured origin off `real_app`'s `CORSMiddleware` and `pytest.skip` when none is configured; never freeze the source app's dev origin or assume `allow_credentials`.
 - Spec hardcodes the request-size limit (e.g. 10 MiB) in `test_request_size_limit.py`, or presumes the middleware is always present → stop, read the cap off the app's `MaxRequestSizeMiddleware` and compute `limit + 1`; `pytest.skip` when no size middleware is declared (it is a per-app `restapi.middlewares` entry, not universal).
