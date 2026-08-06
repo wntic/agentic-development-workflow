@@ -96,7 +96,8 @@ rtk proxy grep -c 'MANUAL' specs/bookings.md
 rtk proxy grep -c 'log.warning' src/rooms/infrastructure/postgres/repositories/booking_repository.py
 # до: 1. После: 3 — три ветки логируют
 rtk proxy grep -c 'async with _client' tests/integration/api/bookings/test_create_booking.py
-# до: 15. После: 15 — число блоков то же, правится их содержимое
+# до: 28. После: 28 — число блоков то же, правится содержимое двух из них
+# (прогон до отправки поймал моё «15» — правило F-136, четырнадцатый раз за проход)
 make check 2>&1 | tail -5
 # до: зелёный, 73 passed. После: зелёный, тестов больше
 ```
