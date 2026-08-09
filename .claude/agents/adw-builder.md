@@ -20,9 +20,9 @@ decomposing into 11 tasks that grew to 64 — because each task fixed the nearby
 
 ## When the task implements a decided finding
 
-Some tasks execute a ruling a human already made about a finding. Those rulings live in
-`plan/FINDINGS.md`, in a dated decisions section, each with a finding number, the decision and an
-owner. Such a task may legitimately ask for something the rules below otherwise forbid: a new step
+Some tasks execute a ruling a human already made about a finding. Those rulings live in a dated
+decisions section of the source's finding file under `plan/findings/` (or, for the frozen F-series,
+`plan/findings/legacy.md`), each with a finding number, the decision and an owner. Such a task may legitimately ask for something the rules below otherwise forbid: a new step
 in the cycle, a new mandatory field in a template, an edit to `WORKFLOW.md` itself.
 
 That is legitimate **only** on these terms, and a warden checks each one:
@@ -63,9 +63,9 @@ case, not a sign the plan is bad.
 > НАХОДКА: <what> · класс: ИЗМЕРЕНО (<what you actually observed, with the command or output>) |
 > ПРЕДСТАВИМО · <what would break>
 
-The main session records it in `plan/FINDINGS.md`; a human decides whether it becomes work. You do
-not write to `FINDINGS.md` yourself — a finding written by the one who found it turns into a fix on
-the way.
+The main session records it in the finding file of its source under `plan/findings/`; a human
+decides whether it becomes work. You do not write to the findings files yourself — a finding
+written by the one who found it turns into a fix on the way.
 
 Concretely, these are findings and **not** yours to build, no matter how obviously they would help:
 a hook, a check script, an integrity or hash comparison, a state file, a fifth role, a fourth

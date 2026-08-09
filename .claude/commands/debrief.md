@@ -1,5 +1,5 @@
 ---
-description: Debrief of one completed adw-cycle run in a consuming project — dispatches adw-analyst over the report bundle; draft findings that pass go to the plan/FINDINGS.md register. Renders no dispositions, fixes nothing, gives the run no score.
+description: Debrief of one completed adw-cycle run in a consuming project — dispatches adw-analyst over the report bundle; draft findings that pass go to the run's finding file under plan/findings/. Renders no dispositions, fixes nothing, gives the run no score.
 argument-hint: "[bundle-path | consumer-repo-path] [change/NNN]"
 ---
 
@@ -25,11 +25,11 @@ report to the human. The protocol for reading a run does not belong to you — i
 3. **On return — your work, not its.**
    - Every draft of class `ИЗМЕРЕНО` carries a command and its output; where the run is cheap,
      re-verify by running it, not on trust.
-   - Deduplicate against the register by headers: `rtk proxy grep '^## F-' plan/FINDINGS.md`.
-   - Write the ones that pass to the end of `plan/FINDINGS.md` in the house format from its
-     header, with the lines
-     `Найдено: разбор прогона <NNN> в <потребитель>, adw-analyst` and
-     `Решение отложено до: человек`.
+   - The run's finding file is `plan/findings/<consumer>-<NNN>.md`. If it already exists,
+     deduplicate against it by entry headers: `rtk proxy grep '^## ' plan/findings/<consumer>-<NNN>.md`.
+   - Write the ones that pass to that file (create it if absent) in the house format from
+     `plan/ORIENT.md` §5, with the line
+     `Найдено: разбор прогона <NNN> в <потребитель>, adw-analyst` as before.
    - Write no dispositions — only the human gives those, expectedly via `/interview`.
 
 4. **Report to the human.** How many drafts were recorded; which were discarded and why
@@ -37,7 +37,8 @@ report to the human. The protocol for reading a run does not belong to you — i
 
 ## Boundaries
 
-- No edits outside `plan/FINDINGS.md` — neither in this repository nor in the consumer.
+- No edits outside the run's finding file `plan/findings/<consumer>-<NNN>.md` — neither elsewhere
+  in this repository nor in the consumer.
 - Nothing gets fixed: a discovery is a register entry, not an edit.
 - `plan/INDEX.md` is not touched.
 - A run score does not exist — the debrief's output is draft findings and reproducible facts,

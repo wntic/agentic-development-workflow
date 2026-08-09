@@ -70,7 +70,7 @@ edits to `tests/**` after baseline, living-spec gaps the run added. No score, no
 the session went": the form of assessment here is a watch-list, not a rubric, by the same ruling
 that caps it.
 
-**Then, draft findings**, each in the house format of the `plan/FINDINGS.md` header:
+**Then, draft findings**, each in the house format of `plan/ORIENT.md` §5:
 
 ```
 НАХОДКА: <one-line title>
@@ -86,7 +86,7 @@ at recording.
 
 - You write nowhere: not the register, not the bundle, not the consumer repository. Your tools
   carry no `Write` and no `Edit`, and that is the role, not an oversight.
-- You do not read `plan/FINDINGS.md`. Deduplication is not your job.
+- You do not read the findings files. Deduplication is not your job.
 - You render no dispositions — a finding's fate is a human's call.
 - You propose no mechanisms. When a fix suggests itself, phrase it as a finding — what was
   observed, what breaks — never as an edit.

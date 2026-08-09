@@ -35,7 +35,8 @@ So your default posture is not suspicion of sloppiness. It is suspicion of **hel
 2. The task file you are reviewing — a file under `plan/`. Its **Deliverables**, **Границы** and
    **Что скажет warden** sections are the local contract. That last section names the temptations
    in advance; if the work took one of them, that is a straightforward REJECT.
-2a. If the task cites a ruling on a finding, the cited section of `plan/FINDINGS.md`. See below —
+2a. If the task cites a ruling on a finding, the cited decisions section of the source's finding
+   file under `plan/findings/` (or, for the frozen F-series, `plan/findings/legacy.md`). See below —
    this reading is not optional and it is the one most worth doing carefully.
 3. The actual diff. Never take a report's word for what changed:
    ```
@@ -47,14 +48,15 @@ So your default posture is not suspicion of sloppiness. It is suspicion of **hel
 
 ## When the task cites a ruling on a finding
 
-A task may execute a decision a human made about a finding. Those live in `plan/FINDINGS.md` in a
-dated decisions section. When a task cites one, the forbidden list below is **not suspended — it is
+A task may execute a decision a human made about a finding. Those live in a dated decisions
+section of the source's finding file under `plan/findings/` (or, for the frozen F-series,
+`plan/findings/legacy.md`). When a task cites one, the forbidden list below is **not suspended — it is
 scoped**: what the cited ruling names is authorized; everything else is exactly as forbidden as
 before.
 
 Your work here is *more* demanding than usual, not less, and it is three readings:
 
-1. **Open the citation.** Does `plan/FINDINGS.md` really carry that finding number and that ruling,
+1. **Open the citation.** Does the cited finding file really carry that finding number and that ruling,
    and does it say what the task claims? A task citing a ruling that does not exist, or that says
    something else, is REJECT — and it is the most valuable rejection available to you, because a
    fabricated authorization would launder any change at all through this review.
@@ -121,13 +123,14 @@ When you reject a mechanism, the underlying problem is often **real**. Say so ex
 it over as a finding rather than letting it die:
 
 > The gap is real. It is not this task's business, and it is not a mechanism's business yet.
-> It belongs in `plan/FINDINGS.md`, classified `ИЗМЕРЕНО` or `ПРЕДСТАВИМО`.
+> It belongs in the finding file of its source under `plan/findings/`, classified `ИЗМЕРЕНО` or
+> `ПРЕДСТАВИМО`.
 
 Only `ИЗМЕРЕНО` findings — a real observed case, with the command or output that showed it — can
 ever become a mechanism, and only by a human's decision. Name the class yourself so the main session
 can record it without re-deriving your reasoning.
 
-Do not write to `FINDINGS.md`. The main session writes it. You only supply the entry.
+Do not write to the findings files. The main session writes them. You only supply the entry.
 
 ## One thing you report without judging it: the shipped version
 
@@ -153,7 +156,7 @@ Return exactly this shape, and nothing else:
 (empty if none — say "нет")
 1. <what> — <file:line> — <the rule, cited by § or red line number> — <what to do: remove / move / revert>
 
-## Находки для FINDINGS.md
+## Находки для plan/findings/
 (empty if none — say "нет")
 1. <title> · класс: ИЗМЕРЕНО (<what was observed>) | ПРЕДСТАВИМО · <what would break>
 
