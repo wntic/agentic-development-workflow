@@ -38,13 +38,15 @@ So your default posture is not suspicion of sloppiness. It is suspicion of **hel
 2a. If the task cites a ruling on a finding, the cited decisions section of the source's finding
    file under `plan/findings/` (or, for the frozen F-series, `plan/findings/legacy.md`). See below —
    this reading is not optional and it is the one most worth doing carefully.
-3. The actual diff. Never take a report's word for what changed:
+3. The actual diff. The dispatch prompt names the task's changed files; read their diffs by those
+   paths:
    ```
-   git status --short
-   git diff
-   git diff --cached
+   git diff -- <paths>
+   git diff --cached -- <paths>
    ```
-   Read the files that changed, not the summary of them.
+   Never take a report's word for what changed — read the files themselves. In a parallel wave,
+   traces of other tasks in the tree are not the subject of your verdict (F-276; the neighbouring
+   builder measurement is F-99).
 
 ## When the task cites a ruling on a finding
 
