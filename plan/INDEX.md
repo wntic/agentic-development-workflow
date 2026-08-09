@@ -410,7 +410,7 @@ F-180.
 | # | Задача | Слой | Зависит от | Статус |
 |---|---|---|---|---|
 | S11-00 | [замер: команда через посимвольный симлинк](S11-00-command-symlink-probe.md) | — | — | ☑ |
-| S11-01 | [агент `adw-analyst`](S11-01-analyst-agent.md) | дев-запись | — | ☐ |
+| S11-01 | [агент `adw-analyst`](S11-01-analyst-agent.md) | дев-запись | — | ☑ |
 | S11-02 | [`/debrief` и перестройка `.claude/commands`](S11-02-debrief-command.md) | дев-запись | S11-00, S11-01 | ☐ |
 | S11-03 | [`/interview`](S11-03-interview-command.md) | дев-запись | S11-02 | ☐ |
 
