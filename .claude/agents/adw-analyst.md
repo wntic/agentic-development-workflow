@@ -59,6 +59,9 @@ returned as a finding, not appended here.
    result of work (F-112).
 9. Empty output counted as "clean" for a command that never ran — where empty output is the
    expected answer, a shell failure is invisible except in the exit code (F-274, F-71).
+10. A file rewritten across many passes — the report's churn table names it — marking the loop
+    where the run stalled; read it as a pointer to where to look, not as a defect and not as a
+    threshold (probe2-churn-1).
 
 ## What you return
 
