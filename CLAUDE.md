@@ -11,9 +11,18 @@ report), **deliberately outside the workflow and its red lines**: its script is 
 count against the enforcement budget, whose check is scoped to `plugins/adw`. This repository is
 not an application.
 
-**Status: the workflow is being rebuilt for the fourth time.** Three previous attempts are in git
-history under tags; [`HISTORY.md`](HISTORY.md) is the pointer, and it is short. Read it before
-proposing any mechanism — most plausible-sounding ideas have already been built and measured once.
+**Status: the workflow is being rebuilt for the fourth time.** The three previous attempts live in
+git history under two tags — read this block before proposing any mechanism, because most
+plausible-sounding ideas have already been built and measured once:
+
+- `v2-archive` — YAML manifest + stdlib validator; attempt 1 (a code generator over a hand-written
+  schema) lives inside its history.
+- `v3-archive` — living specs + ~17 200 lines of enforcement: **64** build tasks, **0** features.
+
+**Do not rebuild a deleted mechanism from memory.** Recover the real file from its tag
+(`git show v3-archive:<path>`) and read what it actually cost. The most expensive lessons are
+already distilled in `WORKFLOW.md` §8. The full pointer file this block replaced is itself in git
+history: `git log --oneline -- HISTORY.md`, then `git show <sha>:HISTORY.md`.
 
 The design is settled — [`WORKFLOW.md`](WORKFLOW.md). **Steps 1–4 of its §10 build order are closed.**
 The adapter is written and installed (step 1); three real changes shipped in the probe project
@@ -28,13 +37,13 @@ rationale: [`plan/R00-skills-restructuring.md`](plan/R00-skills-restructuring.md
 measured before/after: [`plan/INDEX.md`](plan/INDEX.md).
 
 Change 003 (custom short codes, 8 criteria) shipped on 2026-07-30, and its defect log is the step-3+
-section of `plan/FINDINGS.md`. That run is the first where the curve bent down — a bigger change cost
+section of the retired `plan/FINDINGS.md`, in the registry's git history. That run is the first where the curve bent down — a bigger change cost
 63m00s of compute against 002's 84m21s, and the orchestrator's share of output tokens fell from 77% to
 59%. **It is not the last shipped change** — `adw-probe` went on to 004, 005 and 006, and a second
 probe, `adw-rooms`, shipped 001 and 002; see the toolchain section below for how to count them.
 
 **Step 4 — deciding the findings — was decided on 2026-07-31 and executed on 2026-08-01.** Its rulings
-live in `plan/FINDINGS.md`, section «Шаг 4, проход первый»; where that section disagrees with the older
+live in the retired `plan/FINDINGS.md` (registry's git history), section «Шаг 4, проход первый»; where that section disagrees with the older
 `Решение отложено до` lines above it, **it wins**. It went through 31 entries — the 23 still open, plus
 eight that turned out to have closed themselves sidelong. **15 closed with no edit at all**: those
 eight, plus seven ruled "did not happen", each with the signal that would reopen it. The other 16 were
@@ -55,8 +64,10 @@ it. Five entries for one mechanism is the trade this line is looking for; five m
 entries is what killed attempt 3.
 
 Where the record lives: the build record task by task is `plan/`; what the install actually did is
-[`plan/INSTALL-REHEARSAL.md`](plan/INSTALL-REHEARSAL.md); open questions are
-[`plan/FINDINGS.md`](plan/FINDINGS.md), read by header (`rtk proxy grep '^## F-'`) and never whole.
+[`plan/INSTALL-REHEARSAL.md`](plan/INSTALL-REHEARSAL.md); open findings are the files of
+`plan/findings/` — `ls plan/findings/` is the open list, and empty is good. The entry format and the
+rules live in `plan/ORIENT.md` §5; the frozen `F-` series and everything already decided are in the
+registry's git history (`git log -S 'F-NNN' --oneline`, then `git show <sha>:plan/FINDINGS.md`).
 
 **Platform knowledge in this repo was two generations stale**, which is part of why the previous
 attempt is gone. [`plan/PLATFORM.md`](plan/PLATFORM.md) is now the authority: nine questions measured
@@ -262,9 +273,9 @@ cd ~/Projects/adw-probe && git tag        # change/001…006
 cd ~/Projects/adw-rooms && git tag        # change/001…002
 ```
 
-The defect logs for the first three are in `plan/FINDINGS.md` under the step-2, step-3 and step-3+
-headings, and the rulings that followed them under «Шаг 4, проход первый»; everything after that is in
-the numbered `S0N`/`S10` sections of `plan/INDEX.md`.
+The defect logs for the first three are in the retired `plan/FINDINGS.md` — in the registry's git
+history — under the step-2, step-3 and step-3+ headings, and the rulings that followed them under
+«Шаг 4, проход первый»; everything after that is in the numbered `S0N`/`S10` sections of `plan/INDEX.md`.
 Inside a consuming project everything the plugin ships carries the `adw:` prefix — `/adw:build`,
 `adw:test-author`, `adw:conventions`. In this repository the skills load instead from the `.claude/skills`
 symlink, and the commands from the real directory `.claude/commands` — four per-file symlinks to the
