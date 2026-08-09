@@ -135,6 +135,11 @@ Once they pass:
    the paid amount → 422` — and the slug is written here, together with the criterion's text:
    lowercase, hyphen-separated, naming the observable behaviour, unique within this change. The
    number is for the human reading the checklist; the slug is what the test's marker will carry.
+   Before a criterion goes into `criteria.md`, read every draft criterion that stages **more than
+   one entity in one state** — two bookings, an enclosing geometry and its extremes, a pair of
+   overlapping records — against the invariants of the capability's living spec: an invariant laid
+   down by a previous change may forbid the scene outright. Measured: one change drafted two such
+   criteria, and the one that slipped through cost a spec edit in the middle of the build cycle.
 4. Commit the two files on their own, with a message naming the change. The delta belongs to git
    before any test exists, so that the diff a reviewer reads later is tests and nothing else.
 
