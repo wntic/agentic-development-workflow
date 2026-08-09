@@ -260,6 +260,15 @@ down anywhere — it is these commits, plus `criteria.md` and `verdict.md`, and 
   Acceptance is a human's step, `/adw:accept NNN`, and it exists so that somebody reads two diffs.
 - **`VERDICT: FAIL`** → a **new** dispatch of step 5, carrying the path to `verdict.md` and the
   evaluator's own lines about what remains.
+- **`VERDICT: FAIL` whose cause no edit to `src/` would fix** — the environment or its credentials,
+  the mechanism of a test, the wording of a criterion → **stop and talk to the human**, quoting the
+  evaluator's lines about what remains. No dispatch of step 5 happens, so nothing is spent against
+  the ceiling below. Measured: on the run that produced this branch, the `FAIL` came because the
+  marked tests skipped for want of environment credentials — a cause the implementer does not touch.
+  It resolved through spec edits decided by the human, an environment set up by the human's own
+  hands, and a fresh evaluator dispatch, with zero implementer dispatches spent; a literal reading
+  of the branch above would have sent the implementer to fix an environment it cannot reach, and
+  burned half the ceiling doing it.
 
 **The ceiling is two dispatches of the implementer for the implementation in this change.** It counts
 the dispatches of step 5 that **came back**, whatever each of them returned — a `FAIL` loop and a
