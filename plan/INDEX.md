@@ -412,7 +412,7 @@ F-180.
 | S11-00 | [замер: команда через посимвольный симлинк](S11-00-command-symlink-probe.md) | — | — | ☑ |
 | S11-01 | [агент `adw-analyst`](S11-01-analyst-agent.md) | дев-запись | — | ☑ |
 | S11-02 | [`/debrief` и перестройка `.claude/commands`](S11-02-debrief-command.md) | дев-запись | S11-00, S11-01 | ☑ |
-| S11-03 | [`/interview`](S11-03-interview-command.md) | дев-запись | S11-02 | ☐ |
+| S11-03 | [`/interview`](S11-03-interview-command.md) | дев-запись | S11-02 | ☑ |
 
 Порядок: **(S11-00 ∥ S11-01) → S11-02 → S11-03.** Первая пара не пересекается файлами (проба пишет в
 скретч и `plan/PLATFORM.md`, builder — один файл в `.claude/agents/`). S11-02 ждёт вердикта пробы —
