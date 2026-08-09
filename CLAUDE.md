@@ -33,7 +33,8 @@ skills), `agents/` (the four roles), `commands/` (`spec`, `build`, `accept`, `co
 
 Since then the skill catalog was restructured: the compressed 13-theme catalog was reverted to the 48
 pre-merge skills and re-merged into 30, with the dead generations' vocabulary purged. Decision and
-rationale: [`plan/R00-skills-restructuring.md`](plan/R00-skills-restructuring.md). Status table and the
+rationale: in git history — `git log --oneline -- plan/R00-skills-restructuring.md`, then
+`git show <sha>:plan/R00-skills-restructuring.md`. Status table and the
 measured before/after: [`plan/INDEX.md`](plan/INDEX.md).
 
 Change 003 (custom short codes, 8 criteria) shipped on 2026-07-30, and its defect log is the step-3+
