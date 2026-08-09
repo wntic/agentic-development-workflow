@@ -266,14 +266,19 @@ and nothing of ours. Adding a script back is a decision governed by red lines 2,
 The workflow's own cycle is `/adw:spec` → `/adw:build` → `/adw:accept`, specified in `WORKFLOW.md` §6
 and written in `plugins/adw/commands/`. `/adw:build` runs eight numbered steps, 0–7; step 1 is the
 skeleton, new since step 4, and **it has been exercised** — change 004 was its first run and
-`commands/build.md` cites that run as a measurement. The cycle has now been run against **eight**
+`commands/build.md` cites that run as a measurement. The cycle has now been run against **nine**
 accepted changes across two probes; count them rather than trusting this line, because it is the line
 that went stale once (F-258):
 
 ```bash
-cd ~/Projects/adw-probe && git tag        # change/001…006
-cd ~/Projects/adw-rooms && git tag        # change/001…002
+cd ~/Projects/adw-probe && git tag        # change/NNN
+cd ~/Projects/adw-rooms && git tag        # change/NNN
 ```
+
+Two projects and not three: the count runs over the probes the workflow is carried forward on, and a
+one-off greenfield run once for feedback with no continuation is not a consuming project and does not
+enter red line 3's count (human ruling, 2026-08-09) — so a `change/NNN` tag in some other project is
+not a hole in this list.
 
 The defect logs for the first three are in the retired `plan/FINDINGS.md` — in the registry's git
 history — under the step-2, step-3 and step-3+ headings, and the rulings that followed them under
