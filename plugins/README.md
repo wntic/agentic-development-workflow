@@ -24,6 +24,10 @@ A plugin that arrives from a repository of its own sheds that repository's shell
 its `marketplace.json`, its `LICENSE`, its `.gitignore` belong to the tree it joined. Licensing is
 the root `../LICENSE`; ignores are the root `../.gitignore`. What a plugin keeps is its
 `plugin.json`, its components, its `README.md` and — if it versions itself — its `CHANGELOG.md`.
+This tree's toolchain also touches the arriving code at the door: pre-commit reformats it at the
+moment of the commit, so a check that the plugin arrived unchanged is written against the
+**committed state**, never against the working tree. "Untouched by a single line" and "passed the
+commit" hold together only for files that already answer to this tree's toolchain.
 
 ## The two of them
 
