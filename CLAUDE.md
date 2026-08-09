@@ -65,7 +65,8 @@ it. Five entries for one mechanism is the trade this line is looking for; five m
 entries is what killed attempt 3.
 
 Where the record lives: the build record task by task is `plan/`; what the install actually did is
-[`plan/INSTALL-REHEARSAL.md`](plan/INSTALL-REHEARSAL.md); open findings are the files of
+in git history — `git log --oneline -- plan/INSTALL-REHEARSAL.md`, then
+`git show <sha>:plan/INSTALL-REHEARSAL.md`; open findings are the files of
 `plan/findings/` — `ls plan/findings/` is the open list, and empty is good. The entry format and the
 rules live in `plan/ORIENT.md` §5; the frozen `F-` series and everything already decided are in the
 registry's git history (`git log -S 'F-NNN' --oneline`, then `git show <sha>:plan/FINDINGS.md`).
@@ -282,5 +283,7 @@ Inside a consuming project everything the plugin ships carries the `adw:` prefix
 symlink, and the commands from the real directory `.claude/commands` — four per-file symlinks to the
 cycle commands (measured in `plan/PLATFORM.md` question 10) plus local dev commands — all answering to
 short names (`/spec`), while the four cycle agents are not symlinked
-at all, so they have no subagent type here; `.claude/agents/` holds the four repo roles. Both
-observations are measured in `plan/INSTALL-REHEARSAL.md` §6. Do not enable both loads at once.
+at all, so they have no subagent type here; `.claude/agents/` holds the four repo roles. The short
+names and the per-file symlinks are measured in `plan/PLATFORM.md` question 10; the rest of the
+install record is in git history — `git log --oneline -- plan/INSTALL-REHEARSAL.md`, then
+`git show <sha>:plan/INSTALL-REHEARSAL.md`. Do not enable both loads at once.
