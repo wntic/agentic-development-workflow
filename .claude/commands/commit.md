@@ -1,0 +1,1 @@
+../../plugins/adw/commands/commit.md

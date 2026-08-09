@@ -258,7 +258,9 @@ The defect logs for the first three are in `plan/FINDINGS.md` under the step-2, 
 headings, and the rulings that followed them under «Шаг 4, проход первый»; everything after that is in
 the numbered `S0N`/`S10` sections of `plan/INDEX.md`.
 Inside a consuming project everything the plugin ships carries the `adw:` prefix — `/adw:build`,
-`adw:test-author`, `adw:conventions`. In this repository the commands and skills load instead from the
-`.claude/` symlinks and answer to short names (`/spec`), while the four cycle agents are not symlinked
-at all, so they have no subagent type here; `.claude/agents/` holds the three build roles only. Both
+`adw:test-author`, `adw:conventions`. In this repository the skills load instead from the `.claude/skills`
+symlink, and the commands from the real directory `.claude/commands` — four per-file symlinks to the
+cycle commands (measured in `plan/PLATFORM.md` question 10) plus local dev commands — all answering to
+short names (`/spec`), while the four cycle agents are not symlinked
+at all, so they have no subagent type here; `.claude/agents/` holds the four repo roles. Both
 observations are measured in `plan/INSTALL-REHEARSAL.md` §6. Do not enable both loads at once.
