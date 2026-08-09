@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "run-report",
-  "version": "1.1.2",
+  "version": "2.0.0",
   "description": "Turn Claude Code session transcripts into a structured Markdown report of how a run went: which subagents ran, per-segment execution time, what files the run produced and how much each was churned, the toolchain's red-to-green timeline, and every denied or errored tool call. Stdlib-only Python, no network, read-only.",
   "author": {
     "name": "Egor Vorobyev",

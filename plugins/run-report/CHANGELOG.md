@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.0.0
+
+The name said "a report about an agent". The thing reports on a **run** — which agents ran,
+where the time went, what got written, what got in the way — so it is now `run-report`, and it
+ships from the `wntic-adw` marketplace alongside the workflow it was built to watch. The
+single-plugin marketplace it used to come from is retired.
+
+If you are on 1.1.2, three things change and none of them migrate themselves:
+
+```
+/plugin marketplace add wntic/agentic-development-workflow
+/plugin uninstall agent-report@wntic-agent-report
+/plugin install run-report@wntic-adw
+```
+
+- **The command is `/run-report`.** `/agent-report` is gone, and the old plugin id does not
+  resolve against the new marketplace — it fails with `Plugin agent-report not found`.
+- **The analyzer is `scripts/run_report.py`.** Only matters if you invoke it directly rather
+  than through the command.
+- **Reports land in `~/.claude/projects/<slug>/run-reports/<session>/`.** Bundles written
+  before this release stay under `agent-reports/`; nothing moves them and new ones do not mix
+  in with them, so look in the old directory for old runs.
+
+The plugin also stops shipping its own `LICENSE`, `.gitignore` and marketplace manifest — those
+belonged to the repository it used to be, not to a plugin. Licensing is unchanged (MIT); the
+file now lives at the marketplace repository's root and covers everything there.
+
+**What the report contains did not change.** The sections, the numbers and their meanings are
+exactly 1.1.2's. This release is the rename and nothing else.
+
 ## 1.1.2
 
 The toolchain timeline counted `Bash` calls and called them check runs. On a real run one row
