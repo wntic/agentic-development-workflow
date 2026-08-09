@@ -11,6 +11,10 @@
     {
       "name": "adw",
       "source": "./plugins/adw"
+    },
+    {
+      "name": "agent-report",
+      "source": "./plugins/agent-report"
     }
   ]
 }

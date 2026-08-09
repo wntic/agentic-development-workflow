@@ -1,0 +1,7 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+
+# never commit generated reports or transcripts
+agent-reports/
+*.jsonl
