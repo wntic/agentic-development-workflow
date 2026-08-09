@@ -54,6 +54,18 @@ go red on the thing it names is as weak as any assertion that holds for both ver
 A green structural test that does pin what it claims is reported as green, and it is not a failure of
 the red phase.
 
+**The test that did not execute is not a red test.** "Fails for the right reason" is a claim about an
+execution, and a test your run did not execute — skipped, xfailed for a missing environment, collected
+but never run — makes no claim at all. It may be skipping over a mechanism that could never fail, and
+nothing in a skip report tells the two apart. This was measured: two criteria whose tests could only
+skip for missing credentials — a skip the spec itself sanctioned, in as many words — passed four
+rounds of this review, and when the environment finally appeared they failed against **any**
+implementation: the test mechanism was wrong from birth, and it cost the first post-baseline edits to
+`tests/**` in the workflow's history and a third dispatch of the evaluator. So: name every marked test
+that did not execute in your run, each on its own line of the verdict, with the reason it did not
+execute — and for such a criterion the red phase is **not passed**. A sanctioned skip changes who was
+warned; it does not change what the run proved.
+
 **3. Is there a test for every criterion?** Every `AC-n` in `criteria.md` must have at least one test
 carrying `@pytest.mark.ac("<criterion-slug>")` with that criterion's own slug. Check the slugs, not
 just the count: two tests marked `refund-exceeds-paid-amount` and none marked
@@ -150,6 +162,7 @@ COMMAND: <what you ran> → <summary line, verbatim>
 Q1 THEY RUN: yes | no — <what stopped them>
 Q2 RIGHT REASON: <test name> — assertion: <line> | NOT AN ASSERTION: <error>
                  <test name> — STRUCTURAL, green by construction per <skill> — pins: <what reds it>
+                 <test name> — DID NOT EXECUTE (skipped | xfailed | collected, never run): <reason> — red phase not passed for its criterion
                  …
 Q3 CRITERIA COVERED: AC-n → <test name> | MISSING
                      live-application criterion: AC-n → <test name> | MISSING
