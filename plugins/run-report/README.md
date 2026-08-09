@@ -1,35 +1,37 @@
-# agent-report
+# run-report
 
-A Claude Code plugin that turns session transcripts into a report you can actually read.
+A Claude Code plugin that turns session transcripts into a report of **how a run went**.
 
 Claude Code writes a JSONL transcript for every session and for every subagent it spawns. That
 is the whole record of a run — but it is line-delimited JSON, and the interesting parts (which
-agents ran, where the time went, which tool calls got denied) are scattered across thousands of
-records. `/agent-report` reads those transcripts and emits structured Markdown: a summary plus
-one full readable log per agent.
+agents ran, where the time went, what got written, which tool calls got denied) are scattered
+across thousands of records. `/run-report` reads those transcripts and emits structured
+Markdown: a summary plus one full readable log per agent.
 
 It is built for **bottleneck and blocker analysis** — the question "why did that run take
 twenty minutes and what got in its way?"
 
+It reports; it does not judge. Nothing here scores a run or rates the code it produced.
+
 ## Install
 
 ```
-/plugin marketplace add wntic/claude-agent-report
-/plugin install agent-report@wntic-agent-report
+/plugin marketplace add wntic/agentic-development-workflow
+/plugin install run-report@wntic-adw
 ```
 
-Then restart the session (or `/plugin` → enable) and the `/agent-report` command is available.
+Then restart the session (or `/plugin` → enable) and the `/run-report` command is available.
 
 Requires `python3` (3.10+, for the `X | None` type syntax). No pip packages, no network access.
 
 ## Use
 
 ```
-/agent-report                      # subagents of the most recent session in this project
-/agent-report latest --include-main # ...plus the main/orchestrator transcript
-/agent-report --main-only          # only what the main session itself did
-/agent-report 4f3c9a2b --raw       # a specific session id (or unique prefix), archive raw JSONL
-/agent-report all                  # every session under this project
+/run-report                      # subagents of the most recent session in this project
+/run-report latest --include-main # ...plus the main/orchestrator transcript
+/run-report --main-only          # only what the main session itself did
+/run-report 4f3c9a2b --raw       # a specific session id (or unique prefix), archive raw JSONL
+/run-report all                  # every session under this project
 ```
 
 Flags, all optional:
@@ -45,14 +47,15 @@ Flags, all optional:
 The script is also usable directly, outside Claude Code:
 
 ```bash
-python3 scripts/agent_report.py --cwd "$PWD" --session latest --include-main
+python3 scripts/run_report.py --cwd "$PWD" --session latest --include-main
 ```
 
 ## What you get
 
-Output goes to `~/.claude/projects/<project-slug>/agent-reports/<session>/` — deliberately
+Output goes to `~/.claude/projects/<project-slug>/run-reports/<session>/` — deliberately
 **outside** your repo, so a report never dirties the working tree of the project you were
-analyzing.
+analyzing. Reports generated before 2026-08-09, when this plugin was called `agent-report`,
+are under `agent-reports/` instead; nothing migrates them.
 
 **`SUMMARY.md`**
 
@@ -127,15 +130,16 @@ by this plugin; if you share a report, that is on you.
 ```
 .claude-plugin/
   plugin.json          # the plugin manifest
-  marketplace.json     # single-plugin marketplace, source "./"
 commands/
-  agent-report.md      # the /agent-report command
+  run-report.md        # the /run-report command
 scripts/
-  agent_report.py      # the analyzer (stdlib only)
+  run_report.py        # the analyzer (stdlib only)
 ```
 
 The command locates the analyzer via `${CLAUDE_PLUGIN_ROOT}`, so it works from any install path.
+The marketplace catalog that lists this plugin is `../../.claude-plugin/marketplace.json`, at the
+repository root — a plugin carries no catalog of its own.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see the [LICENSE](../../LICENSE) at the repository root, which covers this marketplace.

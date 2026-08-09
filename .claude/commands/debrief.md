@@ -14,8 +14,8 @@ report to the human. The protocol for reading a run does not belong to you — i
 
 1. **Input.** From `$ARGUMENTS` — a path to a report bundle **or** a path to the consumer
    repository, optionally plus `change/NNN`. If there is no bundle — generate the report over
-   the consumer repository with the `agent-report` plugin; the invocation form and where the
-   bundles live are in the plugin's own command (`/agent-report`) and are not restated here.
+   the consumer repository with the `run-report` plugin; the invocation form and where the
+   bundles live are in the plugin's own command (`/run-report`) and are not restated here.
    Given neither a bundle nor a consumer — ask the human. Do not guess.
 
 2. **Dispatch `adw-analyst`, one per run.** In the prompt: the bundle path, the consumer

@@ -6,15 +6,15 @@
     "email": "voro6yov.egor@gmail.com",
     "url": "https://github.com/wntic"
   },
-  "description": "The adw workflow: spec-driven agentic development for Python backends — a skill catalog of house style, the four roles of the change cycle, and the commands that run it.",
+  "description": "Two plugins. adw: spec-driven agentic development for Python backends — a skill catalog of house style, the four roles of the change cycle, and the commands that run it. run-report: what a run actually did — session transcripts rendered as a readable report of roster, timing, output and blockers.",
   "plugins": [
     {
       "name": "adw",
       "source": "./plugins/adw"
     },
     {
-      "name": "agent-report",
-      "source": "./plugins/agent-report"
+      "name": "run-report",
+      "source": "./plugins/run-report"
     }
   ]
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""agent_report.py — analyze Claude Code subagent transcripts for a project/session.
+"""run_report.py — analyze Claude Code subagent transcripts for a project/session.
 
 Reads the JSONL transcripts Claude Code writes for every spawned subagent
 (`~/.claude/projects/<project-slug>/<session>/subagents/agent-*.jsonl`) and emits
@@ -12,14 +12,14 @@ call (`toolDenialKind`), errored tool results, stop reasons, and per-segment tim
 with its own wall-clock, so idle gaps between resumes are not mistaken for compute).
 
 Usage:
-    agent_report.py [--project-dir DIR] [--session ID|latest|all]
-                    [--out DIR] [--blob-cap N] [--cwd PATH]
+    run_report.py [--project-dir DIR] [--session ID|latest|all]
+                  [--out DIR] [--blob-cap N] [--cwd PATH]
 
   --project-dir  the ~/.claude/projects/<slug> dir. Default: derived from --cwd.
   --cwd          working dir used to derive the project slug (default: $PWD).
   --session      a session id, "latest" (most recent session that has subagents,
                  default), or "all" (every session under the project).
-  --out          output dir for the Markdown. Default: <project-dir>/agent-reports/<session>.
+  --out          output dir for the Markdown. Default: <project-dir>/run-reports/<session>.
                  Kept OUTSIDE the repo working tree on purpose so it never dirties the
                  working tree of the project being analyzed.
   --blob-cap     max chars rendered per tool input/result blob in the full log
@@ -791,7 +791,7 @@ def main() -> int:
             )
             continue
 
-        out = Path(args.out) if args.out else (proj / "agent-reports" / sess_name)
+        out = Path(args.out) if args.out else (proj / "run-reports" / sess_name)
         out.mkdir(parents=True, exist_ok=True)
         (out / "SUMMARY.md").write_text(render_summary(reports, sess_name, args.cwd), encoding="utf-8")
         for r in reports:

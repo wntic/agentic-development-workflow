@@ -1,6 +1,6 @@
 ---
 name: adw-analyst
-description: Debriefs ONE completed adw cycle run in a consuming project, working from its agent-report bundle, the change diff and the living spec. Read-only by design — it writes nothing, fixes nothing and renders no dispositions; it returns draft findings as text for the main session to record. Dispatch after a run's report bundle exists; the dispatch prompt must name the bundle path and the consumer repository path.
+description: Debriefs ONE completed adw cycle run in a consuming project, working from its run-report bundle, the change diff and the living spec. Read-only by design — it writes nothing, fixes nothing and renders no dispositions; it returns draft findings as text for the main session to record. Dispatch after a run's report bundle exists; the dispatch prompt must name the bundle path and the consumer repository path.
 tools: Read, Bash, Glob, Grep
 model: inherit
 ---

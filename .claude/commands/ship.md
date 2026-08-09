@@ -1,6 +1,6 @@
 ---
 description: Prepare a version bump for the marketplace plugins by the recorded rule — collect the shipping diff since the last bump, classify it against the movement table read from plan/INDEX.md at run time, propose; the human decides. Nothing moves without their word.
-argument-hint: "[adw | agent-report | empty — both]"
+argument-hint: "[adw | run-report | empty — both]"
 ---
 
 # /ship — version bump by the recorded rule, decided by the human
@@ -8,7 +8,7 @@ argument-hint: "[adw | agent-report | empty — both]"
 You are the main session of this repository. Your work here is to prepare a decision, not to make
 one. The movement rule lives in `plan/INDEX.md`, section «Версия плагина — правило движения» — that
 section is read **at run time, every run**, and this file carries no copy of it: a standing copy
-diverges silently (the F-132 class). From `$ARGUMENTS` take the plugin — `adw`, `agent-report`, or
+diverges silently (the F-132 class). From `$ARGUMENTS` take the plugin — `adw`, `run-report`, or
 empty meaning both; each plugin's version lives in its own
 `plugins/<name>/.claude-plugin/plugin.json` and each has its own count, so run the steps per plugin.
 
@@ -32,7 +32,7 @@ empty meaning both; each plugin's version lives in its own
    single classification and the overall result; their answer is what gets executed, not yours.
    Without their decision nothing moves.
 
-5. **On their decision.** Edit `version` in the plugin's `plugin.json`; for `agent-report` also
+5. **On their decision.** Edit `version` in the plugin's `plugin.json`; for `run-report` also
    add a section to its `CHANGELOG.md`, since that plugin keeps one — `adw` has no changelog and
    does not get one. Commit in English. **Push only on the human's explicit word**, asked as a
    separate confirmation: publication is an external action.

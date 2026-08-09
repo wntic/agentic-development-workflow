@@ -1,7 +1,10 @@
 # adw — spec-driven agentic development workflow
 
-A Claude Code marketplace holding one plugin, `plugins/adw/`: a spec-driven workflow for building
-strict hexagonal Python backends with coding agents.
+A Claude Code marketplace holding two plugins. `plugins/adw/` is a spec-driven workflow for building
+strict hexagonal Python backends with coding agents — the rest of this file is about it.
+`plugins/run-report/` is a separate observability tool: it renders a run's session transcripts into a
+readable report of which agents ran, where the time went, what got written and what got in the way.
+See [`plugins/README.md`](plugins/README.md) for how the two sit side by side.
 
 ## Status: being rebuilt
 
@@ -61,6 +64,7 @@ what is deliberately *not* built, with the reason for each.
 ```
 /plugin marketplace add wntic/agentic-development-workflow
 /plugin install adw
+/plugin install run-report      # optional, and independent of the workflow
 ```
 
 Do not enable the checked-out and the installed load at the same time.

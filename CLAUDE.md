@@ -6,9 +6,9 @@ Guidance for Claude Code working in this repository.
 
 A Claude Code **marketplace** holding two plugins. `plugins/adw/` is a spec-driven agentic
 development workflow for Python backends — the rest of this document is about it, and the red
-lines govern it. `plugins/agent-report/` is an observability tool (session transcripts → Markdown
-report), **deliberately outside the workflow and its red lines**: its script is legal and does not
-count against the enforcement budget, whose check is scoped to `plugins/adw`. This repository is
+lines govern it. `plugins/run-report/` is an observability tool (session transcripts → Markdown
+report of how a run went), **deliberately outside the workflow and its red lines**: its script is
+legal and does not count against the enforcement budget, whose check is scoped to `plugins/adw`. This repository is
 not an application.
 
 **Status: the workflow is being rebuilt for the fourth time.** The three previous attempts live in
