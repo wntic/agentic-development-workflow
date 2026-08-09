@@ -85,7 +85,11 @@ previous attempt were made redundant by features that already existed.
 ## Language
 
 **English for everything the workflow ships or produces** — skills, commands, agents, code, commit
-messages. The dev record (`plan/`, `research/`) and dialogue follow the user's language, which is
+messages. A ruling of 2026-08-09 widens this from "ships" to the file type: **every agent, skill and
+command file is strictly English wherever it lives**, project-scoped dev tooling under `.claude/`
+included. Russian appears in such files only as data — quoted identifiers of the dev record (task-file
+section names) or output destined for it (the warden verdict form, the `НАХОДКА` draft skeleton). The
+dev record (`plan/`, `research/`) and dialogue follow the user's language, which is
 Russian. **A commit message is English whatever the commit touches**: a `plan:` commit is a message
 about the dev record, so it falls under both sentences, and the first one wins. That seam is the
 common case here, not a corner — `plan:` is most of this repository's commits (F-186, where seven

@@ -1,43 +1,44 @@
 ---
-description: Разбор завершённого прогона adw-цикла в потребительском проекте — диспатч adw-analyst по бандлу отчёта, прошедшие черновики находок → реестр plan/FINDINGS.md. Диспозиций не выносит, ничего не чинит, балла прогону не ставит.
-argument-hint: "[путь-к-бандлу | путь-к-потребителю] [change/NNN]"
+description: Debrief of one completed adw-cycle run in a consuming project — dispatches adw-analyst over the report bundle; draft findings that pass go to the plan/FINDINGS.md register. Renders no dispositions, fixes nothing, gives the run no score.
+argument-hint: "[bundle-path | consumer-repo-path] [change/NNN]"
 ---
 
-# /debrief — разбор одного прогона
+# /debrief — debrief of one run
 
-Ты — главная сессия этого репозитория. Твоя работа здесь — четыре шага и ничего сверх них:
-диспатч разборщика, проверка его черновиков, запись прошедших в реестр, доклад человеку.
-Протокол чтения прогона тебе не принадлежит — он у роли `adw-analyst` и в `plan/ORIENT.md` §5;
-здесь он не пересказывается.
+You are the main session of this repository. Your work here is four steps and nothing beyond
+them: dispatch the analyst, check its drafts, record the ones that pass into the register,
+report to the human. The protocol for reading a run does not belong to you — it lives with the
+`adw-analyst` role and in `plan/ORIENT.md` §5; it is not restated here.
 
-## Шаги
+## Steps
 
-1. **Вход.** Из `$ARGUMENTS` — путь к бандлу отчёта **или** путь к репозиторию потребителя,
-   при желании плюс `change/NNN`. Если бандла нет — сгенерируй отчёт по репозиторию потребителя
-   плагином `agent-report`; форма вызова и место бандлов — в команде самого плагина
-   (`/agent-report`), здесь они не пересказываются. Не дано ни бандла, ни потребителя —
-   спроси человека. Не угадывай.
+1. **Input.** From `$ARGUMENTS` — a path to a report bundle **or** a path to the consumer
+   repository, optionally plus `change/NNN`. If there is no bundle — generate the report over
+   the consumer repository with the `agent-report` plugin; the invocation form and where the
+   bundles live are in the plugin's own command (`/agent-report`) and are not restated here.
+   Given neither a bundle nor a consumer — ask the human. Do not guess.
 
-2. **Диспатч `adw-analyst`, один на прогон.** В промпте — путь к бандлу, путь к репозиторию
-   потребителя, тег или ветка изменения. И ничего больше: что и в каком порядке читать, роль
-   знает сама (её определение и `ORIENT` §5).
+2. **Dispatch `adw-analyst`, one per run.** In the prompt: the bundle path, the consumer
+   repository path, and the change's tag or branch. And nothing more: what to read and in what
+   order, the role knows itself (its definition and `ORIENT` §5).
 
-3. **По возвращении — твоя работа, не его.**
-   - У каждого черновика класса `ИЗМЕРЕНО` стоит команда и её вывод; чей прогон дёшев —
-     перепроверь прогоном, а не на веру.
-   - Дедуп с реестром по заголовкам: `rtk proxy grep '^## F-' plan/FINDINGS.md`.
-   - Прошедшие пиши в конец `plan/FINDINGS.md` домовым форматом из его шапки, со строками
-     `Найдено: разбор прогона <NNN> в <потребитель>, adw-analyst` и
+3. **On return — your work, not its.**
+   - Every draft of class `ИЗМЕРЕНО` carries a command and its output; where the run is cheap,
+     re-verify by running it, not on trust.
+   - Deduplicate against the register by headers: `rtk proxy grep '^## F-' plan/FINDINGS.md`.
+   - Write the ones that pass to the end of `plan/FINDINGS.md` in the house format from its
+     header, with the lines
+     `Найдено: разбор прогона <NNN> в <потребитель>, adw-analyst` and
      `Решение отложено до: человек`.
-   - Диспозиций не пиши — их даёт только человек, ожидаемо через `/interview`.
+   - Write no dispositions — only the human gives those, expectedly via `/interview`.
 
-4. **Доклад человеку.** Сколько черновиков записано; какие отброшены и почему (дубликат,
-   не воспроизвёлся, не про этот репозиторий); следующий шаг — `/interview`.
+4. **Report to the human.** How many drafts were recorded; which were discarded and why
+   (a duplicate, did not reproduce, not about this repository); the next step — `/interview`.
 
-## Границы
+## Boundaries
 
-- Правок вне `plan/FINDINGS.md` нет — ни в этом репозитории, ни в потребителе.
-- Ничего не чинится: найденное — запись в реестр, не правка.
-- `plan/INDEX.md` не трогается.
-- Балльной оценки прогона не существует — выход разбора это черновики находок и
-  воспроизводимые факты, не оценка.
+- No edits outside `plan/FINDINGS.md` — neither in this repository nor in the consumer.
+- Nothing gets fixed: a discovery is a register entry, not an edit.
+- `plan/INDEX.md` is not touched.
+- A run score does not exist — the debrief's output is draft findings and reproducible facts,
+  not a grade.
