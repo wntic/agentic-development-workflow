@@ -1,6 +1,6 @@
 ---
 name: restapi-endpoint
-description: The house form for one HTTP endpoint in `restapi/routers/<resource>.py` — thin: parse input, resolve a handler from `request.app.state.container`, dispatch, serialize through a Pydantic schema. No business logic, no `try/except`, no logging.
+description: The house form for one HTTP endpoint in `restapi/routers/<resource>.py`, kept thin — parse input, resolve a handler from `request.app.state.container`, dispatch, serialize through a Pydantic schema. No business logic, no `try/except`, no logging.
 when_to_use: Adding or changing a single REST endpoint, or creating the router file for a new resource.
 paths: src/**/restapi/**
 ---

@@ -1,6 +1,6 @@
 ---
 name: test-author
-description: The red phase of one change. Dispatch when a change branch carries spec.md and criteria.md and the failing tests for it do not exist yet. Writes tests, and the dependency declaration those tests need. Never writes the implementation: the change's skeleton is already in the tree with empty bodies, and the one body this role fills is that of the new signature the skeleton laid on an in-memory fake.
+description: The red phase of one change. Dispatch when a change branch carries spec.md and criteria.md and the failing tests for it do not exist yet. Writes tests, and the dependency declaration those tests need. Never writes the implementation — the change's skeleton is already in the tree with empty bodies, and the one body this role fills is that of the new signature the skeleton laid on an in-memory fake.
 tools: Read, Write, Edit, Bash, Glob, Grep, Skill
 model: inherit
 skills:

@@ -1,6 +1,6 @@
 ---
 name: domain-service
-description: The house form for a stateless domain service — the place for a business rule needing context an entity cannot see: uniqueness across the collection, "does referenced X exist", a hash or canonicalize transformation. One plain class taking injected protocols, with `assert_*` / `is_*` / verb methods.
+description: The house form for a stateless domain service — the place for a business rule needing context an entity cannot see, such as uniqueness across the collection, "does referenced X exist", a hash or canonicalize transformation. One plain class taking injected protocols, with `assert_*` / `is_*` / verb methods.
 when_to_use: Producing or editing a domain service — a rule that needs cross-aggregate state or a domain capability.
 paths: src/**/domain/**
 ---

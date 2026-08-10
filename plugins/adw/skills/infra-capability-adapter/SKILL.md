@@ -1,7 +1,7 @@
 ---
 name: infra-capability-adapter
 description: The house form for a capability adapter — the `ICan<Verb>` implementation wrapping an SDK (boto3, httpx, PyJWT, openai, python-docx), grouped under `infrastructure/<tech>/` and translating SDK exceptions into domain exceptions at the boundary.
-when_to_use: Producing or editing the infrastructure adapter that satisfies a domain capability protocol: object storage, a token verifier, a renderer, a third-party gateway.
+when_to_use: Producing or editing the infrastructure adapter that satisfies a domain capability protocol — object storage, a token verifier, a renderer, a third-party gateway.
 paths: src/**/infrastructure/**
 ---
 

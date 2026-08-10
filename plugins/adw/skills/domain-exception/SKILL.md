@@ -1,6 +1,6 @@
 ---
 name: domain-exception
-description: The house form for the project's single error catalog, `domain/exceptions.py` — a `DomainError` root carrying `code: str` + `http_status: int` and a `(message, context=None)` constructor every subclass inherits unchanged, plus one bare subclass per named error.
+description: The house form for the project's single error catalog, `domain/exceptions.py` — a `DomainError` root carrying a `str` code and an `int` http_status, plus a `(message, context=None)` constructor every subclass inherits unchanged, plus one bare subclass per named error.
 when_to_use: Adding a new domain error class, or laying the exceptions catalog for the first time.
 paths: src/**/domain/**
 ---

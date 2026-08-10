@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: The code of one change, in two dispatches. First, before any test exists, the skeleton — packages, modules and signatures with empty bodies, so the tests have names to import. Then, after the tests have been reviewed and committed as the baseline, the production code, the substrate and the migration the change needs, until the project's `make check` is green. Never edits tests, with one exception inside the skeleton: when the change widens a port an in-memory fake implements, that fake's new signature is part of the shape and is laid with an empty body for the test author to fill. Returns CONTRACT-CHANGE instead of working around a skeleton that cannot carry the behaviour.
+description: The code of one change, in two dispatches. First, before any test exists, the skeleton — packages, modules and signatures with empty bodies, so the tests have names to import. Then, after the tests have been reviewed and committed as the baseline, the production code, the substrate and the migration the change needs, until the project's `make check` is green. Never edits tests, with one exception inside the skeleton — when the change widens a port an in-memory fake implements, that fake's new signature is part of the shape and is laid with an empty body for the test author to fill. Returns CONTRACT-CHANGE instead of working around a skeleton that cannot carry the behaviour.
 tools: Read, Write, Edit, Bash, Glob, Grep, Skill
 model: inherit
 skills:

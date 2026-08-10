@@ -1,6 +1,6 @@
 ---
 name: patterns
-description: The two cross-layer patterns a command handler may need — the compensating transaction (catch → undo → re-raise, the only sanctioned `try/except` in `application/`) and the unit of work (one atomic commit across two or more repositories, as an `IUnitOfWork` protocol plus its SQLAlchemy implementation). They nest: compensation outside, unit of work inside.
+description: The two cross-layer patterns a command handler may need — the compensating transaction (catch → undo → re-raise, the only sanctioned `try/except` in `application/`) and the unit of work (one atomic commit across two or more repositories, as an `IUnitOfWork` protocol plus its SQLAlchemy implementation). They nest — compensation outside, unit of work inside.
 when_to_use: A command must undo an external side effect when a later step fails, or must persist changes across two or more repositories atomically.
 ---
 
