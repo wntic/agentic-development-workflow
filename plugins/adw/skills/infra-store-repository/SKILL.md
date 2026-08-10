@@ -223,7 +223,7 @@ class FooRepository:
 12. **Vendor semantics come from the SDK, not from this skill.** Query API, filter DSL, batching, consistency options — read them from the SDK's own documentation. A **new vendor is a store-profile row plus its package — never a fork of this skill** (the same way `infra-capability-adapter` serves boto3, httpx, PyJWT, and openai with one skill).
 13. **No provisioning.** The repository never creates collections, indexes, buckets, or schemas — provisioning is a deployment/bootstrap concern.
 14. **Ordering is explicit.** A `list`/`search` that promises an order must produce it deliberately (the store's score order, an explicit sort key) — never rely on insertion accident.
-15. **No logging, no retries, no caching, no domain reasoning.** Same thinness contract as every adapter (see `infra-capability-adapter` rules 13–15).
+15. **No logging, no retries, no caching, no domain reasoning.** Same thinness contract as every adapter (see `infra-capability-adapter`'s adapters-are-thin rules).
 
 ## Inlined typing / import rules
 

@@ -96,7 +96,7 @@ Do **not** introduce alternates (`Dto`, `Schema`, `In`, `Out`). The five names a
 
 ### `*ListResponse`
 
-7. **`*ListResponse` carries the resource's pagination shape — whichever one its filter record uses** (`domain-model`, filter-record rule 5 picks exactly one), never a third:
+7. **`*ListResponse` carries the resource's pagination shape — whichever one its filter record uses** (`domain-model`'s one-pagination-shape rule for filter records picks exactly one), never a third:
    - **offset paging** → `items: Sequence[<Resource>Response]`, `total: int`, `limit: int`, `offset: int`.
    - **cursor paging** → `items: Sequence[<Resource>Response]`, `next_cursor: str | None`, `limit: int`.
    The route `restapi-endpoint` builds constructs whichever shape the filter uses, so the schema must match it (see `restapi-endpoint`'s cursor-list note). Don't mix the two.
