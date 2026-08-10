@@ -326,8 +326,10 @@ years, so no justified break and no floor). Symmetry lives in the *rule*, not in
 The commands that define "green" belong to the project, not to this skill. What lives here is the
 configuration those commands read, because it is house style and has no other home.
 
-- **Lint and type-check cover both trees at parity** — `src` *and* `tests` — so a defect never hides in
-  whichever surface the other skips. What keeps `tests` green is the test skills' rule that every
+- **Lint and type-check hold `src` and `tests` at parity** — so a defect never hides in whichever
+  surface the other skips — **and lint reaches one directory further than the type checker**: `ruff`
+  runs with no paths and so covers `migrations/` as well, while `mypy src tests` stops at the edge of
+  the two directories it names. What keeps `tests` green is the test skills' rule that every
   fixture and helper is fully annotated: a fixture consuming the app types it `real_app: FastAPI`, a
   yielding fixture annotates `-> AsyncIterator[T]`, a parametrize hook takes `metafunc: pytest.Metafunc`.
 - **ruff lint config**: `[tool.ruff.lint]` `select = ["E", "F", "I", "B006", "B904"]`, plus

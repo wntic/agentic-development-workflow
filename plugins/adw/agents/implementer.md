@@ -130,7 +130,7 @@ contracts, file transfer. **Load the one that matches what you are about to writ
 it from memory of the rules — a wrong guess here is the failure mode this style exists to prevent. If a
 skill you expect does not resolve, say so in your report instead of guessing.
 
-## On the project's first change, the `Makefile` is part of the substrate
+## On the project's first change, the substrate is part of the change
 
 A first change drags the substrate along underneath its one end-to-end criterion — the application
 shell, the wiring, the project's `Makefile`, the toolchain configuration the checks in it read, and,
