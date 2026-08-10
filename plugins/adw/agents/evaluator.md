@@ -41,6 +41,15 @@ something other than you expected is not a mismatch to report: the names belong 
 **1. Run `make check`.** The project's `Makefile` defines it, and it is the whole definition of green.
 Report the result, and when it is red, which of its commands failed with the first real error.
 
+And when the change's diff touched **both** a `Table` and an Alembic revision, run `uv run alembic check`
+yourself, against a migrated database, and put its answer in the verdict — `No new upgrade operations
+detected` when the two sides agree, the autogenerate diff it prints when they have drifted. Read the diff
+first: a change that left the migrations alone does not run it, and the verdict says nothing about it. It
+is not part of the definition above — that target stays the whole of it — and it is run beside it because
+nothing inside that target sees the drift. Measured: on a suite of 73 tests, a `Table` whose range bound
+read `'[)'` against a migration that read `'[]'` gave 73 passed; lint, types and the suite are all green
+straight through the divergence.
+
 **2. See which marked tests actually passed.** Run the test suite filtered to the `ac` marker — the
 command lives in the project's own toolchain config — and read the list. A criterion is proven by a
 marked test that *ran and passed*, not by a test that exists.
@@ -124,6 +133,7 @@ that way once already.
 VERDICT: PASS | FAIL
 VERDICT FILE: <path written>
 MAKE CHECK: green | red — <command, first real error verbatim>
+ALEMBIC CHECK: <its answer verbatim> | not applicable — the diff touched no `Table`+revision pair
 MARKED TESTS: <how many ran, how many passed> — <the ones that failed>
 CRITERIA: AC-n — PASS | FAIL | MANUAL · <test id | live run | who accepted and why>
           …
