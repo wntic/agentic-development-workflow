@@ -156,12 +156,14 @@ auth-less app has no `UnauthorizedError` class, so a stray `401` raises `ValueEr
 
 **Advertise `422` on every route carrying ANY validated input** — a path param, query, filter or
 pagination params, or a body. FastAPI auto-injects a `422` request-validation response into the OpenAPI
-for *every* such operation, and the `test_openapi_advertises_error_codes` invariant
-(`test-discovery-invariants`) requires the decorator to match the spec **exactly**, so a route that omits
-`422` while carrying a param fails with an *extra* `422` in the spec. That is why Read-by-id and Delete
-carry `422` despite having no body: the `{id}` path param alone produces it. Only a parameterless,
-body-less route — an authenticated `GET /me` — omits it. The trap is reading `422` as "body validation";
-it is *any-input* validation.
+for *every* such operation, so declaring it keeps the published document **honest**: a client reading the
+schema sees the same failure set whether it comes from the decorator or from the framework, and nobody has
+to know which half put it there. Do not expect a test to catch a miss — the
+`test_openapi_advertises_error_codes` invariant (`test-discovery-invariants`) exempts exactly this code,
+because the framework inserts it where the decorator cannot see it. The rule stands on the document
+telling the truth, not on a red run. That is why Read-by-id and Delete carry `422` despite having no body:
+the `{id}` path param alone produces it. Only a parameterless, body-less route — an authenticated
+`GET /me` — omits it. The trap is reading `422` as "body validation"; it is *any-input* validation.
 
 **List a code only if the route can actually produce it.** No `401` on a public route or in an auth-less
 app, no `403` on a route that is not role-gated, no `409` on a read.
