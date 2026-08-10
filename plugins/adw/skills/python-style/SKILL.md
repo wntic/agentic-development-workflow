@@ -1,7 +1,7 @@
 ---
 name: python-style
 description: Cross-cutting Python style for every layer — typing conventions (`X | None`, immutable collections in the domain, `Any` only at raw boundaries, the project-wide ban on `from __future__ import annotations`), logging (the `structlog` setup, what each layer may log, success-only events in `application/`, and never log-and-re-raise), and comments (default to none; a warranted one is a single short line of non-obvious *why*, and the one wider form is a section banner over a group of tests).
-when_to_use: Deciding an annotation form, a collection type, or how and where to log. Consulted alongside the skill that owns the artifact, not instead of it.
+when_to_use: Deciding an annotation form, a collection type, how and where to log, or whether a comment is warranted here and in what form. Consulted alongside the skill that owns the artifact, not instead of it.
 ---
 
 # Python Style
