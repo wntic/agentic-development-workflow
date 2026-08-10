@@ -495,8 +495,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("name"),
-        # A check constraint's `name` is the SUFFIX: `env.py` hands Alembic the shared metadata, whose
-        # convention prepends `ck_foos_`. The full name written here would come out doubled.
+        # A check constraint's `name` is the SUFFIX: the metadata convention prepends `ck_foos_`; a full name doubles.
         sa.CheckConstraint("char_length(name) > 0", name="name_non_empty"),
     )
     op.create_index("ix_foos_bar_id", "foos", ["bar_id"])
