@@ -20,8 +20,8 @@ its home, and it has no second copy.
    the batch size is theirs to set.
 
 2. **One entry at a time, pointwise.** Find the header by grepping `^## <entry name>` in its
-   source file, read **only that body** — `plan/findings/legacy.md` in particular is never read
-   whole (`ORIENT` §5). Present to the human:
+   source file, read **only that body** — a finding file is never read whole (`ORIENT` §5).
+   Present to the human:
    - the substance in two or three sentences, the class (`ИЗМЕРЕНО` / `ПРЕДСТАВИМО`) and what
      breaks;
    - **2–4 options, each with its cost**: an edit and its size, "did not happen" with the signal
@@ -59,6 +59,6 @@ its home, and it has no second copy.
 ## Boundaries
 
 - The command never chooses for the human — not one fork resolved without their answer.
-- Entry bodies are read pointwise; `plan/findings/legacy.md` is never read whole.
-- Earlier disposition forms in `plan/findings/legacy.md` are never rewritten retroactively.
+- Entry bodies are read pointwise; a finding file is never read whole.
+- Earlier disposition forms in a source's finding file are never rewritten retroactively.
 - The open set is read from the tree — `ls plan/findings/` — never counted by a standing command.

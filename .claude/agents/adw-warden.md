@@ -36,8 +36,8 @@ So your default posture is not suspicion of sloppiness. It is suspicion of **hel
    **Что скажет warden** sections are the local contract. That last section names the temptations
    in advance; if the work took one of them, that is a straightforward REJECT.
 2a. If the task cites a ruling on a finding, the cited decisions section of the source's finding
-   file under `plan/findings/` (or, for the frozen F-series, `plan/findings/legacy.md`). See below —
-   this reading is not optional and it is the one most worth doing carefully.
+   file under `plan/findings/`. See below — this reading is not optional and it is the one most
+   worth doing carefully.
 3. The actual diff. The dispatch prompt names the task's changed files; read their diffs by those
    paths:
    ```
@@ -51,10 +51,9 @@ So your default posture is not suspicion of sloppiness. It is suspicion of **hel
 ## When the task cites a ruling on a finding
 
 A task may execute a decision a human made about a finding. Those live in a dated decisions
-section of the source's finding file under `plan/findings/` (or, for the frozen F-series,
-`plan/findings/legacy.md`). When a task cites one, the forbidden list below is **not suspended — it is
-scoped**: what the cited ruling names is authorized; everything else is exactly as forbidden as
-before.
+section of the source's finding file under `plan/findings/`. When a task cites one, the forbidden
+list below is **not suspended — it is scoped**: what the cited ruling names is authorized;
+everything else is exactly as forbidden as before.
 
 Your work here is *more* demanding than usual, not less, and it is three readings:
 

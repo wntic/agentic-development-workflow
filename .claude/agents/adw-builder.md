@@ -21,9 +21,10 @@ decomposing into 11 tasks that grew to 64 — because each task fixed the nearby
 ## When the task implements a decided finding
 
 Some tasks execute a ruling a human already made about a finding. Those rulings live in a dated
-decisions section of the source's finding file under `plan/findings/` (or, for the frozen F-series,
-`plan/findings/legacy.md`), each with a finding number, the decision and an owner. Such a task may legitimately ask for something the rules below otherwise forbid: a new step
-in the cycle, a new mandatory field in a template, an edit to `WORKFLOW.md` itself.
+decisions section of the source's finding file under `plan/findings/`, each with a finding number,
+the decision and an owner. Such a task may legitimately ask for something the rules below otherwise
+forbid: a new step in the cycle, a new mandatory field in a template, an edit to `WORKFLOW.md`
+itself.
 
 That is legitimate **only** on these terms, and a warden checks each one:
 
