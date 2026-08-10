@@ -81,6 +81,10 @@ right and the wrong version (status checked but body ignored, a call counted but
 truthiness check where the value matters) are named here even when the suite is red for the right
 reasons today.
 
+Here the wrong version is named and reasoned about rather than built: at this phase no implementation
+exists, so there is nothing to mutate — where one does exist, the same question is answered by
+applying the mutation, running the suite and reverting it, and that difference in form is deliberate.
+
 ## The separate check: no implementation before the baseline
 
 One thing is checked here, and it is not a list of permitted paths: **before the baseline, this
