@@ -1623,3 +1623,166 @@ marketplace remove postmkt`); оба реестра сверены `diff`-ом �
 `known_marketplaces.json` без установки); (в) вторая граница раздела 2026-08-05 — новый каталог
 скилла на **directory-пути** — не закрыта: прогон А шёл через `--plugin-dir`, а не через
 directory-маркетплейс (эксперимент: прогон А поверх стенда прогона Б после честной установки).
+
+---
+
+## Пол версии FastAPI для `iter_route_contexts`: граница `0.137.1` → `0.137.2`, и отказ на старой версии — громкий
+
+**Дата: 2026-08-10. `claude --version` → `2.1.226 (Claude Code)`.** Замер про **субстрат**, не про
+Claude Code; версия платформы названа по правилу файла.
+
+Стенд — одноразовый venv в scratchpad-каталоге сессии: `uv venv --python 3.12` (`uv 0.11.6`,
+CPython **3.12.13**), FastAPI переставлялся `uv pip install 'fastapi==<версия>'`. В дерево
+репозитория и в окружения проб не попало ничего. Ниже путь scratchpad сокращён до `<scratch>`,
+остальное — дословный вывод.
+
+Оба шаблона скилла `test-discovery-invariants` открываются строкой
+`from fastapi.routing import APIRoute, RouteContext, iter_route_contexts`. Мерялись две разные вещи:
+на какой версии эта строка перестаёт работать и **что при этом делает прогон**.
+
+### Граница версии
+
+```
+$ .venv/bin/python -c "import fastapi; print('fastapi', fastapi.__version__); \
+    from fastapi.routing import APIRoute, RouteContext, iter_route_contexts; print('import OK')"
+fastapi 0.140.13
+import OK
+
+fastapi 0.138.0
+import OK
+
+fastapi 0.137.2
+import OK
+```
+
+```
+$ .venv/bin/python -c "import fastapi; print('fastapi', fastapi.__version__); \
+    from fastapi.routing import APIRoute, RouteContext, iter_route_contexts; print('import OK')"
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+ImportError: cannot import name 'RouteContext' from 'fastapi.routing' (<scratch>/.venv/lib/python3.12/site-packages/fastapi/routing.py)
+fastapi 0.137.1
+```
+
+Имена проверены и по одному, на той же `0.137.1` — отсутствуют оба:
+
+```
+$ .venv/bin/python -c "from fastapi.routing import iter_route_contexts; print('iter_route_contexts OK')"
+ImportError: cannot import name 'iter_route_contexts' from 'fastapi.routing' (<scratch>/.venv/lib/python3.12/site-packages/fastapi/routing.py)
+$ .venv/bin/python -c "from fastapi.routing import RouteContext; print('RouteContext OK')"
+ImportError: cannot import name 'RouteContext' from 'fastapi.routing' (<scratch>/.venv/lib/python3.12/site-packages/fastapi/routing.py)
+```
+
+Ниже — то же самое, то есть `0.137.1` именно граница, а не дырка:
+
+```
+$ .venv/bin/python -c "from fastapi.routing import iter_route_contexts"   # fastapi 0.136.3
+ImportError: cannot import name 'iter_route_contexts' from 'fastapi.routing' (<scratch>/.venv/lib/python3.12/site-packages/fastapi/routing.py)
+```
+
+**Вывод: ЗАМЕРЕНО.** Последняя падающая версия — **`0.137.1`**, первая рабочая — **`0.137.2`**.
+Проверены `0.136.3`, `0.137.1`, `0.137.2`, `0.138.0`, `0.140.13`. Побочное, полезное при чтении
+чужой трассы: сообщение об ошибке называет **`RouteContext`**, а не `iter_route_contexts`, — Python
+докладывает первое отсутствующее имя в порядке списка импорта, — так что грепом по
+`iter_route_contexts` эту трассу не найти.
+
+### Как падает прогон
+
+Стенд сделан разделяющим намеренно: одного файла инварианта мало — прогон из него одного покраснел
+бы при любом исходе спора. Поэтому в сьюте **два** файла: `tests/unit/test_healthy_neighbour.py` с
+обычным зелёным тестом и `tests/integration/api/test_unauth_returns_401.py` в шаблонной форме (тот
+самый импорт, обход `iter_route_contexts`, непустая проверка и параметризация от неё). Тишина
+выглядела бы как `1 passed` и код возврата `0`.
+
+Контроль, `fastapi 0.137.2`, `pytest 8.4.2`:
+
+```
+$ ../.venv/bin/python -m pytest -p no:cacheprovider ; echo "EXIT CODE = $?"
+tests/integration/api/test_unauth_returns_401.py ..                      [ 66%]
+tests/unit/test_healthy_neighbour.py .                                   [100%]
+
+============================== 3 passed in 0.09s ===============================
+EXIT CODE = 0
+```
+
+Тот же стенд, `fastapi 0.137.1`:
+
+```
+$ ../.venv/bin/python -m pytest -p no:cacheprovider ; echo "EXIT CODE = $?"
+============================= test session starts ==============================
+platform darwin -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0
+collected 1 item / 1 error
+
+==================================== ERRORS ====================================
+______ ERROR collecting tests/integration/api/test_unauth_returns_401.py _______
+ImportError while importing test module '<scratch>/stand/tests/integration/api/test_unauth_returns_401.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+tests/integration/api/test_unauth_returns_401.py:3: in <module>
+    from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
+E   ImportError: cannot import name 'RouteContext' from 'fastapi.routing' (<scratch>/.venv/lib/python3.12/site-packages/fastapi/routing.py)
+=========================== short test summary info ============================
+ERROR tests/integration/api/test_unauth_returns_401.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+=============================== 1 error in 0.11s ===============================
+EXIT CODE = 2
+```
+
+**Вывод: ЗАМЕРЕНО.** Отказ **громкий**, и громче, чем «файл покраснел»: ошибка сбора обрывает
+**весь** прогон — `Interrupted: 1 error during collection`, код возврата **2**, и соседний зелёный
+тест не выполнился вовсе (`collected 1 item / 1 error`, ни одной строки результата). Версия, где
+этого API ещё нет, не даёт файлу инварианта тихо исчезнуть из прогона: исчезает не файл, а прогон
+целиком, и зелёного никто не увидит. Из двух записей реестра, споривших об этом, подтвердилась та,
+что говорила «громкий, лечения не просит»; предположение о тихом выпадении файла — **опровергнуто
+замером**.
+
+### Зависимость от флагов и от версии `pytest`
+
+Названа отдельно, потому что кандидат на «приглушение» ровно один — `--continue-on-collection-errors`.
+Он меняет форму отказа, но не его громкость:
+
+```
+$ ../.venv/bin/python -m pytest -p no:cacheprovider --continue-on-collection-errors ; echo "EXIT CODE = $?"
+=========================== short test summary info ============================
+ERROR tests/integration/api/test_unauth_returns_401.py
+========================== 1 passed, 1 error in 0.08s ==========================
+EXIT CODE = 1
+```
+
+То есть под флагом соседний тест уже выполняется, но `ERROR` в сводке остаётся и код возврата
+**ненулевой**. Терсная форма `-q` без флага — тоже `EXIT CODE = 2` и та же строка `Interrupted`.
+
+Обе формы перемеряны на `pytest 9.1.1` — версии, которую держит `uv.lock` пробы `adw-rooms`
+(`grep -n -A2 'name = "pytest"' ~/Projects/adw-rooms/uv.lock` → `version = "9.1.1"`; файл только
+читался): без флага `EXIT CODE = 2` и `Interrupted: 1 error during collection`, с флагом
+`EXIT CODE = 1` и `1 passed, 1 error`. Различий между `8.4.2` и `9.1.1` не наблюдалось.
+
+### Годится ли найденный пол под исключение субстрата
+
+`conventions/SKILL.md:310–316` держит единственное исключение из запрета версий — пол на SDK
+адаптера, когда он отмечает **known breaking-version boundary**, «an API the code relies on landed
+or changed there», и запрещает писать пол по памяти о недавней версии. Наблюдённое:
+
+- граница **измерена**, а не вспомнена: API появилось между `0.137.1` и `0.137.2`, обе версии
+  поставлены и проверены. Это ровно тот сорт факта, которого исключение требует, — контрактный, а
+  не «свежая на вид версия»;
+- форма, которую исключение просит («expressed as the major»), к найденной границе не применяется:
+  у FastAPI мажора нет, вся линейка `0.x`, а граница пришлась на **патч** — `0.137.2`. Пол вида
+  `fastapi>=0` смысла не несёт, а `fastapi>=0.137.2` буквой правила про мажор не является.
+
+Иначе говоря: под содержательную половину исключения случай подходит, под форму записи — нет, и
+разрешение этого расхождения — решение человека. **Пол в субстрат этим замером не вписан**, и
+задача его не заказывала: замер даёт основание, а не правку.
+
+### НЕ ПРОВЕРЕНО
+
+- **Форма отказа при импорте не в тесте, а в коде приложения.** Мерился только тестовый файл
+  шаблона. Как выглядит тот же `ImportError`, если старую FastAPI получает импорт внутри
+  `restapi/`, — не наблюдалось (эксперимент: тот же venv, `uv run python -c "import myapp.restapi"`
+  на приложении пробы).
+- **Поведение при `ImportError` внутри `conftest.py`.** Стенд клал импорт в тестовый модуль;
+  ошибка сбора в `conftest` — другой путь pytest и, возможно, другой код возврата (эксперимент: тот
+  же стенд, строка импорта перенесена в `tests/integration/api/conftest.py`).
+- **Есть ли между `0.137.2` и `0.140.13` версия, где имена снова пропадают.** Проверены четыре
+  точки, не весь ряд; наблюдалась монотонность на них, а не на всех (эксперимент: перебор всех
+  версий диапазона в том же venv).
