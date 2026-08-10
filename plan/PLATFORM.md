@@ -1,8 +1,8 @@
 # PLATFORM.md — замеренные свойства платформы
 
-**Версия: `claude --version` → `2.1.220 (Claude Code)`. macOS Darwin 25.3.0.**
+**Машина: macOS Darwin 25.3.0.**
 Факт о платформе без версии — факт с неизвестным сроком годности. При смене минора перепроверять.
-Даты у файла нет: её несёт каждый раздел отдельно.
+Даты у файла нет — и версии тоже: их несёт каждый раздел отдельно, версию так же, как дату.
 
 Три пометки, других нет:
 
@@ -441,32 +441,31 @@ COUNT=9
 
 ## Побочное, что попало в замер (пригодится B02/B05/B07)
 
-**Дата: 2026-07-29.**
+**Дата и класс — у каждого пункта свои.**
 
-Всё ниже — ЗАМЕРЕНО в тех же прогонах.
-
-1. **Инструмент диспатча в потоке называется `Agent`**, не `Task`; при этом `--tools "Task"`
-   принимается как имя. Аргумент — `subagent_type`.
-2. **Плагинный агент адресуется `plugin:name`.** Родитель вызывал `subagent_type:
-   "probeplug:canary-ns"`; проектный агент — короткое `alpha`. Список доступных типов отдаётся
-   в ошибке: `Agent type 'gamma' not found. Available agents: alpha, claude, Explore,
+1. ЗАМЕРЕНО, 2026-07-29. **Инструмент диспатча в потоке называется `Agent`**, не `Task`; при этом
+   `--tools "Task"` принимается как имя. Аргумент — `subagent_type`.
+2. ЗАМЕРЕНО, 2026-07-29. **Плагинный агент адресуется `plugin:name`.** Родитель вызывал
+   `subagent_type: "probeplug:canary-ns"`; проектный агент — короткое `alpha`. Список доступных
+   типов отдаётся в ошибке: `Agent type 'gamma' not found. Available agents: alpha, claude, Explore,
    general-purpose, Plan, probeplug2:pdelta, statusline-setup`.
-3. **Ноль разрешившихся инструментов = отказ запуска, а не тихий пустой агент.** При
-   `--tools "Task"` у сессии агент с `tools: Read, Bash, Glob, Grep` не стартовал, родителю пришло:
+3. ЗАМЕРЕНО, 2026-07-29. **Ноль разрешившихся инструментов = отказ запуска, а не тихий пустой
+   агент.** При `--tools "Task"` у сессии агент с `tools: Read, Bash, Glob, Grep` не стартовал,
+   родителю пришло:
    `Agent 'probeplug:nowrite' would be spawned with zero tools — refusing. Its tools list resolved
    to nothing: unrecognized [Read, Bash, Glob, Grep]. Fix the agent's tools frontmatter or pass a
    different subagent_type.` Это `tool_result`, а не пересказ модели. Следствие: набор `tools:`
    агента **пересекается** с набором, доступным сессии.
-4. **Инструмент `Skill` в рантайме берёт префиксную форму.** Агент с `tools: Glob, Skill` вызвал
-   `Skill {"skill":"probeplug:canary-skill","args":"…"}` → `Launching skill: probeplug:canary-skill`
-   и получил тело скилла.
-5. **Без `Skill` в `tools:` рантайм-инвокации нет.** Агент с `tools: Glob` на прямое требование
-   позвать скилл ответил: `NO-SKILL-TOOL` и «Tools offered (verbatim): - `Glob`».
-6. **Предзагрузка `skills:` даёт только `SKILL.md`** (см. вопрос 1, ответ `ROUTER-ONLY`).
-   Цена: `subagent_tokens` 6810 против 1996 у контроля на одном `adw:testing-unit`, то есть
-   ≈4,8 тыс. токенов на тему.
-7. **Запись вне cwd блокируется отдельно от `tools:`** (см. вопрос 2). Для `isolation: worktree`
-   это стоит держать в голове, но **НЕ ПРОВЕРЕНО** — `isolation` не замерялся.
+4. ЗАМЕРЕНО, 2026-07-29. **Инструмент `Skill` в рантайме берёт префиксную форму.** Агент с
+   `tools: Glob, Skill` вызвал `Skill {"skill":"probeplug:canary-skill","args":"…"}` →
+   `Launching skill: probeplug:canary-skill` и получил тело скилла.
+5. ЗАМЕРЕНО, 2026-07-29. **Без `Skill` в `tools:` рантайм-инвокации нет.** Агент с `tools: Glob` на
+   прямое требование позвать скилл ответил: `NO-SKILL-TOOL` и «Tools offered (verbatim): - `Glob`».
+6. ЗАМЕРЕНО, 2026-07-29. **Предзагрузка `skills:` даёт только `SKILL.md`** (см. вопрос 1, ответ
+   `ROUTER-ONLY`). Цена: `subagent_tokens` 6810 против 1996 у контроля на одном `adw:testing-unit`,
+   то есть ≈4,8 тыс. токенов на тему.
+7. ЗАМЕРЕНО, 2026-07-29. **Запись вне cwd блокируется отдельно от `tools:`** (см. вопрос 2). Для
+   `isolation: worktree` это стоит держать в голове, но **НЕ ПРОВЕРЕНО** — `isolation` не замерялся.
 8. **ИЗ ДОКОВ, не проверено, но упирается прямо в B02:** «You can't preload skills that set
    `disable-model-invocation: true`, since preloading draws from the same set of skills Claude can
    invoke.» Ни один скилл в `plugins/adw/skills/` этого поля сейчас не ставит (`grep` по каталогу —
