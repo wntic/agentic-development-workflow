@@ -309,7 +309,13 @@ These hold for all four shapes; the full rules are `python-style`.
 ## Package wiring
 
 After writing the module, follow `architecture` to add the subpackage `__init__.py` re-export
-line and append to its `__all__`.
+line and append to its `__all__`. That is the rule for a module whose public name is a class — an
+entity, a value object, an enum, a filter record.
+
+The module-level predicate function above is not one of those, and the general rule does not reach
+it. Its public name is a function, so it falls under the `architecture` carve-out that wildcards
+only class modules: it is **not** re-exported into the package `__init__`, it does not grow that
+`__all__`, and whoever needs it reaches it by an explicit relative import.
 
 ## Hard stops
 
