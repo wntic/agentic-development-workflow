@@ -9,9 +9,23 @@
      tests/` from it — the one defence against tests bent until the code passed — and a diff taken
      from the wrong commit is empty and looks reassuring. -->
 
+<!-- `Workflow tree` pins the other half of the run: the workflow is read from its own working tree,
+     not from a frozen copy, so the agents, commands and skills behind this run are whatever that tree
+     held at the time — and it has been edited while runs were in flight. A defect later attributed to
+     this run ("measured on change NNN") is only checkable if the workflow it ran under can be named,
+     and this line is the only place that names it. Full SHA, same reason as above. -->
+
 Baseline: <full git SHA of the commit holding the tests, before any implementation>
 Commit: <git SHA the run was made against>
+Workflow tree: <full git SHA of the workflow repository the plugin was read from during this run>
 `make check`: <green | red — and which of the four commands failed, with the first real error>
+
+<!-- `alembic check` runs beside `make check` and is no part of it: nothing inside that target sees a
+     `Table` drifting from the migration that creates it, and a suite stays green straight through the
+     divergence. It is run only when this change's diff touched both a `Table` and an Alembic revision;
+     a change that left the migrations alone writes `not applicable` and the line stops there. -->
+
+`alembic check`: <its answer verbatim | not applicable — the diff touched no `Table`+revision pair>
 
 ## Criteria
 
