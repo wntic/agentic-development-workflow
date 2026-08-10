@@ -27,12 +27,30 @@ empty meaning both; each plugin's version lives in its own
    of criteria; do not invent any of your own. The version moves by the **strongest** class found
    in the accumulated diff; edits that touch only the dev record do not count toward the bump.
 
-4. **Propose to the human.** Current version → proposed version, with the justification laid out
+4. **Run the platform's manifest check.** `claude plugin validate plugins/<name>`, and carry its
+   verdict to the human alongside the proposal. It exists here because it is the **only** check of
+   the manifest the platform gives us, and publication is the one moment the manifest goes out.
+   Two things about reading it:
+
+   - **Read the exit code, not the printed number.** `0` comes with `✔ Validation passed`, `1` with
+     a failure. The validator prints `✘ Found 1 error:` **per file** and its tail says only
+     `✘ Validation failed`, so seven broken files look like one to anyone reading the tail
+     (measured 2026-08-10, on a copy of the tree with the seven files still red). For a count,
+     count the error lines instead: `claude plugin validate plugins/<name> | grep -c '✘ Found'`.
+   - **Its runtime claim is stricter than the fact.** On a frontmatter it cannot parse it says the
+     file loads at runtime with all metadata silently dropped; the runtime was measured to parse
+     more loosely than that (F-263). So red means "this manifest would not survive strict YAML",
+     not "this is broken today".
+
+   Red does not forbid publishing. It goes on the table with everything else and the human decides,
+   the same as every other line this command produces.
+
+5. **Propose to the human.** Current version → proposed version, with the justification laid out
    per diff line and the class of each. `AskUserQuestion` is fine here. The human may override any
    single classification and the overall result; their answer is what gets executed, not yours.
    Without their decision nothing moves.
 
-5. **On their decision.** Edit `version` in the plugin's `plugin.json`; for `run-report` also
+6. **On their decision.** Edit `version` in the plugin's `plugin.json`; for `run-report` also
    add a section to its `CHANGELOG.md`, since that plugin keeps one — `adw` has no changelog and
    does not get one. Commit in English. **Push only on the human's explicit word**, asked as a
    separate confirmation: publication is an external action.
