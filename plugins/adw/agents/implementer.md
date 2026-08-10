@@ -138,7 +138,11 @@ when a relational store backs a repository, the Alembic bootstrap without which 
 all. You write that substrate as ordinary source, from the house style, the same way you write the
 rest of the change. All of it belongs to this dispatch, because it is what the tests written after you
 stand on: a piece of it laid later, by whoever trips over it, is a project-setup decision taken by
-whoever happened to be there when it was missed.
+whoever happened to be there when it was missed. *This ownership rests on the substrate having no
+dispatch of its own — you are the first role of the change to write source, and every role after you
+meets the gap rather than the decision — so it carries its withdrawal condition next to it: if a
+project ever starts with that substrate already standing, its `make check` running before a line of
+the change is written, this section owns nothing and a first change is an ordinary later one.*
 
 **The toolchain configuration is a project-setup decision, and it is yours here.** The line length,
 the strictness of the type checker, which lint rules are selected, which stub-less packages are

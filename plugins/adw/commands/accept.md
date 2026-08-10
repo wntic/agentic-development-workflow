@@ -71,7 +71,11 @@ provenance**. Without the name of the test, an invariant that has gone stale can
   added to it. The words are fixed because the gap exists to be found later:
   `grep -n 'gap measured at change' specs/` is how a change months from now finds every invariant
   pinned more weakly than it reads. Such an invariant is a **debt, not a defect** — it closes when a
-  later change strengthens the test, and one nobody wrote down closes never.
+  later change strengthens the test, and one nobody wrote down closes never. *This form rests on
+  that debt being paid — a later change strengthening the test and taking the line out with it — so
+  it carries its withdrawal condition next to it: if a capability is ever re-cut with every gap line
+  it ever collected still standing, the wording records debt without retiring any and it goes,
+  leaving a weak assertion where it was measured, in the verdict the change's tag keeps.*
 
 An invariant is a rule about the system, not a checklist line: rewrite "AC-2: a refund above the
 paid amount → 422" into the rule it implies. The AC numbers do not travel — they belong to the

@@ -464,7 +464,10 @@ type-check and the test suite all stay green through it. The number behind that 
 suite was 73 tests, flipping only the `Table`'s range bound from `'[)'` to `'[]'` and leaving the
 migration correct still gave **73 passed**. What diverges is not behaviour — behaviour comes from the
 migration, which is what actually runs — but the metadata the code is read through, and the starting
-point the next revision autogenerates from.
+point the next revision autogenerates from. *The by-hand run rests on that measurement and on nothing
+else — the drift is invisible to the checks — so it carries its withdrawal condition next to it: if
+lint, type-check or the test suite ever goes red on a `Table` that has drifted from its revision, the
+drift has a reporter and the by-hand run goes.*
 
 ```python
 # alembic/versions/0042_create_foos.py  (id + down_revision assigned by `alembic revision`)

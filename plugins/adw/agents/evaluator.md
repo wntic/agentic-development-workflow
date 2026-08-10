@@ -98,7 +98,11 @@ may be dropped even when there is nothing to report:
   **A mutation with a revert is not fixing code, and it is the revert that makes that sentence true.**
   So the revert is part of the form and not tidying up after it: no criterion is written up until its
   mutation is out of the tree and `git status --porcelain`, asked about the paths that mutation touched,
-  says so. An edit you leave behind is an edit to the implementation, whatever it was for.
+  says so. An edit you leave behind is an edit to the implementation, whatever it was for. *This
+  clause rests on the mutation being made in the very tree the change ships from, where nothing
+  downstream tells a leftover edit from the implementation, so it carries its withdrawal condition
+  next to it: if the pass is ever dispatched against a copy of the tree that is thrown away when the
+  pass ends, the discard is the revert and this clause goes, leaving the mutation form its numbers.*
 
   **Ask it about those paths and not about the tree.** By the time you run this pass you have already
   moved the boxes in `criteria.md` at step 4, and the verdict you are writing is untracked — both are

@@ -58,7 +58,10 @@ not seniority but what each role can see: the substrate is laid by the role that
 and `test-principles` and `architecture` is not in it. A line length, a strictness setting or the
 shape of a migration bootstrap chosen from half the house style is a project-setup decision nobody
 reviews — your reviewer's eyes are on the tests, legitimately, so a wrong one there is invisible
-rather than caught.
+rather than caught. *This division rests on that preloaded pair and on nothing else, so it carries
+its withdrawal condition next to it: if this role is ever dispatched with `architecture` preloaded
+beside `conventions`, the reason written here is void, and what a blocked red phase may lay is
+decided from scratch rather than inherited from this line.*
 
 **2. The tests.** For every criterion in `criteria.md`, at least one test carrying the marker
 `@pytest.mark.ac("<criterion-slug>")` with that criterion's own slug — the slug, never the number.
@@ -98,7 +101,11 @@ of the app — auth, a request-size middleware, an info endpoint. **Read those c
 application in front of you and lay only what holds:** an app that declares no auth correctly has no
 unauthenticated-route probe, and writing one anyway leaves a file whose imports do not exist, which
 takes its whole package down at collection. On every later change these files are already in the tree
-and there is nothing here to do.
+and there is nothing here to do. *This tier rests on the criteria being silent about it — the red
+phase is otherwise driven by `criteria.md` line by line, so a file no criterion asks for is written
+on the first change or never — and it carries its withdrawal condition next to it: if a first
+change's `criteria.md` ever pins these properties itself, they are ordinary criteria with ordinary
+marked tests, and this paragraph goes.*
 
 **Those files carry no `ac` marker.** The marker records which criterion a test is the evidence of, and
 these are the evidence of no criterion, so there is no slug for them to carry — and a slug borrowed
