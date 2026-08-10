@@ -47,9 +47,10 @@ class FooResponse(BaseModel):
     sort_order: int
     usage_count: int = 0
 
-# This shows the OFFSET pagination shape. A resource whose domain-filter chose
-# cursor paging (domain-filter Rule 5) instead carries `items`, `next_cursor:
-# str | None`, `limit` — match whichever shape the filter declared (Rule 7).
+# This shows the OFFSET pagination shape. A resource whose `domain-model`
+# filter record chose cursor paging instead carries `items`, `next_cursor:
+# str | None`, `limit` — `domain-model`'s one-pagination-shape rule picks
+# exactly one; match whichever shape the filter declared (Rule 7).
 class FooListResponse(BaseModel):
     items: Sequence[FooResponse]
     total: int

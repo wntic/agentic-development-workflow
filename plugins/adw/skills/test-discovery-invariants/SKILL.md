@@ -141,7 +141,8 @@ async def test_protected_route_returns_401_without_token(
     assert response.status_code == 401
     body = response.json()
     # The code CONSTANT is the contract, not its literal string — assert against
-    # the domain exception's own `.code` (mirrors test-restapi-endpoint Rule 9).
+    # the domain exception's own `.code` (mirrors `test-restapi-endpoint`'s
+    # assert-errors-by-code rule).
     assert body["code"] == UnauthorizedError.code
     # Only the challenge SCHEME is load-bearing (RFC 7235). The realm is app-specific;
     # assert the scheme is present, never freeze a `realm="<app>"` string.
